@@ -1,0 +1,25 @@
+[package]
+name = "lumen"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92"
+description = "A fast, Preview-like image and PDF viewer for Linux"
+license = "GPL-3.0-or-later"
+authors = ["Imanol Gomez"]
+
+[dependencies]
+# UI: Relm4 (Elm-style architecture) on top of GTK4 + libadwaita.
+# Always import gtk/adw/gio/glib via `relm4::{gtk, adw}` so versions never drift.
+relm4 = { version = "0.11", features = ["libadwaita", "gnome_47"] }
+
+# PDF rendering (GPL — this is why Lumen is GPL-3.0-or-later).
+poppler-rs = "0.26"
+
+# Errors and logging
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

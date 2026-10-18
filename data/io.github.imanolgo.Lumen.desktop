@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Lumen
+GenericName=Image and PDF Viewer
+Comment=View and annotate pictures and PDF documents
+Exec=lumen %f
+Icon=image-x-generic
+Terminal=false
+Categories=Graphics;Viewer;Office;GTK;
+MimeType=application/pdf;image/png;image/jpeg;image/gif;image/webp;image/bmp;image/tiff;image/svg+xml;image/avif;image/heif;
+Keywords=image;picture;photo;pdf;document;viewer;annotate;
+StartupNotify=true
