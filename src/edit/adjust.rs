@@ -44,7 +44,12 @@ pub fn apply(image: DynamicImage, adjustments: Adjustments) -> DynamicImage {
         }
 
         let to_byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
-        pixel.0 = [to_byte(channels[0]), to_byte(channels[1]), to_byte(channels[2]), a];
+        pixel.0 = [
+            to_byte(channels[0]),
+            to_byte(channels[1]),
+            to_byte(channels[2]),
+            a,
+        ];
     }
     DynamicImage::ImageRgba8(rgba)
 }
@@ -60,34 +65,70 @@ mod tests {
     }
 
     fn result(adjustments: Adjustments, rgba: [u8; 4]) -> [u8; 4] {
-        apply(one_pixel(rgba), adjustments).to_rgba8().get_pixel(0, 0).0
+        apply(one_pixel(rgba), adjustments)
+            .to_rgba8()
+            .get_pixel(0, 0)
+            .0
     }
 
     #[test]
     fn neutral_changes_nothing() {
-        assert_eq!(result(Adjustments::default(), [10, 200, 90, 255]), [10, 200, 90, 255]);
+        assert_eq!(
+            result(Adjustments::default(), [10, 200, 90, 255]),
+            [10, 200, 90, 255]
+        );
     }
 
     #[test]
     fn exposure_scales_in_stops() {
-        let up = result(Adjustments { exposure: 1.0, ..Default::default() }, [60, 60, 60, 255]);
+        let up = result(
+            Adjustments {
+                exposure: 1.0,
+                ..Default::default()
+            },
+            [60, 60, 60, 255],
+        );
         assert_eq!(up, [120, 120, 120, 255]);
-        let down = result(Adjustments { exposure: -1.0, ..Default::default() }, [60, 60, 60, 255]);
+        let down = result(
+            Adjustments {
+                exposure: -1.0,
+                ..Default::default()
+            },
+            [60, 60, 60, 255],
+        );
         assert_eq!(down, [30, 30, 30, 255]);
     }
 
     #[test]
     fn full_desaturation_gives_grey_and_keeps_alpha() {
-        let [r, g, b, a] = result(Adjustments { saturation: -1.0, ..Default::default() }, [200, 40, 40, 128]);
+        let [r, g, b, a] = result(
+            Adjustments {
+                saturation: -1.0,
+                ..Default::default()
+            },
+            [200, 40, 40, 128],
+        );
         assert!(r == g && g == b, "got {r} {g} {b}");
         assert_eq!(a, 128);
     }
 
     #[test]
     fn contrast_pushes_away_from_mid_grey() {
-        let [r, ..] = result(Adjustments { contrast: 0.5, ..Default::default() }, [200, 200, 200, 255]);
+        let [r, ..] = result(
+            Adjustments {
+                contrast: 0.5,
+                ..Default::default()
+            },
+            [200, 200, 200, 255],
+        );
         assert!(r > 200);
-        let [r, ..] = result(Adjustments { contrast: 0.5, ..Default::default() }, [60, 60, 60, 255]);
+        let [r, ..] = result(
+            Adjustments {
+                contrast: 0.5,
+                ..Default::default()
+            },
+            [60, 60, 60, 255],
+        );
         assert!(r < 60);
     }
 }

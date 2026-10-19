@@ -3,16 +3,16 @@
 //! Poppler objects are not thread-safe, so nothing here is shared between
 //! threads: every function opens the file itself and returns plain data.
 
-mod cache;
-pub mod layout;
 pub mod annots;
+mod cache;
 pub mod compose;
+pub mod layout;
 mod links;
-pub mod pageops;
 mod outline;
+pub mod pageops;
+mod renderer;
 mod search;
 mod selection;
-mod renderer;
 
 use std::path::{Path, PathBuf};
 
@@ -23,9 +23,9 @@ pub use cache::PageCache;
 pub use layout::PageLayout;
 pub use links::{Link, LinkTarget, LinkWorker, LinksLoaded, NamedAction, is_safe_uri};
 pub use outline::{OutlineItem, OutlineTarget};
+pub use renderer::{PageRenderer, RenderJob};
 pub use search::{HitRect, SearchEvent, SearchWorker};
 pub use selection::{Granularity, PagePoint, SelectRequest, SelectionResult, SelectionWorker};
-pub use renderer::{PageRenderer, RenderJob};
 
 /// Rendering is capped so a high zoom on a huge page cannot exhaust memory.
 const MAX_DIMENSION: f64 = 12_000.0;
@@ -229,13 +229,16 @@ pub fn export_png(
 ) -> Result<()> {
     let _poppler = poppler_lock();
     let doc = open_document(source)?;
-    let page = doc.page(index as i32).with_context(|| format!("page {} does not exist", index + 1))?;
+    let page = doc
+        .page(index as i32)
+        .with_context(|| format!("page {} does not exist", index + 1))?;
     annots::hide_supported(&page);
     let (w, h) = page.size();
     let scale = effective_scale((w, h), scale);
     let (pixel_w, pixel_h) = ((w * scale).ceil() as i32, (h * scale).ceil() as i32);
 
-    let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, pixel_w, pixel_h).context("cannot allocate the page")?;
+    let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, pixel_w, pixel_h)
+        .context("cannot allocate the page")?;
     {
         let cr = cairo::Context::new(&surface)?;
         cr.set_source_rgb(1.0, 1.0, 1.0);
@@ -246,7 +249,10 @@ pub fn export_png(
             crate::annotate::render::draw_layer(&cr, layer);
         }
     }
-    let mut file = std::fs::File::create(dest).with_context(|| format!("cannot create {}", dest.display()))?;
-    surface.write_to_png(&mut file).context("cannot write the PNG")?;
+    let mut file =
+        std::fs::File::create(dest).with_context(|| format!("cannot create {}", dest.display()))?;
+    surface
+        .write_to_png(&mut file)
+        .context("cannot write the PNG")?;
     Ok(())
 }

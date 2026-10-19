@@ -49,10 +49,7 @@ impl PropertiesPanel {
 
         let (w, h) = image.display_size();
         let meta = &image.metadata;
-        let folder = image
-            .path
-            .parent()
-            .map(|p| p.display().to_string());
+        let folder = image.path.parent().map(|p| p.display().to_string());
         let name = image
             .path
             .file_name()
@@ -61,7 +58,10 @@ impl PropertiesPanel {
         let entries = [
             (tr("File"), name),
             (tr("Folder"), folder),
-            (tr("Size on disk"), meta.file_size.map(|b| glib::format_size(b).to_string())),
+            (
+                tr("Size on disk"),
+                meta.file_size.map(|b| glib::format_size(b).to_string()),
+            ),
             (tr("Dimensions"), Some(format!("{w} × {h} px"))),
             (tr("Camera"), meta.camera.clone()),
             (tr("Date taken"), meta.date_taken.clone()),

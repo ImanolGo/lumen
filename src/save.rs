@@ -24,7 +24,9 @@ pub const DEFAULT_JPEG_QUALITY: u8 = 90;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
-    Jpeg { quality: u8 },
+    Jpeg {
+        quality: u8,
+    },
     Png,
     /// Lossless WebP.
     WebP,
@@ -35,7 +37,9 @@ impl Format {
     pub fn from_path(path: &Path) -> Option<Self> {
         let extension = path.extension()?.to_str()?.to_ascii_lowercase();
         match extension.as_str() {
-            "jpg" | "jpeg" | "jpe" => Some(Self::Jpeg { quality: DEFAULT_JPEG_QUALITY }),
+            "jpg" | "jpeg" | "jpe" => Some(Self::Jpeg {
+                quality: DEFAULT_JPEG_QUALITY,
+            }),
             "png" => Some(Self::Png),
             "webp" => Some(Self::WebP),
             _ => None,
@@ -84,7 +88,8 @@ pub fn save(request: &SaveRequest) -> Result<()> {
         write_reencoded(request, &temp)
     };
     match result {
-        Ok(()) => fs::rename(&temp, &request.dest).with_context(|| format!("cannot replace {}", request.dest.display())),
+        Ok(()) => fs::rename(&temp, &request.dest)
+            .with_context(|| format!("cannot replace {}", request.dest.display())),
         Err(err) => {
             let _ = fs::remove_file(&temp);
             Err(err)
@@ -94,7 +99,10 @@ pub fn save(request: &SaveRequest) -> Result<()> {
 
 /// A sibling file that keeps the real extension (the EXIF writer goes by it).
 fn temp_path(dest: &Path) -> PathBuf {
-    let stem = dest.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let stem = dest
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let name = match dest.extension() {
         Some(ext) => format!(".{stem}.lumen-tmp.{}", ext.to_string_lossy()),
         None => format!(".{stem}.lumen-tmp"),
@@ -121,11 +129,13 @@ fn set_orientation(path: &Path, orientation: Orientation) -> Result<()> {
 }
 
 fn write_reencoded(request: &SaveRequest, temp: &Path) -> Result<()> {
-    let stored = image::open(&request.source).with_context(|| format!("cannot read {}", request.source.display()))?;
+    let stored = image::open(&request.source)
+        .with_context(|| format!("cannot read {}", request.source.display()))?;
     let mut rendered = edit::render(&stored, request.base_orientation, request.edits.active());
     // Annotations are part of the picture once saved.
     if let Some(layer) = request.edits.current_layer() {
-        rendered = crate::annotate::render::flatten(&rendered, &layer).context("cannot draw the annotations")?;
+        rendered = crate::annotate::render::flatten(&rendered, &layer)
+            .context("cannot draw the annotations")?;
     }
 
     match request.format {
@@ -155,7 +165,10 @@ fn write_reencoded(request: &SaveRequest, temp: &Path) -> Result<()> {
 
 /// A name for "Save As" next to the original: `photo.jpg` -> `photo-edited.png`.
 pub fn suggested_name(source: &Path, format: Format) -> String {
-    let stem = source.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let stem = source
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
     format!("{stem}-edited.{}", format.extension())
 }
 
@@ -192,7 +205,9 @@ mod tests {
             *p = Rgb([(x * 4) as u8, (y * 5) as u8, ((x * y) % 251) as u8]);
         }
         let mut bytes = Cursor::new(Vec::new());
-        DynamicImage::ImageRgb8(img).write_to(&mut bytes, ImageFormat::Jpeg).unwrap();
+        DynamicImage::ImageRgb8(img)
+            .write_to(&mut bytes, ImageFormat::Jpeg)
+            .unwrap();
         fs::write(path, bytes.into_inner()).unwrap();
     }
 
@@ -228,8 +243,13 @@ mod tests {
 
     fn orientation_of(path: &Path) -> Option<u8> {
         let file = File::open(path).ok()?;
-        let exif = exif::Reader::new().read_from_container(&mut std::io::BufReader::new(file)).ok()?;
-        let value = exif.get_field(exif::Tag::Orientation, exif::In::PRIMARY)?.value.get_uint(0)?;
+        let exif = exif::Reader::new()
+            .read_from_container(&mut std::io::BufReader::new(file))
+            .ok()?;
+        let value = exif
+            .get_field(exif::Tag::Orientation, exif::In::PRIMARY)?
+            .value
+            .get_uint(0)?;
         Some(value as u8)
     }
 
@@ -240,17 +260,31 @@ mod tests {
         make_jpeg(&path);
         let before = fs::read(&path).unwrap();
 
-        let req = request(&path, &path, &[EditOp::RotateCw], Format::Jpeg { quality: 90 });
+        let req = request(
+            &path,
+            &path,
+            &[EditOp::RotateCw],
+            Format::Jpeg { quality: 90 },
+        );
         assert!(is_lossless(&req));
         save(&req).unwrap();
 
         let after = fs::read(&path).unwrap();
         assert_ne!(before, after, "the tag was written");
-        assert_eq!(jpeg_body(&before), jpeg_body(&after), "picture data is untouched");
+        assert_eq!(
+            jpeg_body(&before),
+            jpeg_body(&after),
+            "picture data is untouched"
+        );
         assert_eq!(orientation_of(&path), Some(6));
 
         // Rotating back (as one more edit on top of the new file) restores orientation 1.
-        let mut back = request(&path, &path, &[EditOp::RotateCcw], Format::Jpeg { quality: 90 });
+        let mut back = request(
+            &path,
+            &path,
+            &[EditOp::RotateCcw],
+            Format::Jpeg { quality: 90 },
+        );
         back.base_orientation = Orientation::from_exif(6);
         save(&back).unwrap();
         assert_eq!(orientation_of(&path), Some(1));
@@ -265,10 +299,21 @@ mod tests {
         make_jpeg(&source);
         let original = fs::read(&source).unwrap();
 
-        save(&request(&source, &dest, &[EditOp::FlipH], Format::Jpeg { quality: 90 })).unwrap();
+        save(&request(
+            &source,
+            &dest,
+            &[EditOp::FlipH],
+            Format::Jpeg { quality: 90 },
+        ))
+        .unwrap();
         assert_eq!(fs::read(&source).unwrap(), original);
         assert_eq!(orientation_of(&dest), Some(2));
-        assert!(fs::read_dir(&dir).unwrap().all(|e| !e.unwrap().file_name().to_string_lossy().contains("lumen-tmp")));
+        assert!(fs::read_dir(&dir).unwrap().all(|e| {
+            !e.unwrap()
+                .file_name()
+                .to_string_lossy()
+                .contains("lumen-tmp")
+        }));
         let _ = fs::remove_dir_all(dir);
     }
 
@@ -277,9 +322,19 @@ mod tests {
         let dir = scratch_dir("crop");
         let path = dir.join("photo.jpg");
         make_jpeg(&path);
-        let crop = EditOp::Crop(CropRect { x: 8, y: 8, w: 32, h: 16 });
+        let crop = EditOp::Crop(CropRect {
+            x: 8,
+            y: 8,
+            w: 32,
+            h: 16,
+        });
 
-        let req = request(&path, &path, &[EditOp::RotateCw, crop], Format::Jpeg { quality: 85 });
+        let req = request(
+            &path,
+            &path,
+            &[EditOp::RotateCw, crop],
+            Format::Jpeg { quality: 85 },
+        );
         assert!(!is_lossless(&req));
         save(&req).unwrap();
 
@@ -313,18 +368,40 @@ mod tests {
         let red = Color::rgba(1.0, 0.0, 0.0, 1.0);
         layer.add(
             Shape::Rect(Rect::new(10.0, 10.0, 20.0, 20.0)),
-            Style { stroke: red, fill: Some(red), width: 0.0, font_size: 12.0 },
+            Style {
+                stroke: red,
+                fill: Some(red),
+                width: 0.0,
+                font_size: 12.0,
+            },
         );
         let mut edits = EditStack::default();
         edits.push_with_layer(EditOp::Annotate, Some(std::sync::Arc::new(layer)));
 
         // Even a JPEG-to-JPEG save has to re-encode now.
-        let jpeg = SaveRequest { source: source.clone(), dest: dir.join("b.jpg"), base_orientation: Orientation::NORMAL, edits: edits.clone(), format: Format::Jpeg { quality: 95 } };
+        let jpeg = SaveRequest {
+            source: source.clone(),
+            dest: dir.join("b.jpg"),
+            base_orientation: Orientation::NORMAL,
+            edits: edits.clone(),
+            format: Format::Jpeg { quality: 95 },
+        };
         assert!(!is_lossless(&jpeg));
 
-        save(&SaveRequest { source, dest: dest.clone(), base_orientation: Orientation::NORMAL, edits, format: Format::Png }).unwrap();
+        save(&SaveRequest {
+            source,
+            dest: dest.clone(),
+            base_orientation: Orientation::NORMAL,
+            edits,
+            format: Format::Png,
+        })
+        .unwrap();
         let saved = image::open(&dest).unwrap().to_rgb8();
-        assert_eq!(saved.get_pixel(20, 20).0, [255, 0, 0], "the rectangle is in the picture");
+        assert_eq!(
+            saved.get_pixel(20, 20).0,
+            [255, 0, 0],
+            "the rectangle is in the picture"
+        );
         assert_ne!(saved.get_pixel(50, 40).0, [255, 0, 0]);
         let _ = fs::remove_dir_all(dir);
     }
@@ -332,9 +409,15 @@ mod tests {
     #[test]
     fn formats_follow_the_extension() {
         assert_eq!(Format::from_path(Path::new("x.PNG")), Some(Format::Png));
-        assert!(matches!(Format::from_path(Path::new("x.jpeg")), Some(Format::Jpeg { .. })));
+        assert!(matches!(
+            Format::from_path(Path::new("x.jpeg")),
+            Some(Format::Jpeg { .. })
+        ));
         assert_eq!(Format::from_path(Path::new("x.webp")), Some(Format::WebP));
         assert_eq!(Format::from_path(Path::new("x.gif")), None);
-        assert_eq!(suggested_name(Path::new("/a/photo.jpg"), Format::Png), "photo-edited.png");
+        assert_eq!(
+            suggested_name(Path::new("/a/photo.jpg"), Format::Png),
+            "photo-edited.png"
+        );
     }
 }

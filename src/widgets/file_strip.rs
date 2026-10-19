@@ -35,7 +35,10 @@ pub struct FileStrip {
 impl FileStrip {
     /// `on_activate` receives the index of the row the user picked; `on_visible_changed`
     /// is called whenever rows appear or disappear.
-    pub fn new(on_activate: impl Fn(usize) + 'static, on_visible_changed: impl Fn() + 'static) -> Self {
+    pub fn new(
+        on_activate: impl Fn(usize) + 'static,
+        on_visible_changed: impl Fn() + 'static,
+    ) -> Self {
         let state = Rc::new(State::default());
         let on_visible_changed: Rc<dyn Fn()> = Rc::new(on_visible_changed);
 
@@ -82,7 +85,10 @@ impl FileStrip {
                 };
                 let (stack, picture, icon, label) = row_widgets(item);
 
-                let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
                 label.set_label(&name);
                 label.set_tooltip_text(Some(&name));
                 icon.set_icon_name(Some(if is_pdf(&path) {
@@ -130,7 +136,13 @@ impl FileStrip {
             .child(&list)
             .build();
 
-        Self { root, list, selection, model, state }
+        Self {
+            root,
+            list,
+            selection,
+            model,
+            state,
+        }
     }
 
     pub fn root(&self) -> &gtk::ScrolledWindow {
@@ -140,7 +152,10 @@ impl FileStrip {
     pub fn set_files(&self, files: &[PathBuf], selected: usize) {
         *self.state.paths.borrow_mut() = files.to_vec();
         // Thumbnails of files that are still in the list stay valid; drop the rest.
-        self.state.thumbs.borrow_mut().retain(|path, _| files.contains(path));
+        self.state
+            .thumbs
+            .borrow_mut()
+            .retain(|path, _| files.contains(path));
         let rows = vec![""; files.len()];
         self.model.splice(0, self.model.n_items(), &rows);
         self.select(selected);
@@ -149,7 +164,8 @@ impl FileStrip {
     pub fn select(&self, index: usize) {
         if (index as u32) < self.model.n_items() {
             self.selection.set_selected(index as u32);
-            self.list.scroll_to(index as u32, gtk::ListScrollFlags::NONE, None);
+            self.list
+                .scroll_to(index as u32, gtk::ListScrollFlags::NONE, None);
         }
     }
 
@@ -168,7 +184,10 @@ impl FileStrip {
     }
 
     pub fn set_thumbnail(&self, path: &Path, texture: &gdk::Texture) {
-        self.state.thumbs.borrow_mut().insert(path.to_owned(), texture.clone());
+        self.state
+            .thumbs
+            .borrow_mut()
+            .insert(path.to_owned(), texture.clone());
         let paths = self.state.paths.borrow();
         for (position, (stack, picture)) in self.state.bound.borrow().iter() {
             if paths.get(*position).is_some_and(|p| p == path) {
@@ -180,7 +199,8 @@ impl FileStrip {
 }
 
 fn is_pdf(path: &Path) -> bool {
-    path.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
+    path.extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
 }
 
 /// The widgets of a row, in the order stack, picture, icon, label.
@@ -193,8 +213,14 @@ fn row_widgets(item: &gtk::ListItem) -> (gtk::Stack, gtk::Picture, gtk::Image, g
         .first_child()
         .and_then(|c| c.downcast::<gtk::Stack>().ok())
         .expect("first child is the stack");
-    let icon = stack.child_by_name("icon").and_then(|c| c.downcast::<gtk::Image>().ok()).expect("icon page");
-    let picture = stack.child_by_name("thumb").and_then(|c| c.downcast::<gtk::Picture>().ok()).expect("thumb page");
+    let icon = stack
+        .child_by_name("icon")
+        .and_then(|c| c.downcast::<gtk::Image>().ok())
+        .expect("icon page");
+    let picture = stack
+        .child_by_name("thumb")
+        .and_then(|c| c.downcast::<gtk::Picture>().ok())
+        .expect("thumb page");
     let label = content
         .last_child()
         .and_then(|c| c.downcast::<gtk::Label>().ok())

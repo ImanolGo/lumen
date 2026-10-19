@@ -33,7 +33,11 @@ impl ImageDocument {
     /// Size in pixels as displayed, i.e. after applying the orientation.
     pub fn display_size(&self) -> (i32, i32) {
         let (w, h) = (self.texture.width(), self.texture.height());
-        if self.orientation.swaps_axes() { (h, w) } else { (w, h) }
+        if self.orientation.swaps_axes() {
+            (h, w)
+        } else {
+            (w, h)
+        }
     }
 }
 

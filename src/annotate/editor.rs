@@ -775,14 +775,20 @@ mod tests {
         let (mut editor, mut store) = editor(Tool::Highlight);
         editor.style.stroke = Color::RED;
         drag_out(&mut editor, &mut store, (0.0, 0.0), (50.0, 12.0));
-        assert_eq!(store.layer(0).unwrap().items[0].style.fill, Some(Color::YELLOW));
+        assert_eq!(
+            store.layer(0).unwrap().items[0].style.fill,
+            Some(Color::YELLOW)
+        );
         // Choosing another marker colour changes new and selected highlights, not the pen.
         editor.highlight_color = Color::rgba(0.0, 1.0, 0.0, 1.0);
         editor.tool = Tool::Select;
         editor.press(&mut store, 0, Point::new(20.0, 5.0), TOL, 1);
         editor.release(&mut store, Point::new(20.0, 5.0));
         assert!(editor.restyle_selected(&mut store).committed);
-        assert_eq!(store.selected().unwrap().style.fill, Some(Color::rgba(0.0, 1.0, 0.0, 1.0)));
+        assert_eq!(
+            store.selected().unwrap().style.fill,
+            Some(Color::rgba(0.0, 1.0, 0.0, 1.0))
+        );
         assert_eq!(editor.style.stroke, Color::RED);
     }
 

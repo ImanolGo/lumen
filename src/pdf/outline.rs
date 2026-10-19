@@ -9,7 +9,7 @@ use std::{
     sync::Arc,
 };
 
-use relm4::gtk::glib::translate::{from_glib_full, ToGlibPtr, ToGlibPtrMut};
+use relm4::gtk::glib::translate::{ToGlibPtr, ToGlibPtrMut, from_glib_full};
 
 use poppler::{Document, IndexIter, ffi};
 
@@ -123,7 +123,10 @@ pub(super) unsafe fn resolve(
 }
 
 /// SAFETY: `dest` must point to a live, non-named `PopplerDest`.
-unsafe fn target_of(dest: *const ffi::PopplerDest, page_sizes: &[(f64, f64)]) -> Option<OutlineTarget> {
+unsafe fn target_of(
+    dest: *const ffi::PopplerDest,
+    page_sizes: &[(f64, f64)],
+) -> Option<OutlineTarget> {
     let (page_num, kind, top) = unsafe { ((*dest).page_num, (*dest).type_, (*dest).top) };
     let page = usize::try_from(page_num.checked_sub(1)?).ok()?;
     let height = page_sizes.get(page)?.1;
@@ -133,5 +136,9 @@ unsafe fn target_of(dest: *const ffi::PopplerDest, page_sizes: &[(f64, f64)]) ->
 
 /// SAFETY: `ptr` must be NULL or a NUL-terminated string.
 unsafe fn c_string(ptr: *const c_char) -> Option<String> {
-    (!ptr.is_null()).then(|| unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned())
+    (!ptr.is_null()).then(|| {
+        unsafe { CStr::from_ptr(ptr) }
+            .to_string_lossy()
+            .into_owned()
+    })
 }

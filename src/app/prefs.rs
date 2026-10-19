@@ -25,7 +25,12 @@ const BACKGROUNDS: [(&str, Background); 4] = [
     (n_("Checkerboard"), Background::Checkerboard),
 ];
 
-fn combo<T: Copy + PartialEq + 'static>(title: &str, subtitle: &str, items: &'static [(&'static str, T)], current: T) -> adw::ComboRow {
+fn combo<T: Copy + PartialEq + 'static>(
+    title: &str,
+    subtitle: &str,
+    items: &'static [(&'static str, T)],
+    current: T,
+) -> adw::ComboRow {
     let names: Vec<String> = items.iter().map(|(name, _)| tr(name)).collect();
     let names: Vec<&str> = names.iter().map(String::as_str).collect();
     let row = adw::ComboRow::builder()
@@ -33,7 +38,12 @@ fn combo<T: Copy + PartialEq + 'static>(title: &str, subtitle: &str, items: &'st
         .subtitle(subtitle)
         .model(&gtk::StringList::new(&names))
         .build();
-    row.set_selected(items.iter().position(|(_, value)| *value == current).unwrap_or(0) as u32);
+    row.set_selected(
+        items
+            .iter()
+            .position(|(_, value)| *value == current)
+            .unwrap_or(0) as u32,
+    );
     row
 }
 
@@ -52,8 +62,15 @@ pub fn show_preferences(current: &Settings, on_change: impl Fn(Settings) + 'stat
     };
     let update = Rc::new(update);
 
-    let viewing = adw::PreferencesGroup::builder().title(tr("Viewing")).build();
-    let zoom = combo(&tr("Default zoom"), &tr("How a new picture is first shown"), &ZOOMS, current.default_zoom);
+    let viewing = adw::PreferencesGroup::builder()
+        .title(tr("Viewing"))
+        .build();
+    let zoom = combo(
+        &tr("Default zoom"),
+        &tr("How a new picture is first shown"),
+        &ZOOMS,
+        current.default_zoom,
+    );
     zoom.connect_selected_notify({
         let update = Rc::clone(&update);
         move |row| {
@@ -63,7 +80,12 @@ pub fn show_preferences(current: &Settings, on_change: impl Fn(Settings) + 'stat
     });
     viewing.add(&zoom);
 
-    let background = combo(&tr("Background"), &tr("Behind pictures and pages"), &BACKGROUNDS, current.background);
+    let background = combo(
+        &tr("Background"),
+        &tr("Behind pictures and pages"),
+        &BACKGROUNDS,
+        current.background,
+    );
     background.connect_selected_notify({
         let update = Rc::clone(&update);
         move |row| {
@@ -87,11 +109,20 @@ pub fn show_preferences(current: &Settings, on_change: impl Fn(Settings) + 'stat
     });
     viewing.add(&smooth);
 
-    let slideshow = adw::PreferencesGroup::builder().title(tr("Slideshow")).build();
+    let slideshow = adw::PreferencesGroup::builder()
+        .title(tr("Slideshow"))
+        .build();
     let seconds = adw::SpinRow::builder()
         .title(tr("Time per picture"))
         .subtitle(tr("Seconds before moving on"))
-        .adjustment(&gtk::Adjustment::new(current.slideshow_seconds as f64, 1.0, 120.0, 1.0, 5.0, 0.0))
+        .adjustment(&gtk::Adjustment::new(
+            current.slideshow_seconds as f64,
+            1.0,
+            120.0,
+            1.0,
+            5.0,
+            0.0,
+        ))
         .build();
     seconds.connect_value_notify({
         let update = Rc::clone(&update);
@@ -102,10 +133,14 @@ pub fn show_preferences(current: &Settings, on_change: impl Fn(Settings) + 'stat
     });
     slideshow.add(&seconds);
 
-    let general = adw::PreferencesGroup::builder().title(tr("General")).build();
+    let general = adw::PreferencesGroup::builder()
+        .title(tr("General"))
+        .build();
     let remember = adw::SwitchRow::builder()
         .title(tr("Remember window and place"))
-        .subtitle(tr("Window size, the sidebar and the page a PDF was left on"))
+        .subtitle(tr(
+            "Window size, the sidebar and the page a PDF was left on",
+        ))
         .active(current.remember_state)
         .build();
     remember.connect_active_notify({
@@ -133,7 +168,9 @@ pub fn show_about() {
         .application_icon(APP_ID)
         .version(env!("CARGO_PKG_VERSION"))
         .developer_name("Imanol Gomez")
-        .comments(tr("A fast image and PDF viewer with light editing and markup."))
+        .comments(tr(
+            "A fast image and PDF viewer with light editing and markup.",
+        ))
         .website("https://github.com/ImanolGo/lumen")
         .issue_url("https://github.com/ImanolGo/lumen/issues")
         .license_type(gtk::License::Gpl30)

@@ -21,7 +21,10 @@ use super::{HitRect, PdfSource, open_document, outline::resolve, poppler_lock};
 #[derive(Debug, Clone, PartialEq)]
 pub enum LinkTarget {
     /// A place in this document; `y` is points below the top of the page.
-    Page { page: usize, y: Option<f64> },
+    Page {
+        page: usize,
+        y: Option<f64>,
+    },
     Uri(String),
     /// A viewer command such as "NextPage".
     Named(NamedAction),
@@ -176,7 +179,10 @@ unsafe fn read_target(
         match (*action).type_ {
             ffi::POPPLER_ACTION_GOTO_DEST => {
                 let target = resolve((*action).goto_dest.dest, doc, page_sizes)?;
-                Some(LinkTarget::Page { page: target.page, y: target.y })
+                Some(LinkTarget::Page {
+                    page: target.page,
+                    y: target.y,
+                })
             }
             ffi::POPPLER_ACTION_URI => c_string((*action).uri.uri).map(LinkTarget::Uri),
             ffi::POPPLER_ACTION_NAMED => c_string((*action).named.named_dest)
@@ -189,13 +195,19 @@ unsafe fn read_target(
 
 /// SAFETY: `ptr` must be NULL or a NUL-terminated string.
 unsafe fn c_string(ptr: *const c_char) -> Option<String> {
-    (!ptr.is_null()).then(|| unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned())
+    (!ptr.is_null()).then(|| {
+        unsafe { CStr::from_ptr(ptr) }
+            .to_string_lossy()
+            .into_owned()
+    })
 }
 
 /// Whether Lumen opens links with this scheme. Anything else (file:, javascript:,
 /// custom handlers) is ignored: a PDF should not be able to launch programs.
 pub fn is_safe_uri(uri: &str) -> bool {
-    let scheme = uri.split_once(':').map(|(scheme, _)| scheme.to_ascii_lowercase());
+    let scheme = uri
+        .split_once(':')
+        .map(|(scheme, _)| scheme.to_ascii_lowercase());
     matches!(scheme.as_deref(), Some("http" | "https" | "mailto"))
 }
 
@@ -218,10 +230,17 @@ mod tests {
     #[test]
     fn link_hit_testing_is_inclusive() {
         let link = Link {
-            area: HitRect { x1: 10.0, y1: 20.0, x2: 50.0, y2: 40.0 },
+            area: HitRect {
+                x1: 10.0,
+                y1: 20.0,
+                x2: 50.0,
+                y2: 40.0,
+            },
             target: LinkTarget::Uri("https://example.com".into()),
         };
-        assert!(link.contains(10.0, 20.0) && link.contains(50.0, 40.0) && link.contains(30.0, 30.0));
+        assert!(
+            link.contains(10.0, 20.0) && link.contains(50.0, 40.0) && link.contains(30.0, 30.0)
+        );
         assert!(!link.contains(9.9, 30.0) && !link.contains(30.0, 40.1));
     }
 
@@ -230,7 +249,8 @@ mod tests {
     /// page 2 at 120 points from the top, and a `file:` link.
     #[test]
     fn reads_links_with_top_left_areas() {
-        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/links.pdf");
+        let path =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/links.pdf");
         let _poppler = poppler_lock();
         let doc = open_document(&PdfSource::new(&path, None)).unwrap();
         let links = read_links(&doc, 0, &[(400.0, 300.0), (400.0, 300.0)]);
@@ -242,14 +262,33 @@ mod tests {
             .find(|l| l.target == LinkTarget::Uri("https://example.com/".into()))
             .expect("the web link");
         // Around the first baseline, measured from the top of the page.
-        assert!(web.area.y1 > 80.0 && web.area.y2 < 110.0, "area {:?}", web.area);
+        assert!(
+            web.area.y1 > 80.0 && web.area.y2 < 110.0,
+            "area {:?}",
+            web.area
+        );
         assert!(web.contains(100.0, 95.0) && !web.contains(100.0, 150.0));
 
-        let jump = links.iter().find(|l| matches!(l.target, LinkTarget::Page { .. })).unwrap();
-        assert_eq!(jump.target, LinkTarget::Page { page: 1, y: Some(120.0) });
+        let jump = links
+            .iter()
+            .find(|l| matches!(l.target, LinkTarget::Page { .. }))
+            .unwrap();
+        assert_eq!(
+            jump.target,
+            LinkTarget::Page {
+                page: 1,
+                y: Some(120.0)
+            }
+        );
         assert!(jump.contains(100.0, 145.0));
 
-        let local = links.iter().find(|l| matches!(&l.target, LinkTarget::Uri(u) if u.starts_with("file:"))).unwrap();
-        assert!(!is_safe_uri(match &local.target { LinkTarget::Uri(u) => u, _ => unreachable!() }));
+        let local = links
+            .iter()
+            .find(|l| matches!(&l.target, LinkTarget::Uri(u) if u.starts_with("file:")))
+            .unwrap();
+        assert!(!is_safe_uri(match &local.target {
+            LinkTarget::Uri(u) => u,
+            _ => unreachable!(),
+        }));
     }
 }

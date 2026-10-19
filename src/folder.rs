@@ -8,7 +8,12 @@ use crate::document::DocumentKind;
 
 /// Natural ordering by file name: `photo2` < `photo10`.
 pub fn natural_cmp(a: &Path, b: &Path) -> std::cmp::Ordering {
-    let name = |p: &Path| p.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    let name = |p: &Path| {
+        p.file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned()
+    };
     natord::compare_ignore_case(&name(a), &name(b))
 }
 
@@ -59,7 +64,10 @@ mod tests {
             PathBuf::from("/a/Photo1.jpg"),
         ];
         files.sort_by(|a, b| natural_cmp(a, b));
-        let names: Vec<_> = files.iter().map(|f| f.file_name().unwrap().to_str().unwrap()).collect();
+        let names: Vec<_> = files
+            .iter()
+            .map(|f| f.file_name().unwrap().to_str().unwrap())
+            .collect();
         assert_eq!(names, ["Photo1.jpg", "photo2.jpg", "photo10.jpg"]);
     }
 }

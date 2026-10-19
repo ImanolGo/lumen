@@ -26,12 +26,21 @@ use crate::{
 /// A page operation the user asked for, before it is turned into a plan.
 #[derive(Debug, Clone)]
 pub enum PageRequest {
-    Rotate { pages: Vec<usize>, degrees: i32 },
+    Rotate {
+        pages: Vec<usize>,
+        degrees: i32,
+    },
     Delete(Vec<usize>),
     /// Move pages in front of page `before`.
-    Move { pages: Vec<usize>, before: usize },
+    Move {
+        pages: Vec<usize>,
+        before: usize,
+    },
     /// Insert the pages of a PDF, or the picture, at `file` in front of page `at`.
-    Insert { at: usize, file: PathBuf },
+    Insert {
+        at: usize,
+        file: PathBuf,
+    },
 }
 
 /// A folder for the working copies, removed when it goes out of use.
@@ -56,17 +65,27 @@ impl WorkDir {
     /// A fresh file name, and the number it was made from.
     pub fn next_file(&mut self) -> (PathBuf, u32) {
         self.counter += 1;
-        (self.dir().join(format!("{}.pdf", self.counter)), self.counter)
+        (
+            self.dir().join(format!("{}.pdf", self.counter)),
+            self.counter,
+        )
     }
 }
 
 /// Work folders of sessions that ended without cleaning up (a crash or a kill).
 fn remove_stale_work_dirs() {
-    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else { return };
+    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+        return;
+    };
     for entry in entries.flatten() {
         let name = entry.file_name();
-        let pid = name.to_str().and_then(|n| n.strip_prefix("lumen-work-")).and_then(|p| p.parse::<u32>().ok());
-        if pid.is_some_and(|pid| pid != std::process::id() && !Path::new(&format!("/proc/{pid}")).exists()) {
+        let pid = name
+            .to_str()
+            .and_then(|n| n.strip_prefix("lumen-work-"))
+            .and_then(|p| p.parse::<u32>().ok());
+        if pid.is_some_and(|pid| {
+            pid != std::process::id() && !Path::new(&format!("/proc/{pid}")).exists()
+        }) {
             let _ = std::fs::remove_dir_all(entry.path());
         }
     }
@@ -84,29 +103,68 @@ impl Drop for WorkDir {
 fn prepare_insert(file: &Path, work_dir: &Path, name: u32) -> Result<(Source, usize)> {
     match document::detect_kind(file)? {
         DocumentKind::Pdf => {
-            let doc = lopdf::Document::load(file).with_context(|| format!("cannot read {}", file.display()))?;
+            let doc = lopdf::Document::load(file)
+                .with_context(|| format!("cannot read {}", file.display()))?;
             if doc.is_encrypted() {
                 anyhow::bail!("{} is password protected", file.display());
             }
-            Ok((Source { path: file.to_owned(), password: None }, doc.get_pages().len()))
+            Ok((
+                Source {
+                    path: file.to_owned(),
+                    password: None,
+                },
+                doc.get_pages().len(),
+            ))
         }
         DocumentKind::Image => {
             let converted = work_dir.join(format!("insert-{name}.pdf"));
             compose::image_to_pdf(file, &converted)?;
-            Ok((Source { path: converted, password: None }, 1))
+            Ok((
+                Source {
+                    path: converted,
+                    password: None,
+                },
+                1,
+            ))
         }
     }
 }
 
 /// Work out the plan for `request` and write the new document to `out`.
-fn run_request(base: &Source, n_pages: usize, request: &PageRequest, out: &Path, work_dir: &Path, name: u32) -> Result<Vec<Entry>> {
+fn run_request(
+    base: &Source,
+    n_pages: usize,
+    request: &PageRequest,
+    out: &Path,
+    work_dir: &Path,
+    name: u32,
+) -> Result<Vec<Entry>> {
     let (op, extras) = match request {
-        PageRequest::Rotate { pages, degrees } => (PageOp::Rotate { pages: pages.clone(), degrees: *degrees }, Vec::new()),
+        PageRequest::Rotate { pages, degrees } => (
+            PageOp::Rotate {
+                pages: pages.clone(),
+                degrees: *degrees,
+            },
+            Vec::new(),
+        ),
         PageRequest::Delete(pages) => (PageOp::Delete(pages.clone()), Vec::new()),
-        PageRequest::Move { pages, before } => (PageOp::Move { pages: pages.clone(), before: *before }, Vec::new()),
+        PageRequest::Move { pages, before } => (
+            PageOp::Move {
+                pages: pages.clone(),
+                before: *before,
+            },
+            Vec::new(),
+        ),
         PageRequest::Insert { at, file } => {
             let (source, count) = prepare_insert(file, work_dir, name)?;
-            (PageOp::Insert { at: *at, source: 1, count }, vec![source])
+            (
+                PageOp::Insert {
+                    at: *at,
+                    source: 1,
+                    count,
+                },
+                vec![source],
+            )
         }
     };
     let plan = pageops::plan(&op, n_pages)?;
@@ -140,7 +198,12 @@ impl App {
     }
 
     /// Insert files after the page in view (or in front of `at`).
-    pub(super) fn insert_files(&mut self, paths: Vec<PathBuf>, at: Option<usize>, sender: &ComponentSender<App>) {
+    pub(super) fn insert_files(
+        &mut self,
+        paths: Vec<PathBuf>,
+        at: Option<usize>,
+        sender: &ComponentSender<App>,
+    ) {
         let Some(pdf) = &self.pdf else { return };
         self.insert_at = at.unwrap_or(pdf.page + 1);
         let mut queue = paths;
@@ -166,15 +229,27 @@ impl App {
         filter.add_pixbuf_formats();
         let filters = gio::ListStore::new::<gtk::FileFilter>();
         filters.append(&filter);
-        let dialog = gtk::FileDialog::builder().title(tr("Insert Pages")).modal(true).filters(&filters).build();
+        let dialog = gtk::FileDialog::builder()
+            .title(tr("Insert Pages"))
+            .modal(true)
+            .filters(&filters)
+            .build();
         let sender = sender.clone();
-        dialog.open_multiple(super::edit::main_window().as_ref(), gio::Cancellable::NONE, move |result| {
-            let Ok(files) = result else { return };
-            let paths: Vec<PathBuf> = files.iter::<gio::File>().flatten().filter_map(|f| f.path()).collect();
-            if !paths.is_empty() {
-                sender.input(AppMsg::InsertFiles { paths, at: None });
-            }
-        });
+        dialog.open_multiple(
+            super::edit::main_window().as_ref(),
+            gio::Cancellable::NONE,
+            move |result| {
+                let Ok(files) = result else { return };
+                let paths: Vec<PathBuf> = files
+                    .iter::<gio::File>()
+                    .flatten()
+                    .filter_map(|f| f.path())
+                    .collect();
+                if !paths.is_empty() {
+                    sender.input(AppMsg::InsertFiles { paths, at: None });
+                }
+            },
+        );
     }
 
     /// Start a page operation in the background.
@@ -183,7 +258,10 @@ impl App {
             return;
         }
         let Some(pdf) = &self.pdf else { return };
-        let base = Source { path: pdf.source.path.clone(), password: pdf.source.password.clone() };
+        let base = Source {
+            path: pdf.source.path.clone(),
+            password: pdf.source.password.clone(),
+        };
         let n_pages = pdf.n_pages;
         let goto = match &request {
             PageRequest::Insert { at, .. } => *at,
@@ -195,7 +273,8 @@ impl App {
         self.loading = true;
         let sender = sender.clone();
         relm4::spawn_blocking(move || {
-            let result = run_request(&base, n_pages, &request, &out, &work_dir, name).map_err(|e| format!("{e:#}"));
+            let result = run_request(&base, n_pages, &request, &out, &work_dir, name)
+                .map_err(|e| format!("{e:#}"));
             sender.input(AppMsg::PageOpDone { out, goto, result });
         });
     }
@@ -215,7 +294,10 @@ impl App {
                 let moved = pageops::remap_layers(&layers, &plan, &sizes);
                 // The new file and the re-numbered annotations are one undo step.
                 self.markup.store.borrow_mut().set_pages(moved.clone());
-                self.markup.pdf_history.commit(PdfState { file: out.clone(), layers: moved });
+                self.markup.pdf_history.commit(PdfState {
+                    file: out.clone(),
+                    layers: moved,
+                });
                 self.markup.pdf_dirty = true;
                 let inserted = plan.iter().filter(|e| e.source != 0).count();
                 self.insert_at = goto + inserted;
@@ -239,7 +321,12 @@ impl App {
         let sender = sender.clone();
         relm4::spawn_blocking(move || {
             let result = document::open(&path, None);
-            sender.input(AppMsg::PdfReloaded { generation, goto, path, result });
+            sender.input(AppMsg::PdfReloaded {
+                generation,
+                goto,
+                path,
+                result,
+            });
         });
     }
 
@@ -257,13 +344,23 @@ impl App {
         self.page_busy = false;
         self.loading = false;
         let (Some(old), Ok(opened)) = (&self.pdf, result) else {
-            super::edit::show_error(&tr("Could Not Reload the Document"), "The edited document could not be opened.");
+            super::edit::show_error(
+                &tr("Could Not Reload the Document"),
+                "The edited document could not be opened.",
+            );
             return;
         };
         let Some(info) = opened.pdf else { return };
         let original = old.original.clone();
         let view = self.make_pdf_view(&path, original, &info, sender);
-        self.page_strip.set_document(&view.layout.rects.iter().map(|r| r.size()).collect::<Vec<_>>());
+        self.page_strip.set_document(
+            &view
+                .layout
+                .rects
+                .iter()
+                .map(|r| r.size())
+                .collect::<Vec<_>>(),
+        );
         self.outline.set_outline(&info.outline);
         self.pdf = Some(view);
         self.sync_canvas();
@@ -279,18 +376,51 @@ impl App {
     pub(super) fn export_pages_dialog(&self, sender: &ComponentSender<App>) {
         let Some(pdf) = &self.pdf else { return };
         let pages = self.target_pages();
-        let stem = pdf.original.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        let name = if pages.len() == 1 { format!("{stem}-page-{}.pdf", pages[0] + 1) } else { format!("{stem}-pages.pdf") };
+        let stem = pdf
+            .original
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let name = if pages.len() == 1 {
+            format!("{stem}-page-{}.pdf", pages[0] + 1)
+        } else {
+            format!("{stem}-pages.pdf")
+        };
         let sender = sender.clone();
-        choose_file(&tr("Export Pages"), &name, &tr("PDF documents"), "application/pdf", &pdf.original, move |dest| {
-            sender.input(AppMsg::ExportPagesTo { dest, pages: pages.clone() });
-        });
+        choose_file(
+            &tr("Export Pages"),
+            &name,
+            &tr("PDF documents"),
+            "application/pdf",
+            &pdf.original,
+            move |dest| {
+                sender.input(AppMsg::ExportPagesTo {
+                    dest,
+                    pages: pages.clone(),
+                });
+            },
+        );
     }
 
-    pub(super) fn export_pages(&mut self, dest: PathBuf, pages: Vec<usize>, sender: &ComponentSender<App>) {
+    pub(super) fn export_pages(
+        &mut self,
+        dest: PathBuf,
+        pages: Vec<usize>,
+        sender: &ComponentSender<App>,
+    ) {
         let Some(pdf) = &self.pdf else { return };
-        let base = Source { path: pdf.source.path.clone(), password: pdf.source.password.clone() };
-        let plan: Vec<Entry> = pages.iter().map(|&index| Entry { source: 0, index, rotate: 0 }).collect();
+        let base = Source {
+            path: pdf.source.path.clone(),
+            password: pdf.source.password.clone(),
+        };
+        let plan: Vec<Entry> = pages
+            .iter()
+            .map(|&index| Entry {
+                source: 0,
+                index,
+                rotate: 0,
+            })
+            .collect();
         let sender = sender.clone();
         relm4::spawn_blocking(move || {
             let result = compose::compose(&base, &[], &plan, &dest).map_err(|e| format!("{e:#}"));
@@ -300,12 +430,23 @@ impl App {
 
     pub(super) fn export_png_dialog(&self, sender: &ComponentSender<App>) {
         let Some(pdf) = &self.pdf else { return };
-        let stem = pdf.original.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        let stem = pdf
+            .original
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
         let name = format!("{stem}-page-{}.png", pdf.page + 1);
         let sender = sender.clone();
-        choose_file(&tr("Export Page as PNG"), &name, &tr("PNG images"), "image/png", &pdf.original, move |dest| {
-            sender.input(AppMsg::ExportPngTo { dest });
-        });
+        choose_file(
+            &tr("Export Page as PNG"),
+            &name,
+            &tr("PNG images"),
+            "image/png",
+            &pdf.original,
+            move |dest| {
+                sender.input(AppMsg::ExportPngTo { dest });
+            },
+        );
     }
 
     /// Render the page in view at 300 dpi, with its annotations, into a PNG.
@@ -315,18 +456,30 @@ impl App {
         let layer = self.markup.store.borrow().layer(page).cloned();
         let sender = sender.clone();
         relm4::spawn_blocking(move || {
-            let result = crate::pdf::export_png(&source, page, 300.0 / 72.0, layer.as_ref(), &dest).map_err(|e| format!("{e:#}"));
+            let result = crate::pdf::export_png(&source, page, 300.0 / 72.0, layer.as_ref(), &dest)
+                .map_err(|e| format!("{e:#}"));
             sender.input(AppMsg::Exported(result));
         });
     }
 
     pub(super) fn export_image_pdf_dialog(&self, sender: &ComponentSender<App>) {
         let Some(session) = &self.edit else { return };
-        let stem = session.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        let stem = session
+            .path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
         let sender = sender.clone();
-        choose_file(&tr("Export as PDF"), &format!("{stem}.pdf"), &tr("PDF documents"), "application/pdf", &session.path, move |dest| {
-            sender.input(AppMsg::ExportImagePdfTo { dest });
-        });
+        choose_file(
+            &tr("Export as PDF"),
+            &format!("{stem}.pdf"),
+            &tr("PDF documents"),
+            "application/pdf",
+            &session.path,
+            move |dest| {
+                sender.input(AppMsg::ExportImagePdfTo { dest });
+            },
+        );
     }
 
     /// Make a one-page PDF of the image, with the edits and annotations as they are on screen.
@@ -342,10 +495,12 @@ impl App {
                     return compose::image_to_pdf(&path, &dest);
                 }
                 // Render what is on screen into a temporary PNG, which becomes the page.
-                let stored = image::open(&path).with_context(|| format!("cannot read {}", path.display()))?;
+                let stored = image::open(&path)
+                    .with_context(|| format!("cannot read {}", path.display()))?;
                 let mut shown = crate::edit::render(&stored, base, stack.active());
                 if let Some(layer) = layer {
-                    shown = crate::annotate::render::flatten(&shown, &layer).context("cannot draw the annotations")?;
+                    shown = crate::annotate::render::flatten(&shown, &layer)
+                        .context("cannot draw the annotations")?;
                 }
                 let temp = temp_dir.join("export-image.png");
                 shown.save(&temp).context("cannot prepare the image")?;
@@ -366,19 +521,35 @@ impl App {
 }
 
 /// A save dialog for one kind of file, suggesting `name` next to `near`.
-fn choose_file(title: &str, name: &str, filter_name: &str, mime: &str, near: &Path, then: impl Fn(PathBuf) + 'static) {
+fn choose_file(
+    title: &str,
+    name: &str,
+    filter_name: &str,
+    mime: &str,
+    near: &Path,
+    then: impl Fn(PathBuf) + 'static,
+) {
     let filter = gtk::FileFilter::new();
     filter.set_name(Some(filter_name));
     filter.add_mime_type(mime);
     let filters = gio::ListStore::new::<gtk::FileFilter>();
     filters.append(&filter);
-    let dialog = gtk::FileDialog::builder().title(title).modal(true).filters(&filters).initial_name(name).build();
+    let dialog = gtk::FileDialog::builder()
+        .title(title)
+        .modal(true)
+        .filters(&filters)
+        .initial_name(name)
+        .build();
     if let Some(folder) = near.parent() {
         dialog.set_initial_folder(Some(&gio::File::for_path(folder)));
     }
-    dialog.save(super::edit::main_window().as_ref(), gio::Cancellable::NONE, move |result| {
-        if let Some(dest) = result.ok().and_then(|file| file.path()) {
-            then(dest);
-        }
-    });
+    dialog.save(
+        super::edit::main_window().as_ref(),
+        gio::Cancellable::NONE,
+        move |result| {
+            if let Some(dest) = result.ok().and_then(|file| file.path()) {
+                then(dest);
+            }
+        },
+    );
 }

@@ -77,7 +77,9 @@ pub struct Opened {
 #[derive(Debug)]
 pub enum OpenError {
     /// An encrypted PDF; `retry` is set when a password was given and was wrong.
-    PasswordRequired { retry: bool },
+    PasswordRequired {
+        retry: bool,
+    },
     Other(String),
 }
 
@@ -90,7 +92,9 @@ impl OpenError {
     pub fn message(&self) -> String {
         match self {
             Self::PasswordRequired { retry: true } => crate::i18n::tr("The password is incorrect"),
-            Self::PasswordRequired { retry: false } => crate::i18n::tr("This PDF is password protected"),
+            Self::PasswordRequired { retry: false } => {
+                crate::i18n::tr("This PDF is password protected")
+            }
             Self::Other(message) => message.clone(),
         }
     }
@@ -106,10 +110,13 @@ pub fn open(path: &Path, password: Option<&str>) -> Result<Opened, OpenError> {
             (format!("{w} × {h} px"), Some(image), None)
         }
         DocumentKind::Pdf => {
-            let info = pdf::load_info(&PdfSource::new(path, password)).map_err(|err| match err {
-                PdfError::PasswordRequired => OpenError::PasswordRequired { retry: password.is_some() },
-                PdfError::Other(err) => OpenError::other(err),
-            })?;
+            let info =
+                pdf::load_info(&PdfSource::new(path, password)).map_err(|err| match err {
+                    PdfError::PasswordRequired => OpenError::PasswordRequired {
+                        retry: password.is_some(),
+                    },
+                    PdfError::Other(err) => OpenError::other(err),
+                })?;
             let summary = match info.n_pages {
                 1 => "1 page".to_owned(),
                 n => format!("{n} pages"),
@@ -151,15 +158,23 @@ mod tests {
     }
 
     fn fixture(name: &str) -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(name)
     }
 
     /// `tests/fixtures/encrypted.pdf` has the user password "secret".
     #[test]
     fn encrypted_pdf_asks_for_the_password() {
         let path = fixture("encrypted.pdf");
-        assert!(matches!(open(&path, None), Err(OpenError::PasswordRequired { retry: false })));
-        assert!(matches!(open(&path, Some("wrong")), Err(OpenError::PasswordRequired { retry: true })));
+        assert!(matches!(
+            open(&path, None),
+            Err(OpenError::PasswordRequired { retry: false })
+        ));
+        assert!(matches!(
+            open(&path, Some("wrong")),
+            Err(OpenError::PasswordRequired { retry: true })
+        ));
         let opened = open(&path, Some("secret")).expect("the right password opens it");
         let pdf = opened.pdf.expect("is a PDF");
         assert_eq!(pdf.n_pages, 2);

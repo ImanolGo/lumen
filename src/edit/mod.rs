@@ -33,7 +33,10 @@ pub enum EditOp {
     FlipH,
     FlipV,
     Crop(CropRect),
-    Resize { w: u32, h: u32 },
+    Resize {
+        w: u32,
+        h: u32,
+    },
     Adjust(Adjustments),
     /// The annotations changed. Changes no pixels itself: the layer is kept with the stack entry.
     Annotate,
@@ -42,7 +45,10 @@ pub enum EditOp {
 impl EditOp {
     /// Whether the operation only changes the orientation, not the pixels.
     fn is_orientation_only(&self) -> bool {
-        matches!(self, Self::RotateCw | Self::RotateCcw | Self::FlipH | Self::FlipV)
+        matches!(
+            self,
+            Self::RotateCw | Self::RotateCcw | Self::FlipH | Self::FlipV
+        )
     }
 }
 
@@ -73,7 +79,10 @@ impl EditStack {
 
     /// The annotations after the active operations, if any operation set them.
     pub fn current_layer(&self) -> Option<Arc<AnnotationLayer>> {
-        self.layers[..self.cursor].iter().rev().find_map(|layer| layer.clone())
+        self.layers[..self.cursor]
+            .iter()
+            .rev()
+            .find_map(|layer| layer.clone())
     }
 
     pub fn undo(&mut self) -> bool {
@@ -108,15 +117,17 @@ impl EditStack {
 
     /// The orientation after the active operations, if they change no pixels.
     pub fn orientation_only(&self, base: Orientation) -> Option<Orientation> {
-        self.active().iter().try_fold(base, |orientation, op| match op {
-            EditOp::RotateCw => Some(orientation.rotated_cw()),
-            EditOp::RotateCcw => Some(orientation.rotated_ccw()),
-            EditOp::FlipH => Some(orientation.flipped_horizontally()),
-            EditOp::FlipV => Some(orientation.flipped_vertically()),
-            // Annotations are drawn over the image and do not touch its pixels.
-            EditOp::Annotate => Some(orientation),
-            _ => None,
-        })
+        self.active()
+            .iter()
+            .try_fold(base, |orientation, op| match op {
+                EditOp::RotateCw => Some(orientation.rotated_cw()),
+                EditOp::RotateCcw => Some(orientation.rotated_ccw()),
+                EditOp::FlipH => Some(orientation.flipped_horizontally()),
+                EditOp::FlipV => Some(orientation.flipped_vertically()),
+                // Annotations are drawn over the image and do not touch its pixels.
+                EditOp::Annotate => Some(orientation),
+                _ => None,
+            })
     }
 
     /// Whether the active operations change the pixels (and so need a re-encode to save).
@@ -213,7 +224,11 @@ mod tests {
             for (op, new_orientation) in ops_and_results {
                 let by_pixels = render(&stored, base, &[op]);
                 let by_orientation = render(&stored, new_orientation, &[]);
-                assert_eq!(pixels(&by_pixels), pixels(&by_orientation), "{base:?} then {op:?}");
+                assert_eq!(
+                    pixels(&by_pixels),
+                    pixels(&by_orientation),
+                    "{base:?} then {op:?}"
+                );
             }
         }
     }
@@ -243,7 +258,10 @@ mod tests {
         let layer_with = |n: usize| {
             let mut layer = AnnotationLayer::default();
             for i in 0..n {
-                layer.add(Shape::Rect(Rect::new(i as f64, 0.0, 1.0, 1.0)), Style::default());
+                layer.add(
+                    Shape::Rect(Rect::new(i as f64, 0.0, 1.0, 1.0)),
+                    Style::default(),
+                );
             }
             Arc::new(layer)
         };
@@ -281,7 +299,10 @@ mod tests {
         assert!(!stack.changes_pixels());
         stack.push_with_layer(EditOp::Annotate, Some(Arc::new(with_shape)));
         assert!(stack.changes_pixels(), "a drawn shape has to be burned in");
-        assert!(stack.orientation_only(Orientation::NORMAL).is_some(), "but the pixels are still the file's");
+        assert!(
+            stack.orientation_only(Orientation::NORMAL).is_some(),
+            "but the pixels are still the file's"
+        );
         // Deleting it again makes the rotation lossless once more.
         stack.push_with_layer(EditOp::Annotate, Some(Arc::new(AnnotationLayer::default())));
         assert!(!stack.changes_pixels());
@@ -301,14 +322,24 @@ mod tests {
             pixels(&render(&sample(), composed, &[]))
         );
 
-        stack.push(EditOp::Crop(CropRect { x: 0, y: 0, w: 1, h: 1 }));
+        stack.push(EditOp::Crop(CropRect {
+            x: 0,
+            y: 0,
+            w: 1,
+            h: 1,
+        }));
         assert!(stack.changes_pixels() && stack.orientation_only(base).is_none());
     }
 
     #[test]
     fn crop_and_resize_compose_in_order() {
         let ops = [
-            EditOp::Crop(CropRect { x: 1, y: 0, w: 2, h: 2 }),
+            EditOp::Crop(CropRect {
+                x: 1,
+                y: 0,
+                w: 2,
+                h: 2,
+            }),
             EditOp::Resize { w: 4, h: 4 },
             EditOp::RotateCw,
         ];

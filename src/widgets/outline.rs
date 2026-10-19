@@ -36,13 +36,22 @@ impl OutlineNode {
     }
 
     fn item(&self) -> Arc<OutlineItem> {
-        self.imp().item.borrow().clone().expect("node always has an item")
+        self.imp()
+            .item
+            .borrow()
+            .clone()
+            .expect("node always has an item")
     }
 }
 
 fn store_of(items: &[Arc<OutlineItem>]) -> gio::ListStore {
     let store = gio::ListStore::new::<OutlineNode>();
-    store.extend_from_slice(&items.iter().map(|i| OutlineNode::new(Arc::clone(i))).collect::<Vec<_>>());
+    store.extend_from_slice(
+        &items
+            .iter()
+            .map(|i| OutlineNode::new(Arc::clone(i)))
+            .collect::<Vec<_>>(),
+    );
     store
 }
 
@@ -69,7 +78,9 @@ impl OutlinePanel {
                 .hexpand(true)
                 .ellipsize(pango::EllipsizeMode::End)
                 .build();
-            let page = gtk::Label::builder().css_classes(["dim-label", "caption"]).build();
+            let page = gtk::Label::builder()
+                .css_classes(["dim-label", "caption"])
+                .build();
             let row = gtk::Box::builder().spacing(8).build();
             row.append(&title);
             row.append(&page);
@@ -84,16 +95,30 @@ impl OutlinePanel {
             let Some(node) = list_row.item().and_downcast::<OutlineNode>() else {
                 return;
             };
-            let expander = item.child().and_downcast::<gtk::TreeExpander>().expect("an expander");
+            let expander = item
+                .child()
+                .and_downcast::<gtk::TreeExpander>()
+                .expect("an expander");
             expander.set_list_row(Some(&list_row));
 
             let row = expander.child().and_downcast::<gtk::Box>().expect("a box");
-            let title = row.first_child().and_downcast::<gtk::Label>().expect("title label");
-            let page = row.last_child().and_downcast::<gtk::Label>().expect("page label");
+            let title = row
+                .first_child()
+                .and_downcast::<gtk::Label>()
+                .expect("title label");
+            let page = row
+                .last_child()
+                .and_downcast::<gtk::Label>()
+                .expect("page label");
             let node = node.item();
             title.set_label(&node.title);
             title.set_tooltip_text(Some(&node.title));
-            page.set_label(&node.target.map(|t| (t.page + 1).to_string()).unwrap_or_default());
+            page.set_label(
+                &node
+                    .target
+                    .map(|t| (t.page + 1).to_string())
+                    .unwrap_or_default(),
+            );
         });
 
         let selection = gtk::NoSelection::new(Some(tree));
@@ -136,6 +161,11 @@ impl OutlinePanel {
     pub fn set_outline(&self, items: &[Arc<OutlineItem>]) {
         let store = self.top_level.borrow();
         store.remove_all();
-        store.extend_from_slice(&items.iter().map(|i| OutlineNode::new(Arc::clone(i))).collect::<Vec<_>>());
+        store.extend_from_slice(
+            &items
+                .iter()
+                .map(|i| OutlineNode::new(Arc::clone(i)))
+                .collect::<Vec<_>>(),
+        );
     }
 }

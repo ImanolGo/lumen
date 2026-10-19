@@ -14,7 +14,10 @@ mod widgets;
 
 use std::time::Duration;
 
-use relm4::{RelmApp, adw, gtk::{gio, glib, prelude::*}};
+use relm4::{
+    RelmApp, adw,
+    gtk::{gio, glib, prelude::*},
+};
 use tracing_subscriber::EnvFilter;
 
 /// When the program started, for the timings in the log.

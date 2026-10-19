@@ -12,7 +12,7 @@ use std::{
 
 use poppler::{Rectangle, SelectionStyle};
 
-use super::{PdfSource, HitRect, open_document, poppler_lock};
+use super::{HitRect, PdfSource, open_document, poppler_lock};
 
 /// A point on a page, in points from the page's top-left corner.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -71,13 +71,31 @@ pub fn spans(
     head: PagePoint,
     mut page_size: impl FnMut(usize) -> (f64, f64),
 ) -> Vec<Span> {
-    let (start, end) = if before(head, anchor) { (head, anchor) } else { (anchor, head) };
+    let (start, end) = if before(head, anchor) {
+        (head, anchor)
+    } else {
+        (anchor, head)
+    };
     (start.page..=end.page)
         .map(|page| {
             let (w, h) = page_size(page);
-            let (x1, y1) = if page == start.page { (start.x, start.y) } else { (0.0, 0.0) };
-            let (x2, y2) = if page == end.page { (end.x, end.y) } else { (w, h) };
-            Span { page, x1, y1, x2, y2 }
+            let (x1, y1) = if page == start.page {
+                (start.x, start.y)
+            } else {
+                (0.0, 0.0)
+            };
+            let (x2, y2) = if page == end.page {
+                (end.x, end.y)
+            } else {
+                (w, h)
+            };
+            Span {
+                page,
+                x1,
+                y1,
+                x2,
+                y2,
+            }
         })
         .collect()
 }
@@ -115,13 +133,15 @@ fn snap_to_line(page: &poppler::Page, x: f64, y: f64) -> f64 {
     let Some(region) = page.selected_region(REGION_SCALE, SelectionStyle::Line, &mut area) else {
         return x;
     };
-    let edges = (0..region.num_rectangles()).map(|i| region.rectangle(i)).fold(
-        None,
-        |acc: Option<(f64, f64)>, r| {
-            let (left, right) = (r.x() as f64 / REGION_SCALE, (r.x() + r.width()) as f64 / REGION_SCALE);
+    let edges = (0..region.num_rectangles())
+        .map(|i| region.rectangle(i))
+        .fold(None, |acc: Option<(f64, f64)>, r| {
+            let (left, right) = (
+                r.x() as f64 / REGION_SCALE,
+                (r.x() + r.width()) as f64 / REGION_SCALE,
+            );
             Some(acc.map_or((left, right), |(l, rt)| (l.min(left), rt.max(right))))
-        },
-    );
+        });
     match edges {
         Some((left, right)) if right - left > 1.0 => x.clamp(left + 0.5, right - 0.5),
         _ => x,
@@ -208,7 +228,9 @@ impl SelectionWorker {
                 let mut rects = Vec::new();
                 let mut text = request.want_text.then(String::new);
                 for span in all {
-                    let Some(page) = page_of(span.page) else { continue };
+                    let Some(page) = page_of(span.page) else {
+                        continue;
+                    };
                     let mut area = Rectangle::new();
                     area.set_x1(span.x1);
                     area.set_y1(span.y1);
@@ -231,14 +253,20 @@ impl SelectionWorker {
                             .collect();
                         rects.push((span.page, hits));
                     }
-                    if let (Some(all_text), Some(chunk)) = (&mut text, page.selected_text(style, &mut area)) {
+                    if let (Some(all_text), Some(chunk)) =
+                        (&mut text, page.selected_text(style, &mut area))
+                    {
                         if !all_text.is_empty() && !chunk.is_empty() {
                             all_text.push('\n');
                         }
                         all_text.push_str(&chunk);
                     }
                 }
-                on_result(SelectionResult { id: request.id, rects, text });
+                on_result(SelectionResult {
+                    id: request.id,
+                    rects,
+                    text,
+                });
             }
         });
         Self { shared }
@@ -277,7 +305,16 @@ mod tests {
         let forward = spans(at(0, 100.0, 100.0), at(0, 300.0, 200.0), size);
         let backward = spans(at(0, 300.0, 200.0), at(0, 100.0, 100.0), size);
         assert_eq!(forward, backward);
-        assert_eq!(forward, vec![Span { page: 0, x1: 100.0, y1: 100.0, x2: 300.0, y2: 200.0 }]);
+        assert_eq!(
+            forward,
+            vec![Span {
+                page: 0,
+                x1: 100.0,
+                y1: 100.0,
+                x2: 300.0,
+                y2: 200.0
+            }]
+        );
     }
 
     #[test]
@@ -291,9 +328,36 @@ mod tests {
     fn multi_page_covers_the_ends_and_everything_between() {
         let s = spans(at(1, 50.0, 700.0), at(3, 400.0, 20.0), size);
         assert_eq!(s.len(), 3);
-        assert_eq!(s[0], Span { page: 1, x1: 50.0, y1: 700.0, x2: 600.0, y2: 800.0 });
-        assert_eq!(s[1], Span { page: 2, x1: 0.0, y1: 0.0, x2: 600.0, y2: 800.0 });
-        assert_eq!(s[2], Span { page: 3, x1: 0.0, y1: 0.0, x2: 400.0, y2: 20.0 });
+        assert_eq!(
+            s[0],
+            Span {
+                page: 1,
+                x1: 50.0,
+                y1: 700.0,
+                x2: 600.0,
+                y2: 800.0
+            }
+        );
+        assert_eq!(
+            s[1],
+            Span {
+                page: 2,
+                x1: 0.0,
+                y1: 0.0,
+                x2: 600.0,
+                y2: 800.0
+            }
+        );
+        assert_eq!(
+            s[2],
+            Span {
+                page: 3,
+                x1: 0.0,
+                y1: 0.0,
+                x2: 400.0,
+                y2: 20.0
+            }
+        );
     }
 
     #[test]
@@ -313,7 +377,8 @@ mod poppler_tests {
     /// Page 1 has three lines with baselines at 100, 130 and 160 points from the
     /// top, starting at x = 72; page 2 has one line.
     fn fixture() -> PdfSource {
-        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/selection.pdf");
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/selection.pdf");
         PdfSource::new(&path, None)
     }
 
@@ -330,7 +395,8 @@ mod poppler_tests {
             visible: (0, 1),
             want_text: true,
         });
-        rx.recv_timeout(Duration::from_secs(10)).expect("worker answered")
+        rx.recv_timeout(Duration::from_secs(10))
+            .expect("worker answered")
     }
 
     fn at(page: usize, x: f64, y: f64) -> PagePoint {
@@ -350,7 +416,10 @@ mod poppler_tests {
         assert_eq!(*page, 0);
         assert!(!rects.is_empty());
         for r in rects {
-            assert!(r.y1 >= 75.0 && r.y2 <= 115.0, "rect {r:?} is not around y = 100");
+            assert!(
+                r.y1 >= 75.0 && r.y2 <= 115.0,
+                "rect {r:?} is not around y = 100"
+            );
             assert!(r.x1 >= 60.0);
         }
     }
@@ -359,7 +428,10 @@ mod poppler_tests {
     fn selection_works_backwards_and_over_several_lines() {
         let result = select(at(0, 380.0, 135.0), at(0, 60.0, 95.0), Granularity::Glyph);
         let text = result.text.unwrap();
-        assert!(text.contains("Hello") && text.contains("Second line here"), "got {text:?}");
+        assert!(
+            text.contains("Hello") && text.contains("Second line here"),
+            "got {text:?}"
+        );
         assert!(!text.contains("Third"), "got {text:?}");
     }
 
@@ -375,7 +447,10 @@ mod poppler_tests {
     fn selection_spans_pages() {
         let result = select(at(0, 60.0, 155.0), at(1, 380.0, 105.0), Granularity::Glyph);
         let text = result.text.unwrap();
-        assert!(text.contains("Third line") && text.contains("Page two text"), "got {text:?}");
+        assert!(
+            text.contains("Third line") && text.contains("Page two text"),
+            "got {text:?}"
+        );
         assert_eq!(result.rects.len(), 2);
     }
 

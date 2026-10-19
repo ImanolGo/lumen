@@ -94,8 +94,14 @@ mod tests {
 
     fn texture(side: i32) -> gdk::Texture {
         let bytes = relm4::gtk::glib::Bytes::from_owned(vec![0u8; (side * side * 4) as usize]);
-        gdk::MemoryTexture::new(side, side, gdk::MemoryFormat::R8g8b8a8, &bytes, (side * 4) as usize)
-            .upcast()
+        gdk::MemoryTexture::new(
+            side,
+            side,
+            gdk::MemoryFormat::R8g8b8a8,
+            &bytes,
+            (side * 4) as usize,
+        )
+        .upcast()
     }
 
     #[test]

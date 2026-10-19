@@ -25,7 +25,11 @@ pub struct HitRect {
 #[derive(Debug)]
 pub enum SearchEvent {
     /// Hits on one page (never empty).
-    Page { id: u64, page: usize, hits: Vec<HitRect> },
+    Page {
+        id: u64,
+        page: usize,
+        hits: Vec<HitRect>,
+    },
     /// Every page has been searched.
     Done { id: u64 },
 }
@@ -88,10 +92,15 @@ impl SearchWorker {
                         break;
                     }
                     let _poppler = poppler_lock();
-                    let Some(page) = doc.page(page_index as i32) else { continue };
+                    let Some(page) = doc.page(page_index as i32) else {
+                        continue;
+                    };
                     let height = page.size().1;
                     let hits: Vec<HitRect> = page
-                        .find_text_with_options(&query.text, FindFlags::DEFAULT | FindFlags::IGNORE_DIACRITICS)
+                        .find_text_with_options(
+                            &query.text,
+                            FindFlags::DEFAULT | FindFlags::IGNORE_DIACRITICS,
+                        )
                         .iter()
                         // Poppler measures from the bottom of the page.
                         .map(|r| HitRect {
@@ -102,7 +111,11 @@ impl SearchWorker {
                         })
                         .collect();
                     if !hits.is_empty() {
-                        on_event(SearchEvent::Page { id: query.id, page: page_index, hits });
+                        on_event(SearchEvent::Page {
+                            id: query.id,
+                            page: page_index,
+                            hits,
+                        });
                     }
                 }
                 if finished {
@@ -118,7 +131,11 @@ impl SearchWorker {
         let (lock, condvar) = &*self.shared;
         let mut state = lock.lock().unwrap();
         state.latest = id;
-        state.query = Some(Query { id, text, start_page });
+        state.query = Some(Query {
+            id,
+            text,
+            start_page,
+        });
         condvar.notify_all();
     }
 

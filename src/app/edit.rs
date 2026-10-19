@@ -98,7 +98,10 @@ impl App {
 
     /// Whether the editing tools apply right now.
     pub(super) fn can_edit(&self) -> bool {
-        self.image.is_some() && self.pdf.is_none() && self.edit.is_some() && self.edit_mode == EditMode::None
+        self.image.is_some()
+            && self.pdf.is_none()
+            && self.edit.is_some()
+            && self.edit_mode == EditMode::None
     }
 
     pub(super) fn can_undo(&self) -> bool {
@@ -151,12 +154,20 @@ impl App {
         if self.edit_mode != EditMode::None {
             return;
         }
-        let size = self.shown_image().map(|i| i.display_size()).map(|(w, h)| (w as f64, h as f64));
+        let size = self
+            .shown_image()
+            .map(|i| i.display_size())
+            .map(|(w, h)| (w as f64, h as f64));
         let layer = size.and_then(|size| self.layer_after_geometry(op, size));
-        let Some(session) = &mut self.edit else { return };
+        let Some(session) = &mut self.edit else {
+            return;
+        };
         // Annotations move along with the image, and undo brings them back.
         if let Some(layer) = &layer {
-            self.markup.store.borrow_mut().set_pages(std::collections::BTreeMap::from([(0, (**layer).clone())]));
+            self.markup
+                .store
+                .borrow_mut()
+                .set_pages(std::collections::BTreeMap::from([(0, (**layer).clone())]));
         }
         session.stack.push_with_layer(op, layer);
         self.refresh_edit(sender, None);
@@ -229,10 +240,15 @@ impl App {
             let result = (|| {
                 let pixels = match &stored {
                     Some(pixels) => Arc::clone(pixels),
-                    None => Arc::new(image::open(&path).map_err(|e| format!("cannot read the image: {e}"))?),
+                    None => Arc::new(
+                        image::open(&path).map_err(|e| format!("cannot read the image: {e}"))?,
+                    ),
                 };
                 let rendered = edit::render(&pixels, base, &ops);
-                Ok((stored.is_none().then_some(pixels), RenderedEdit::new(rendered)))
+                Ok((
+                    stored.is_none().then_some(pixels),
+                    RenderedEdit::new(rendered),
+                ))
             })();
             sender.input(AppMsg::EditRendered { ticket, result });
         });
@@ -340,7 +356,12 @@ impl App {
         self.canvas.set_crop_aspect(ratio);
     }
 
-    pub(super) fn adjust_field(&mut self, field: AdjustField, value: f32, sender: &ComponentSender<App>) {
+    pub(super) fn adjust_field(
+        &mut self,
+        field: AdjustField,
+        value: f32,
+        sender: &ComponentSender<App>,
+    ) {
         if self.edit_mode != EditMode::Adjust {
             return;
         }
@@ -371,9 +392,15 @@ impl App {
         if !self.can_save() {
             return;
         }
-        let Some(path) = self.document_path() else { return };
+        let Some(path) = self.document_path() else {
+            return;
+        };
         if self.overwrite_ok.contains(&path) {
-            self.start_save(path.clone(), Format::from_path(&path).unwrap_or(Format::Png), sender);
+            self.start_save(
+                path.clone(),
+                Format::from_path(&path).unwrap_or(Format::Png),
+                sender,
+            );
         } else {
             let name = file_name(&path);
             let sender = sender.clone();
@@ -386,9 +413,15 @@ impl App {
     }
 
     pub(super) fn save_confirmed(&mut self, sender: &ComponentSender<App>) {
-        let Some(path) = self.document_path() else { return };
+        let Some(path) = self.document_path() else {
+            return;
+        };
         self.overwrite_ok.insert(path.clone());
-        self.start_save(path.clone(), Format::from_path(&path).unwrap_or(Format::Png), sender);
+        self.start_save(
+            path.clone(),
+            Format::from_path(&path).unwrap_or(Format::Png),
+            sender,
+        );
     }
 
     /// Ctrl+Shift+S: pick a file name and format, then write there.
@@ -400,7 +433,10 @@ impl App {
             }
             let source = pdf.source.path.clone();
             choose_pdf_destination(&source, move |dest| match dest {
-                Some(dest) => sender.input(AppMsg::SaveTo { dest, format: Format::Png }),
+                Some(dest) => sender.input(AppMsg::SaveTo {
+                    dest,
+                    format: Format::Png,
+                }),
                 None => sender.input(AppMsg::SaveCancelled),
             });
             return;
@@ -409,7 +445,10 @@ impl App {
             return;
         }
         let Some(session) = &self.edit else { return };
-        let (source, base_format) = (session.path.clone(), Format::from_path(&session.path).unwrap_or(Format::Png));
+        let (source, base_format) = (
+            session.path.clone(),
+            Format::from_path(&session.path).unwrap_or(Format::Png),
+        );
         let changes_pixels = session.stack.changes_pixels();
         choose_destination(&source, base_format, move |dest| {
             let Some(dest) = dest else {
@@ -420,7 +459,10 @@ impl App {
             if matches!(format, Format::Jpeg { .. }) && changes_pixels {
                 let sender = sender.clone();
                 ask_quality(move |quality| {
-                    sender.input(AppMsg::SaveTo { dest: dest.clone(), format: Format::Jpeg { quality } });
+                    sender.input(AppMsg::SaveTo {
+                        dest: dest.clone(),
+                        format: Format::Jpeg { quality },
+                    });
                 });
             } else {
                 sender.input(AppMsg::SaveTo { dest, format });
@@ -428,7 +470,12 @@ impl App {
         });
     }
 
-    pub(super) fn start_save(&mut self, dest: PathBuf, format: Format, sender: &ComponentSender<App>) {
+    pub(super) fn start_save(
+        &mut self,
+        dest: PathBuf,
+        format: Format,
+        sender: &ComponentSender<App>,
+    ) {
         // A PDF: write the annotations into a copy of the file.
         if let Some(pdf) = &self.pdf {
             let source = pdf.source.clone();
@@ -467,7 +514,12 @@ impl App {
         });
     }
 
-    pub(super) fn saved(&mut self, dest: PathBuf, result: Result<(), String>, sender: &ComponentSender<App>) {
+    pub(super) fn saved(
+        &mut self,
+        dest: PathBuf,
+        result: Result<(), String>,
+        sender: &ComponentSender<App>,
+    ) {
         self.saving = false;
         match result {
             Ok(()) => {
@@ -494,7 +546,10 @@ impl App {
         if !self.is_dirty() {
             return true;
         }
-        let name = self.document_path().map(|p| file_name(&p)).unwrap_or_default();
+        let name = self
+            .document_path()
+            .map(|p| file_name(&p))
+            .unwrap_or_default();
         let sender = sender.clone();
         ask_unsaved(&name, move |choice| match choice {
             UnsavedChoice::Save => sender.input(AppMsg::SaveThen(pending.clone())),
@@ -549,7 +604,9 @@ impl CropAspect {
 }
 
 fn file_name(path: &std::path::Path) -> String {
-    path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+    path.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 // --- dialogs ---------------------------------------------------------------------
@@ -574,20 +631,34 @@ enum UnsavedChoice {
 fn ask_unsaved(name: &str, then: impl FnOnce(UnsavedChoice) + 'static) {
     let dialog = adw::AlertDialog::new(
         Some(&tr("Save Changes?")),
-        Some(&tr_fmt("“{name}” has edits that have not been saved. They will be lost if you discard them.", &[("name", name)])),
+        Some(&tr_fmt(
+            "“{name}” has edits that have not been saved. They will be lost if you discard them.",
+            &[("name", name)],
+        )),
     );
-    crate::i18n::add_responses(&dialog, &[("cancel", crate::i18n::n_("_Cancel")), ("discard", crate::i18n::n_("_Discard")), ("save", crate::i18n::n_("_Save"))]);
+    crate::i18n::add_responses(
+        &dialog,
+        &[
+            ("cancel", crate::i18n::n_("_Cancel")),
+            ("discard", crate::i18n::n_("_Discard")),
+            ("save", crate::i18n::n_("_Save")),
+        ],
+    );
     dialog.set_response_appearance("discard", adw::ResponseAppearance::Destructive);
     dialog.set_response_appearance("save", adw::ResponseAppearance::Suggested);
     dialog.set_default_response(Some("save"));
     dialog.set_close_response("cancel");
-    dialog.choose(main_window().as_ref(), gio::Cancellable::NONE, move |response| {
-        then(match response.as_str() {
-            "save" => UnsavedChoice::Save,
-            "discard" => UnsavedChoice::Discard,
-            _ => UnsavedChoice::Cancel,
-        });
-    });
+    dialog.choose(
+        main_window().as_ref(),
+        gio::Cancellable::NONE,
+        move |response| {
+            then(match response.as_str() {
+                "save" => UnsavedChoice::Save,
+                "discard" => UnsavedChoice::Discard,
+                _ => UnsavedChoice::Cancel,
+            });
+        },
+    );
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -600,19 +671,33 @@ enum OverwriteChoice {
 fn confirm_overwrite(name: &str, then: impl FnOnce(OverwriteChoice) + 'static) {
     let dialog = adw::AlertDialog::new(
         Some(&tr("Replace the Original?")),
-        Some(&tr_fmt("Saving writes your edits to “{name}”. You can also keep the original and save a copy.", &[("name", name)])),
+        Some(&tr_fmt(
+            "Saving writes your edits to “{name}”. You can also keep the original and save a copy.",
+            &[("name", name)],
+        )),
     );
-    crate::i18n::add_responses(&dialog, &[("cancel", crate::i18n::n_("_Cancel")), ("copy", crate::i18n::n_("Save as _Copy…")), ("replace", crate::i18n::n_("_Replace"))]);
+    crate::i18n::add_responses(
+        &dialog,
+        &[
+            ("cancel", crate::i18n::n_("_Cancel")),
+            ("copy", crate::i18n::n_("Save as _Copy…")),
+            ("replace", crate::i18n::n_("_Replace")),
+        ],
+    );
     dialog.set_response_appearance("replace", adw::ResponseAppearance::Destructive);
     dialog.set_default_response(Some("copy"));
     dialog.set_close_response("cancel");
-    dialog.choose(main_window().as_ref(), gio::Cancellable::NONE, move |response| {
-        then(match response.as_str() {
-            "replace" => OverwriteChoice::Replace,
-            "copy" => OverwriteChoice::SaveCopy,
-            _ => OverwriteChoice::Cancel,
-        });
-    });
+    dialog.choose(
+        main_window().as_ref(),
+        gio::Cancellable::NONE,
+        move |response| {
+            then(match response.as_str() {
+                "replace" => OverwriteChoice::Replace,
+                "copy" => OverwriteChoice::SaveCopy,
+                _ => OverwriteChoice::Cancel,
+            });
+        },
+    );
 }
 
 /// Write annotations into a copy of the PDF next to `dest`, then move it into place.
@@ -622,11 +707,15 @@ fn write_pdf(
     dest: &std::path::Path,
 ) -> anyhow::Result<()> {
     use anyhow::Context;
-    let name = dest.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = dest
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let temp = dest.with_file_name(format!(".{name}.lumen-tmp.pdf"));
     let written = crate::pdf::annots::write(source, layers, &temp);
     match written {
-        Ok(()) => std::fs::rename(&temp, dest).with_context(|| format!("cannot replace {}", dest.display())),
+        Ok(()) => std::fs::rename(&temp, dest)
+            .with_context(|| format!("cannot replace {}", dest.display())),
         Err(err) => {
             let _ = std::fs::remove_file(&temp);
             Err(err)
@@ -640,7 +729,10 @@ fn choose_pdf_destination(source: &std::path::Path, then: impl FnOnce(Option<Pat
     filter.add_mime_type("application/pdf");
     let filters = gio::ListStore::new::<gtk::FileFilter>();
     filters.append(&filter);
-    let stem = source.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let stem = source
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let dialog = gtk::FileDialog::builder()
         .title(tr("Save As"))
         .modal(true)
@@ -650,14 +742,26 @@ fn choose_pdf_destination(source: &std::path::Path, then: impl FnOnce(Option<Pat
     if let Some(folder) = source.parent() {
         dialog.set_initial_folder(Some(&gio::File::for_path(folder)));
     }
-    dialog.save(main_window().as_ref(), gio::Cancellable::NONE, move |result| {
-        then(result.ok().and_then(|file| file.path()));
-    });
+    dialog.save(
+        main_window().as_ref(),
+        gio::Cancellable::NONE,
+        move |result| {
+            then(result.ok().and_then(|file| file.path()));
+        },
+    );
 }
 
-fn choose_destination(source: &std::path::Path, format: Format, then: impl FnOnce(Option<PathBuf>) + 'static) {
+fn choose_destination(
+    source: &std::path::Path,
+    format: Format,
+    then: impl FnOnce(Option<PathBuf>) + 'static,
+) {
     let filters = gio::ListStore::new::<gtk::FileFilter>();
-    for (name, mime) in [("PNG", "image/png"), ("JPEG", "image/jpeg"), ("WebP", "image/webp")] {
+    for (name, mime) in [
+        ("PNG", "image/png"),
+        ("JPEG", "image/jpeg"),
+        ("WebP", "image/webp"),
+    ] {
         let filter = gtk::FileFilter::new();
         filter.set_name(Some(name));
         filter.add_mime_type(mime);
@@ -672,14 +776,27 @@ fn choose_destination(source: &std::path::Path, format: Format, then: impl FnOnc
     if let Some(folder) = source.parent() {
         dialog.set_initial_folder(Some(&gio::File::for_path(folder)));
     }
-    dialog.save(main_window().as_ref(), gio::Cancellable::NONE, move |result| {
-        then(result.ok().and_then(|file| file.path()));
-    });
+    dialog.save(
+        main_window().as_ref(),
+        gio::Cancellable::NONE,
+        move |result| {
+            then(result.ok().and_then(|file| file.path()));
+        },
+    );
 }
 
 fn ask_quality(then: impl FnOnce(u8) + 'static) {
-    let dialog = adw::AlertDialog::new(Some(&tr("JPEG Quality")), Some(&tr("Higher quality makes a larger file.")));
-    crate::i18n::add_responses(&dialog, &[("cancel", crate::i18n::n_("_Cancel")), ("save", crate::i18n::n_("_Save"))]);
+    let dialog = adw::AlertDialog::new(
+        Some(&tr("JPEG Quality")),
+        Some(&tr("Higher quality makes a larger file.")),
+    );
+    crate::i18n::add_responses(
+        &dialog,
+        &[
+            ("cancel", crate::i18n::n_("_Cancel")),
+            ("save", crate::i18n::n_("_Save")),
+        ],
+    );
     dialog.set_response_appearance("save", adw::ResponseAppearance::Suggested);
     dialog.set_default_response(Some("save"));
     dialog.set_close_response("cancel");
@@ -688,19 +805,35 @@ fn ask_quality(then: impl FnOnce(u8) + 'static) {
     scale.set_draw_value(true);
     scale.set_width_request(260);
     dialog.set_extra_child(Some(&scale));
-    dialog.choose(main_window().as_ref(), gio::Cancellable::NONE, move |response| {
-        if response == "save" {
-            then(scale.value().round() as u8);
-        }
-    });
+    dialog.choose(
+        main_window().as_ref(),
+        gio::Cancellable::NONE,
+        move |response| {
+            if response == "save" {
+                then(scale.value().round() as u8);
+            }
+        },
+    );
 }
 
 fn resize_dialog(width: u32, height: u32, sender: ComponentSender<App>) {
     let dialog = adw::AlertDialog::new(
         Some(&tr("Resize Image")),
-        Some(&tr_fmt("Currently {width} × {height} px.", &[("width", &width.to_string()), ("height", &height.to_string())])),
+        Some(&tr_fmt(
+            "Currently {width} × {height} px.",
+            &[
+                ("width", &width.to_string()),
+                ("height", &height.to_string()),
+            ],
+        )),
     );
-    crate::i18n::add_responses(&dialog, &[("cancel", crate::i18n::n_("_Cancel")), ("resize", crate::i18n::n_("_Resize"))]);
+    crate::i18n::add_responses(
+        &dialog,
+        &[
+            ("cancel", crate::i18n::n_("_Cancel")),
+            ("resize", crate::i18n::n_("_Resize")),
+        ],
+    );
     dialog.set_response_appearance("resize", adw::ResponseAppearance::Suggested);
     dialog.set_default_response(Some("resize"));
     dialog.set_close_response("cancel");
@@ -717,8 +850,19 @@ fn resize_dialog(width: u32, height: u32, sender: ComponentSender<App>) {
     let keep = gtk::CheckButton::with_label(&tr("Keep aspect ratio"));
     keep.set_active(true);
 
-    let grid = gtk::Grid::builder().row_spacing(8).column_spacing(12).halign(gtk::Align::Center).build();
-    for (row, (label, widget)) in [(tr("Width (px)"), &w), (tr("Height (px)"), &h), (tr("Scale (%)"), &percent)].into_iter().enumerate() {
+    let grid = gtk::Grid::builder()
+        .row_spacing(8)
+        .column_spacing(12)
+        .halign(gtk::Align::Center)
+        .build();
+    for (row, (label, widget)) in [
+        (tr("Width (px)"), &w),
+        (tr("Height (px)"), &h),
+        (tr("Scale (%)"), &percent),
+    ]
+    .into_iter()
+    .enumerate()
+    {
         let label = gtk::Label::builder().label(&label).xalign(1.0).build();
         grid.attach(&label, 0, row as i32, 1, 1);
         grid.attach(widget, 1, row as i32, 1, 1);
@@ -736,7 +880,8 @@ fn resize_dialog(width: u32, height: u32, sender: ComponentSender<App>) {
         }
     };
     w.connect_value_changed({
-        let (h, percent, keep, syncing) = (h.clone(), percent.clone(), keep.clone(), syncing.clone());
+        let (h, percent, keep, syncing) =
+            (h.clone(), percent.clone(), keep.clone(), syncing.clone());
         move |w| {
             let syncing2 = syncing.clone();
             sync(&syncing2, &|| {
@@ -748,7 +893,8 @@ fn resize_dialog(width: u32, height: u32, sender: ComponentSender<App>) {
         }
     });
     h.connect_value_changed({
-        let (w, percent, keep, syncing) = (w.clone(), percent.clone(), keep.clone(), syncing.clone());
+        let (w, percent, keep, syncing) =
+            (w.clone(), percent.clone(), keep.clone(), syncing.clone());
         move |h| {
             let syncing2 = syncing.clone();
             sync(&syncing2, &|| {
@@ -770,12 +916,16 @@ fn resize_dialog(width: u32, height: u32, sender: ComponentSender<App>) {
         }
     });
 
-    dialog.choose(main_window().as_ref(), gio::Cancellable::NONE, move |response| {
-        if response == "resize" {
-            let (w, h) = (w.value() as u32, h.value() as u32);
-            if (w, h) != (width, height) {
-                sender.input(AppMsg::Edit(EditOp::Resize { w, h }));
+    dialog.choose(
+        main_window().as_ref(),
+        gio::Cancellable::NONE,
+        move |response| {
+            if response == "resize" {
+                let (w, h) = (w.value() as u32, h.value() as u32);
+                if (w, h) != (width, height) {
+                    sender.input(AppMsg::Edit(EditOp::Resize { w, h }));
+                }
             }
-        }
-    });
+        },
+    );
 }

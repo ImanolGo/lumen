@@ -60,7 +60,13 @@ pub struct PageStrip {
 impl PageStrip {
     pub fn new(callbacks: PageStripCallbacks) -> Self {
         let state = Rc::new(State::default());
-        let PageStripCallbacks { on_activate, on_visible_changed, on_reorder, on_files, on_delete } = callbacks;
+        let PageStripCallbacks {
+            on_activate,
+            on_visible_changed,
+            on_reorder,
+            on_files,
+            on_delete,
+        } = callbacks;
         let on_visible_changed: Rc<dyn Fn()> = Rc::from(on_visible_changed);
         let on_reorder: Rc<dyn Fn(Vec<usize>, usize)> = Rc::from(on_reorder);
         let on_files: Rc<dyn Fn(Vec<PathBuf>, usize)> = Rc::from(on_files);
@@ -75,75 +81,89 @@ impl PageStrip {
             let on_reorder = Rc::clone(&on_reorder);
             let on_files = Rc::clone(&on_files);
             move |_, object| {
-            let item = object.downcast_ref::<gtk::ListItem>().expect("a list item");
-            let picture = gtk::Picture::builder()
-                .content_fit(gtk::ContentFit::Contain)
-                .halign(gtk::Align::Center)
-                .css_classes(["card"])
-                .build();
-            let label = gtk::Label::builder().css_classes(["caption"]).build();
-            let content = gtk::Box::builder()
-                .orientation(gtk::Orientation::Vertical)
-                .spacing(4)
-                .margin_top(6)
-                .margin_bottom(6)
-                .build();
-            content.append(&picture);
-            content.append(&label);
+                let item = object.downcast_ref::<gtk::ListItem>().expect("a list item");
+                let picture = gtk::Picture::builder()
+                    .content_fit(gtk::ContentFit::Contain)
+                    .halign(gtk::Align::Center)
+                    .css_classes(["card"])
+                    .build();
+                let label = gtk::Label::builder().css_classes(["caption"]).build();
+                let content = gtk::Box::builder()
+                    .orientation(gtk::Orientation::Vertical)
+                    .spacing(4)
+                    .margin_top(6)
+                    .margin_bottom(6)
+                    .build();
+                content.append(&picture);
+                content.append(&label);
 
-            // Drag the selected pages (or just this one) to another place.
-            let drag = gtk::DragSource::builder().actions(gdk::DragAction::MOVE).build();
-            drag.connect_prepare({
-                let (selection, item) = (selection.clone(), item.clone());
-                move |source, _, _| {
-                    let here = item.position();
-                    if !selection.is_selected(here) {
-                        selection.select_item(here, true);
-                    }
-                    let pages = selected_pages(&selection);
-                    let list: Vec<String> = pages.iter().map(usize::to_string).collect();
-                    // Show the page being dragged under the pointer.
-                    if let Some(paintable) = picture_of(&source.widget()).and_then(|p| p.paintable()) {
-                        source.set_icon(Some(&paintable), 0, 0);
-                    }
-                    Some(gdk::ContentProvider::for_value(&format!("{DRAG_PREFIX}{}", list.join(",")).to_value()))
-                }
-            });
-            content.add_controller(drag);
-
-            // Drop pages (to reorder) or files (to insert) before or after this row.
-            let drop = gtk::DropTarget::new(glib::Type::INVALID, gdk::DragAction::MOVE | gdk::DragAction::COPY);
-            drop.set_types(&[glib::Type::STRING, gdk::FileList::static_type()]);
-            drop.connect_drop({
-                let (item, on_reorder, on_files) = (item.clone(), Rc::clone(&on_reorder), Rc::clone(&on_files));
-                move |target, value, _, y| {
-                    let here = item.position() as usize;
-                    let lower_half = target.widget().is_some_and(|w| y > w.height() as f64 / 2.0);
-                    let before = here + usize::from(lower_half);
-                    if let Ok(text) = value.get::<String>() {
-                        let pages: Vec<usize> = text
-                            .strip_prefix(DRAG_PREFIX)
-                            .map(|list| list.split(',').filter_map(|p| p.parse().ok()).collect())
-                            .unwrap_or_default();
-                        if pages.is_empty() {
-                            return false;
+                // Drag the selected pages (or just this one) to another place.
+                let drag = gtk::DragSource::builder()
+                    .actions(gdk::DragAction::MOVE)
+                    .build();
+                drag.connect_prepare({
+                    let (selection, item) = (selection.clone(), item.clone());
+                    move |source, _, _| {
+                        let here = item.position();
+                        if !selection.is_selected(here) {
+                            selection.select_item(here, true);
                         }
-                        on_reorder(pages, before);
-                        return true;
+                        let pages = selected_pages(&selection);
+                        let list: Vec<String> = pages.iter().map(usize::to_string).collect();
+                        // Show the page being dragged under the pointer.
+                        if let Some(paintable) =
+                            picture_of(&source.widget()).and_then(|p| p.paintable())
+                        {
+                            source.set_icon(Some(&paintable), 0, 0);
+                        }
+                        Some(gdk::ContentProvider::for_value(
+                            &format!("{DRAG_PREFIX}{}", list.join(",")).to_value(),
+                        ))
                     }
-                    if let Ok(files) = value.get::<gdk::FileList>() {
-                        let paths: Vec<PathBuf> = files.files().iter().filter_map(|f| f.path()).collect();
-                        if !paths.is_empty() {
-                            on_files(paths, before);
+                });
+                content.add_controller(drag);
+
+                // Drop pages (to reorder) or files (to insert) before or after this row.
+                let drop = gtk::DropTarget::new(
+                    glib::Type::INVALID,
+                    gdk::DragAction::MOVE | gdk::DragAction::COPY,
+                );
+                drop.set_types(&[glib::Type::STRING, gdk::FileList::static_type()]);
+                drop.connect_drop({
+                    let (item, on_reorder, on_files) =
+                        (item.clone(), Rc::clone(&on_reorder), Rc::clone(&on_files));
+                    move |target, value, _, y| {
+                        let here = item.position() as usize;
+                        let lower_half =
+                            target.widget().is_some_and(|w| y > w.height() as f64 / 2.0);
+                        let before = here + usize::from(lower_half);
+                        if let Ok(text) = value.get::<String>() {
+                            let pages: Vec<usize> = text
+                                .strip_prefix(DRAG_PREFIX)
+                                .map(|list| {
+                                    list.split(',').filter_map(|p| p.parse().ok()).collect()
+                                })
+                                .unwrap_or_default();
+                            if pages.is_empty() {
+                                return false;
+                            }
+                            on_reorder(pages, before);
                             return true;
                         }
+                        if let Ok(files) = value.get::<gdk::FileList>() {
+                            let paths: Vec<PathBuf> =
+                                files.files().iter().filter_map(|f| f.path()).collect();
+                            if !paths.is_empty() {
+                                on_files(paths, before);
+                                return true;
+                            }
+                        }
+                        false
                     }
-                    false
-                }
-            });
-            content.add_controller(drop);
+                });
+                content.add_controller(drop);
 
-            item.set_child(Some(&content));
+                item.set_child(Some(&content));
             }
         });
         factory.connect_bind({
@@ -154,7 +174,12 @@ impl PageStrip {
                 let page = item.position() as usize;
                 let (picture, label) = row_widgets(item);
 
-                let (w, h) = state.sizes.borrow().get(page).copied().unwrap_or((1.0, 1.4));
+                let (w, h) = state
+                    .sizes
+                    .borrow()
+                    .get(page)
+                    .copied()
+                    .unwrap_or((1.0, 1.4));
                 picture.set_size_request(THUMB_WIDTH as i32, (THUMB_WIDTH * h / w).round() as i32);
                 picture.set_paintable(state.thumbs.borrow().get(&page));
                 label.set_label(&(page + 1).to_string());
@@ -255,7 +280,8 @@ impl PageStrip {
                 self.selection.select_item(page as u32, true);
                 self.state.programmatic.set(false);
             }
-            self.list.scroll_to(page as u32, gtk::ListScrollFlags::NONE, None);
+            self.list
+                .scroll_to(page as u32, gtk::ListScrollFlags::NONE, None);
         }
     }
 
@@ -289,12 +315,19 @@ impl PageStrip {
 
 fn selected_pages(selection: &gtk::MultiSelection) -> Vec<usize> {
     let set = selection.selection();
-    (0..selection.n_items()).filter(|&i| set.contains(i)).map(|i| i as usize).collect()
+    (0..selection.n_items())
+        .filter(|&i| set.contains(i))
+        .map(|i| i as usize)
+        .collect()
 }
 
 /// The thumbnail inside a row, given the row's content box.
 fn picture_of(widget: &Option<gtk::Widget>) -> Option<gtk::Picture> {
-    widget.as_ref()?.first_child()?.downcast::<gtk::Picture>().ok()
+    widget
+        .as_ref()?
+        .first_child()?
+        .downcast::<gtk::Picture>()
+        .ok()
 }
 
 fn row_widgets(item: &gtk::ListItem) -> (gtk::Picture, gtk::Label) {

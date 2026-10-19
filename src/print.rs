@@ -4,14 +4,18 @@
 //! centred inside the printable area. Orientation follows the content, so a
 //! landscape photo or page uses a landscape sheet.
 
-use std::{cell::{Cell, RefCell}, path::Path, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    path::Path,
+    rc::Rc,
+};
 
 use anyhow::{Context, Result};
 use relm4::gtk::{self, cairo, prelude::*};
 
 use crate::{
-    i18n::tr,
     annotate::{AnnotationLayer, render as annot_render},
+    i18n::tr,
     image::ImageDocument,
     pdf::{PdfSource, PrintDocument},
 };
@@ -63,7 +67,13 @@ thread_local! {
 /// The print dialog's own "Scaling" tab does the same where GTK can show it, but
 /// the desktop portal's dialog cannot, so the window offers it in a menu too.
 pub fn set_actual_size(actual: bool) {
-    SESSION.with(|s| s.borrow_mut().scaling = if actual { Scaling::ActualSize } else { Scaling::FitToPage });
+    SESSION.with(|s| {
+        s.borrow_mut().scaling = if actual {
+            Scaling::ActualSize
+        } else {
+            Scaling::FitToPage
+        }
+    });
 }
 
 /// Size of the content in points when printed at `scaling`, for a sheet whose
@@ -77,7 +87,12 @@ fn scaled_size(content: (f64, f64), unit: f64, area: (f64, f64), scaling: Scalin
 }
 
 /// Open the print dialog for `job`, or, with `export_to`, write a PDF without asking.
-pub fn print(job: Job, name: &str, parent: Option<&gtk::Window>, export_to: Option<&Path>) -> Result<()> {
+pub fn print(
+    job: Job,
+    name: &str,
+    parent: Option<&gtk::Window>,
+    export_to: Option<&Path>,
+) -> Result<()> {
     let (n_pages, orientations) = match &job {
         Job::Pdf { page_sizes, .. } => (
             page_sizes.len(),
@@ -123,8 +138,14 @@ pub fn print(job: Job, name: &str, parent: Option<&gtk::Window>, export_to: Opti
         let choice = Rc::clone(&choice);
         move |_| {
             let dropdown = gtk::DropDown::from_strings(&[&tr("Fit to page"), &tr("Actual size")]);
-            dropdown.set_selected(SESSION.with(|s| s.borrow().scaling == Scaling::ActualSize) as u32);
-            let row = gtk::Box::builder().spacing(12).margin_top(12).margin_start(12).margin_end(12).build();
+            dropdown
+                .set_selected(SESSION.with(|s| s.borrow().scaling == Scaling::ActualSize) as u32);
+            let row = gtk::Box::builder()
+                .spacing(12)
+                .margin_top(12)
+                .margin_start(12)
+                .margin_end(12)
+                .build();
             row.append(&gtk::Label::new(Some(&tr("Size on paper"))));
             row.append(&dropdown);
             *choice.borrow_mut() = Some(dropdown);
@@ -137,7 +158,11 @@ pub fn print(job: Job, name: &str, parent: Option<&gtk::Window>, export_to: Opti
         let choice = Rc::clone(&choice);
         move |_, _| {
             if let Some(dropdown) = choice.borrow().as_ref() {
-                let scaling = if dropdown.selected() == 1 { Scaling::ActualSize } else { Scaling::FitToPage };
+                let scaling = if dropdown.selected() == 1 {
+                    Scaling::ActualSize
+                } else {
+                    Scaling::FitToPage
+                };
                 SESSION.with(|s| s.borrow_mut().scaling = scaling);
             }
         }
@@ -196,7 +221,11 @@ enum Content {
 impl Content {
     fn open(job: Job) -> Result<Self> {
         match job {
-            Job::Pdf { source, page_sizes, layers } => Ok(Self::Pdf {
+            Job::Pdf {
+                source,
+                page_sizes,
+                layers,
+            } => Ok(Self::Pdf {
                 document: PrintDocument::open(&source)?,
                 sizes: page_sizes,
                 layers,
@@ -207,14 +236,27 @@ impl Content {
                 let mut data = vec![0u8; stride * th as usize];
                 // GDK's premultiplied BGRA is cairo's native ARGB32 on little-endian machines.
                 image.texture.download(&mut data, stride);
-                let surface = cairo::ImageSurface::create_for_data(data, cairo::Format::ARgb32, tw, th, stride as i32)
-                    .context("cannot prepare the image for printing")?;
+                let surface = cairo::ImageSurface::create_for_data(
+                    data,
+                    cairo::Format::ARgb32,
+                    tw,
+                    th,
+                    stride as i32,
+                )
+                .context("cannot prepare the image for printing")?;
 
                 // Rotation and mirroring from the EXIF orientation, about the image centre.
                 let (xx, yx, xy, yy, x0, y0) = image.orientation.transform().to_2d();
-                let orientation = cairo::Matrix::new(xx as f64, yx as f64, xy as f64, yy as f64, x0 as f64, y0 as f64);
+                let orientation = cairo::Matrix::new(
+                    xx as f64, yx as f64, xy as f64, yy as f64, x0 as f64, y0 as f64,
+                );
                 let (w, h) = image.display_size();
-                Ok(Self::Image { surface, orientation, size: (w as f64, h as f64), layer })
+                Ok(Self::Image {
+                    surface,
+                    orientation,
+                    size: (w as f64, h as f64),
+                    layer,
+                })
             }
         }
     }
@@ -223,11 +265,18 @@ impl Content {
         let cr = context.cairo_context();
         let area = (context.width(), context.height());
         match self {
-            Self::Pdf { document, sizes, layers } => {
+            Self::Pdf {
+                document,
+                sizes,
+                layers,
+            } => {
                 let size = sizes.get(page).copied().context("no such page")?;
                 let scale = scaled_size(size, 1.0, area, scaling);
                 cr.save()?;
-                cr.translate((area.0 - size.0 * scale) / 2.0, (area.1 - size.1 * scale) / 2.0);
+                cr.translate(
+                    (area.0 - size.0 * scale) / 2.0,
+                    (area.1 - size.1 * scale) / 2.0,
+                );
                 cr.scale(scale, scale);
                 document.render_for_printing(page, &cr)?;
                 if let Some(layer) = layers.get(&page) {
@@ -235,10 +284,18 @@ impl Content {
                 }
                 cr.restore()?;
             }
-            Self::Image { surface, orientation, size, layer } => {
+            Self::Image {
+                surface,
+                orientation,
+                size,
+                layer,
+            } => {
                 let scale = scaled_size(*size, PIXEL_TO_POINT, area, scaling);
                 cr.save()?;
-                cr.translate((area.0 - size.0 * scale) / 2.0, (area.1 - size.1 * scale) / 2.0);
+                cr.translate(
+                    (area.0 - size.0 * scale) / 2.0,
+                    (area.1 - size.1 * scale) / 2.0,
+                );
                 cr.scale(scale, scale);
                 // The oriented image is centred on the origin in `orientation`'s frame.
                 cr.save()?;
@@ -265,15 +322,34 @@ mod tests {
     #[test]
     fn fit_to_page_fills_the_limiting_side() {
         // A 4:3 landscape photo on a portrait-less A4 landscape area (842×595 pt, minus margins).
-        let scale = scaled_size((4000.0, 3000.0), PIXEL_TO_POINT, (800.0, 560.0), Scaling::FitToPage);
-        assert!((4000.0 * scale - 746.67).abs() < 0.1, "height is the limit: {scale}");
+        let scale = scaled_size(
+            (4000.0, 3000.0),
+            PIXEL_TO_POINT,
+            (800.0, 560.0),
+            Scaling::FitToPage,
+        );
+        assert!(
+            (4000.0 * scale - 746.67).abs() < 0.1,
+            "height is the limit: {scale}"
+        );
         // Fitting also enlarges small content.
         assert!(scaled_size((100.0, 100.0), 1.0, (500.0, 500.0), Scaling::FitToPage) > 1.0);
     }
 
     #[test]
     fn actual_size_ignores_the_sheet() {
-        assert_eq!(scaled_size((4000.0, 3000.0), PIXEL_TO_POINT, (800.0, 560.0), Scaling::ActualSize), 0.75);
-        assert_eq!(scaled_size((595.0, 842.0), 1.0, (100.0, 100.0), Scaling::ActualSize), 1.0);
+        assert_eq!(
+            scaled_size(
+                (4000.0, 3000.0),
+                PIXEL_TO_POINT,
+                (800.0, 560.0),
+                Scaling::ActualSize
+            ),
+            0.75
+        );
+        assert_eq!(
+            scaled_size((595.0, 842.0), 1.0, (100.0, 100.0), Scaling::ActualSize),
+            1.0
+        );
     }
 }

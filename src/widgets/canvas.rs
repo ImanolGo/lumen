@@ -364,7 +364,8 @@ mod imp {
         }
 
         fn size_allocate(&self, width: i32, height: i32, _baseline: i32) {
-            self.obj().update_adjustments_for(width as f64, height as f64);
+            self.obj()
+                .update_adjustments_for(width as f64, height as f64);
         }
 
         fn snapshot(&self, snapshot: &gtk::Snapshot) {
@@ -382,11 +383,19 @@ mod imp {
             // Draw the stored pixels centred on the origin, then rotate/flip
             // them into place inside the (oriented) bounds.
             let (w, h) = (logical_w * zoom, logical_h * zoom);
-            let (shown_w, shown_h) = if self.orientation.get().swaps_axes() { (h, w) } else { (w, h) };
-            let bounds = graphene::Rect::new((-w / 2.0) as f32, (-h / 2.0) as f32, w as f32, h as f32);
+            let (shown_w, shown_h) = if self.orientation.get().swaps_axes() {
+                (h, w)
+            } else {
+                (w, h)
+            };
+            let bounds =
+                graphene::Rect::new((-w / 2.0) as f32, (-h / 2.0) as f32, w as f32, h as f32);
 
             if self.background.get() == Background::Checkerboard {
-                canvas.snapshot_checkerboard(snapshot, &graphene::Rect::new(x as f32, y as f32, shown_w as f32, shown_h as f32));
+                canvas.snapshot_checkerboard(
+                    snapshot,
+                    &graphene::Rect::new(x as f32, y as f32, shown_w as f32, shown_h as f32),
+                );
             }
             snapshot.save();
             snapshot.translate(&graphene::Point::new(
@@ -448,8 +457,10 @@ impl LumenCanvas {
                     *imp.pages.borrow_mut() = None;
                     *imp.texture.borrow_mut() = Some(image.texture.clone());
                     imp.orientation.set(image.orientation);
-                    imp.logical
-                        .set(Some((image.texture.width() as f64, image.texture.height() as f64)));
+                    imp.logical.set(Some((
+                        image.texture.width() as f64,
+                        image.texture.height() as f64,
+                    )));
                     imp.crisp.set(true);
                     self.new_content();
                 }
@@ -498,7 +509,11 @@ impl LumenCanvas {
             let pages = self.imp().pages.borrow();
             pages
                 .as_ref()
-                .and_then(|p| p.layout.rects.get(index.min(p.layout.rects.len().saturating_sub(1))))
+                .and_then(|p| {
+                    p.layout
+                        .rects
+                        .get(index.min(p.layout.rects.len().saturating_sub(1)))
+                })
                 .map(|r| r.y)
         };
         if let Some(top) = top {
@@ -519,7 +534,9 @@ impl LumenCanvas {
             start,
             move |gesture, _, _| {
                 // On PDF pages the primary button selects text instead.
-                if (canvas.has_pages() || canvas.in_crop_mode() || canvas.markup_draws()) && !also_on_pages {
+                if (canvas.has_pages() || canvas.in_crop_mode() || canvas.markup_draws())
+                    && !also_on_pages
+                {
                     gesture.set_state(gtk::EventSequenceState::Denied);
                     return;
                 }
@@ -557,7 +574,9 @@ impl LumenCanvas {
 
     /// Primary-button drags on PDF pages select text.
     fn add_select_gesture(&self) {
-        let drag = gtk::GestureDrag::builder().button(gdk::BUTTON_PRIMARY).build();
+        let drag = gtk::GestureDrag::builder()
+            .button(gdk::BUTTON_PRIMARY)
+            .build();
         let origin = Rc::new(Cell::new((0.0, 0.0)));
         drag.connect_drag_begin(glib::clone!(
             #[weak(rename_to = canvas)]
@@ -596,7 +615,11 @@ impl LumenCanvas {
             origin,
             move |_, dx, dy| {
                 let moved = dx.hypot(dy) > 3.0;
-                let single_click = canvas.imp().last_press.get().is_some_and(|(_, _, _, n)| n == 1);
+                let single_click = canvas
+                    .imp()
+                    .last_press
+                    .get()
+                    .is_some_and(|(_, _, _, n)| n == 1);
                 let (x, y) = origin.get();
                 match canvas.link_at(x, y).filter(|_| !moved && single_click) {
                     Some(target) => canvas.emit_select(SelectGesture::OpenLink(target)),
@@ -612,7 +635,11 @@ impl LumenCanvas {
         let imp = self.imp();
         let interval = self.settings().gtk_double_click_time() as u32;
         let count = match imp.last_press.get() {
-            Some((t, px, py, n)) if time.wrapping_sub(t) < interval && (x - px).hypot(y - py) < 6.0 => n % 3 + 1,
+            Some((t, px, py, n))
+                if time.wrapping_sub(t) < interval && (x - px).hypot(y - py) < 6.0 =>
+            {
+                n % 3 + 1
+            }
             _ => 1,
         };
         imp.last_press.set(Some((time, x, y, count)));
@@ -630,7 +657,10 @@ impl LumenCanvas {
         let zoom = self.effective_zoom();
         let (ox, oy) = self.origin();
         let pages = self.imp().pages.borrow();
-        let (page, px, py) = pages.as_ref()?.layout.locate((x - ox) / zoom, (y - oy) / zoom)?;
+        let (page, px, py) = pages
+            .as_ref()?
+            .layout
+            .locate((x - ox) / zoom, (y - oy) / zoom)?;
         Some(PagePoint { page, x: px, y: py })
     }
 
@@ -646,7 +676,10 @@ impl LumenCanvas {
         let point = self.page_point_at(x, y)?;
         let pages = self.imp().pages.borrow();
         let links = pages.as_ref()?.links.get(&point.page)?;
-        links.iter().find(|l| l.contains(point.x, point.y)).map(|l| l.target.clone())
+        links
+            .iter()
+            .find(|l| l.contains(point.x, point.y))
+            .map(|l| l.target.clone())
     }
 
     fn update_hover_cursor(&self, x: f64, y: f64) {
@@ -654,7 +687,13 @@ impl LumenCanvas {
             return;
         }
         if self.in_crop_mode() {
-            if self.imp().crop.borrow().as_ref().is_some_and(|c| c.drag.is_none()) {
+            if self
+                .imp()
+                .crop
+                .borrow()
+                .as_ref()
+                .is_some_and(|c| c.drag.is_none())
+            {
                 let name = self.crop_grab_at(x, y).map_or("default", Grab::cursor);
                 self.set_cursor_from_name(Some(name));
             }
@@ -665,7 +704,11 @@ impl LumenCanvas {
             return;
         }
         if self.has_pages() && !self.imp().dragging.get() {
-            let name = if self.link_at(x, y).is_some() { "pointer" } else { "text" };
+            let name = if self.link_at(x, y).is_some() {
+                "pointer"
+            } else {
+                "text"
+            };
             self.set_cursor_from_name(Some(name));
         }
     }
@@ -692,7 +735,10 @@ impl LumenCanvas {
             Background::Light => gdk::RGBA::new(0.96, 0.96, 0.95, 1.0),
             Background::System | Background::Checkerboard => return,
         };
-        snapshot.append_color(&color, &graphene::Rect::new(0.0, 0.0, self.width() as f32, self.height() as f32));
+        snapshot.append_color(
+            &color,
+            &graphene::Rect::new(0.0, 0.0, self.width() as f32, self.height() as f32),
+        );
     }
 
     /// Grey squares behind a (possibly transparent) image, over `area` in widget coordinates.
@@ -702,7 +748,9 @@ impl LumenCanvas {
         let dark = gdk::RGBA::new(0.62, 0.62, 0.62, 1.0);
         // Only the part of the image that is on screen needs squares.
         let screen = graphene::Rect::new(0.0, 0.0, self.width() as f32, self.height() as f32);
-        let Some(visible) = area.intersection(&screen) else { return };
+        let Some(visible) = area.intersection(&screen) else {
+            return;
+        };
         snapshot.append_color(&light, &visible);
 
         let first_col = ((visible.x() - area.x()) / TILE).floor() as i32;
@@ -714,7 +762,12 @@ impl LumenCanvas {
                 if (row + col) % 2 != 0 {
                     continue;
                 }
-                let square = graphene::Rect::new(area.x() + col as f32 * TILE, area.y() + row as f32 * TILE, TILE, TILE);
+                let square = graphene::Rect::new(
+                    area.x() + col as f32 * TILE,
+                    area.y() + row as f32 * TILE,
+                    TILE,
+                    TILE,
+                );
                 if let Some(clipped) = square.intersection(&visible) {
                     snapshot.append_color(&dark, &clipped);
                 }
@@ -782,7 +835,9 @@ impl LumenCanvas {
     }
 
     fn add_markup_gesture(&self) {
-        let drag = gtk::GestureDrag::builder().button(gdk::BUTTON_PRIMARY).build();
+        let drag = gtk::GestureDrag::builder()
+            .button(gdk::BUTTON_PRIMARY)
+            .build();
         // The page the drag began on and where, so later points are relative to that page.
         let start = Rc::new(Cell::new((0usize, 0.0f64, 0.0f64)));
         drag.connect_drag_begin(glib::clone!(
@@ -791,7 +846,10 @@ impl LumenCanvas {
             #[strong]
             start,
             move |gesture, x, y| {
-                let hit = canvas.markup_draws().then(|| canvas.doc_point_at(x, y)).flatten();
+                let hit = canvas
+                    .markup_draws()
+                    .then(|| canvas.doc_point_at(x, y))
+                    .flatten();
                 let Some((page, point)) = hit else {
                     gesture.set_state(gtk::EventSequenceState::Denied);
                     return;
@@ -800,7 +858,12 @@ impl LumenCanvas {
                 start.set((page, x, y));
                 let clicks = canvas.count_click(gesture.current_event_time(), x, y);
                 let tolerance = MARKUP_REACH / canvas.effective_zoom();
-                canvas.emit_markup(MarkupEvent::Press { page, point, tolerance, clicks });
+                canvas.emit_markup(MarkupEvent::Press {
+                    page,
+                    point,
+                    tolerance,
+                    clicks,
+                });
             }
         ));
         drag.connect_drag_update(glib::clone!(
@@ -831,14 +894,27 @@ impl LumenCanvas {
     }
 
     /// Draw the annotations of `page` (document origin at `origin` on screen).
-    fn snapshot_markup(&self, snapshot: &gtk::Snapshot, page: usize, (ox, oy): (f64, f64), zoom: f64) {
+    fn snapshot_markup(
+        &self,
+        snapshot: &gtk::Snapshot,
+        page: usize,
+        (ox, oy): (f64, f64),
+        zoom: f64,
+    ) {
         let Some(store) = self.imp().markup_store.borrow().clone() else {
             return;
         };
         let store = store.borrow();
         let layer = store.layer(page).filter(|l| !l.is_empty());
-        let draft = store.draft.as_ref().filter(|(p, _)| *p == page).map(|(_, a)| a);
-        let selected = store.selection.filter(|s| s.page == page).and(store.selected());
+        let draft = store
+            .draft
+            .as_ref()
+            .filter(|(p, _)| *p == page)
+            .map(|(_, a)| a);
+        let selected = store
+            .selection
+            .filter(|s| s.page == page)
+            .and(store.selected());
         if layer.is_none() && draft.is_none() && selected.is_none() {
             return;
         }
@@ -859,8 +935,16 @@ impl LumenCanvas {
 
     /// Edit the text of an annotation in a small popover over it. `on_done` gets the
     /// text when the popover closes.
-    pub fn edit_text(&self, page: usize, bounds: annotate::Rect, initial: &str, on_done: impl FnOnce(String) + 'static) {
-        let Some((ox, oy)) = self.page_origin(page) else { return };
+    pub fn edit_text(
+        &self,
+        page: usize,
+        bounds: annotate::Rect,
+        initial: &str,
+        on_done: impl FnOnce(String) + 'static,
+    ) {
+        let Some((ox, oy)) = self.page_origin(page) else {
+            return;
+        };
         let zoom = self.effective_zoom();
         let target = gdk::Rectangle::new(
             (ox + bounds.x * zoom) as i32,
@@ -910,7 +994,9 @@ impl LumenCanvas {
         let buffer_view = view.clone();
         popover.connect_closed(move |popover| {
             let buffer = buffer_view.buffer();
-            let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).to_string();
+            let text = buffer
+                .text(&buffer.start_iter(), &buffer.end_iter(), false)
+                .to_string();
             if let Some(done) = on_done.take() {
                 done(text);
             }
@@ -944,7 +1030,9 @@ impl LumenCanvas {
 
     /// Change the aspect ratio of the crop rectangle (`None` for free), resetting its size.
     pub fn set_crop_aspect(&self, aspect: Option<f64>) {
-        let Some(bounds) = self.texture_size() else { return };
+        let Some(bounds) = self.texture_size() else {
+            return;
+        };
         if let Some(state) = self.imp().crop.borrow_mut().as_mut() {
             state.aspect = aspect;
             state.rect = crop::initial(bounds, aspect, 0.8);
@@ -966,7 +1054,12 @@ impl LumenCanvas {
         let y = rect.y.floor().clamp(0.0, bh - 1.0);
         let w = (rect.right().round() - x).clamp(1.0, bw - x);
         let h = (rect.bottom().round() - y).clamp(1.0, bh - y);
-        Some(CropRect { x: x as u32, y: y as u32, w: w as u32, h: h as u32 })
+        Some(CropRect {
+            x: x as u32,
+            y: y as u32,
+            w: w as u32,
+            h: h as u32,
+        })
     }
 
     /// What the point (`x`, `y`) in widget coordinates would grab of the crop rectangle.
@@ -978,7 +1071,9 @@ impl LumenCanvas {
     }
 
     fn add_crop_gesture(&self) {
-        let drag = gtk::GestureDrag::builder().button(gdk::BUTTON_PRIMARY).build();
+        let drag = gtk::GestureDrag::builder()
+            .button(gdk::BUTTON_PRIMARY)
+            .build();
         drag.connect_drag_begin(glib::clone!(
             #[weak(rename_to = canvas)]
             self,
@@ -997,12 +1092,15 @@ impl LumenCanvas {
             #[weak(rename_to = canvas)]
             self,
             move |_, dx, dy| {
-                let Some(bounds) = canvas.texture_size() else { return };
+                let Some(bounds) = canvas.texture_size() else {
+                    return;
+                };
                 let zoom = canvas.effective_zoom();
                 if let Some(state) = canvas.imp().crop.borrow_mut().as_mut()
                     && let Some((grab, start)) = state.drag
                 {
-                    state.rect = crop::drag(start, grab, dx / zoom, dy / zoom, bounds, state.aspect);
+                    state.rect =
+                        crop::drag(start, grab, dx / zoom, dy / zoom, bounds, state.aspect);
                 }
                 canvas.queue_draw();
             }
@@ -1037,10 +1135,30 @@ impl LumenCanvas {
         // Dim everything outside the crop, inside the image.
         let dim = gdk::RGBA::new(0.0, 0.0, 0.0, 0.55);
         for outside in [
-            Rect { x: 0.0, y: 0.0, w: bw, h: r.y },
-            Rect { x: 0.0, y: r.bottom(), w: bw, h: bh - r.bottom() },
-            Rect { x: 0.0, y: r.y, w: r.x, h: r.h },
-            Rect { x: r.right(), y: r.y, w: bw - r.right(), h: r.h },
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                w: bw,
+                h: r.y,
+            },
+            Rect {
+                x: 0.0,
+                y: r.bottom(),
+                w: bw,
+                h: bh - r.bottom(),
+            },
+            Rect {
+                x: 0.0,
+                y: r.y,
+                w: r.x,
+                h: r.h,
+            },
+            Rect {
+                x: r.right(),
+                y: r.y,
+                w: bw - r.right(),
+                h: r.h,
+            },
         ] {
             snapshot.append_color(&dim, &to_widget(outside));
         }
@@ -1066,13 +1184,29 @@ impl LumenCanvas {
         // Handles at the corners and the middle of the sides.
         let outline = gdk::RGBA::new(0.0, 0.0, 0.0, 0.7);
         for (hx, hy) in [
-            (x, y), (x + w / 2.0, y), (x + w, y),
-            (x, y + h / 2.0), (x + w, y + h / 2.0),
-            (x, y + h), (x + w / 2.0, y + h), (x + w, y + h),
+            (x, y),
+            (x + w / 2.0, y),
+            (x + w, y),
+            (x, y + h / 2.0),
+            (x + w, y + h / 2.0),
+            (x, y + h),
+            (x + w / 2.0, y + h),
+            (x + w, y + h),
         ] {
             let half = CROP_HANDLE / 2.0;
-            snapshot.append_color(&outline, &graphene::Rect::new(hx - half - 1.0, hy - half - 1.0, CROP_HANDLE + 2.0, CROP_HANDLE + 2.0));
-            snapshot.append_color(&white, &graphene::Rect::new(hx - half, hy - half, CROP_HANDLE, CROP_HANDLE));
+            snapshot.append_color(
+                &outline,
+                &graphene::Rect::new(
+                    hx - half - 1.0,
+                    hy - half - 1.0,
+                    CROP_HANDLE + 2.0,
+                    CROP_HANDLE + 2.0,
+                ),
+            );
+            snapshot.append_color(
+                &white,
+                &graphene::Rect::new(hx - half, hy - half, CROP_HANDLE, CROP_HANDLE),
+            );
         }
     }
 
@@ -1119,7 +1253,9 @@ impl LumenCanvas {
     pub fn reveal(&self, page: usize, hit: HitRect) {
         let rect = {
             let pages = self.imp().pages.borrow();
-            pages.as_ref().and_then(|p| p.layout.rects.get(page).copied())
+            pages
+                .as_ref()
+                .and_then(|p| p.layout.rects.get(page).copied())
         };
         let Some(rect) = rect else { return };
         let zoom = self.effective_zoom();
@@ -1276,7 +1412,11 @@ impl LumenCanvas {
             .borrow()
             .as_ref()
             .is_some_and(|a| a.state() == adw::AnimationState::Playing);
-        let base = if running { imp.zoom_target.get() } else { self.effective_zoom() };
+        let base = if running {
+            imp.zoom_target.get()
+        } else {
+            self.effective_zoom()
+        };
         let target = (base * factor).clamp(MIN_ZOOM, MAX_ZOOM);
         imp.zoom_target.set(target);
         // The old animation must stop, or the two would fight over the zoom.
@@ -1317,7 +1457,11 @@ impl LumenCanvas {
     fn texture_size(&self) -> Option<(f64, f64)> {
         let imp = self.imp();
         imp.logical.get().map(|(w, h)| {
-            if imp.orientation.get().swaps_axes() { (h, w) } else { (w, h) }
+            if imp.orientation.get().swaps_axes() {
+                (h, w)
+            } else {
+                (w, h)
+            }
         })
     }
 

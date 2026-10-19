@@ -26,10 +26,11 @@ impl Metadata {
             file_size: std::fs::metadata(path).ok().map(|m| m.len()),
             ..Self::default()
         };
-        let Some(exif) = File::open(path)
-            .ok()
-            .and_then(|f| exif::Reader::new().read_from_container(&mut BufReader::new(f)).ok())
-        else {
+        let Some(exif) = File::open(path).ok().and_then(|f| {
+            exif::Reader::new()
+                .read_from_container(&mut BufReader::new(f))
+                .ok()
+        }) else {
             return meta;
         };
 
@@ -87,10 +88,15 @@ fn exposure(exif: &Exif) -> Option<String> {
         .get_field(Tag::PhotographicSensitivity, In::PRIMARY)
         .and_then(|f| f.value.get_uint(0))
         .map(|iso| format!("ISO {iso}"));
-    let parts: Vec<String> = [shown(Tag::FNumber), shutter(exif), iso, shown(Tag::FocalLength)]
-        .into_iter()
-        .flatten()
-        .collect();
+    let parts: Vec<String> = [
+        shown(Tag::FNumber),
+        shutter(exif),
+        iso,
+        shown(Tag::FocalLength),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
     (!parts.is_empty()).then(|| parts.join(" · "))
 }
 
@@ -119,7 +125,9 @@ fn coordinate(exif: &Exif, tag: Tag, ref_tag: Tag, (pos, neg): (char, char)) -> 
     let Value::Rational(dms) = &exif.get_field(tag, In::PRIMARY)?.value else {
         return None;
     };
-    let [d, m, s] = dms.as_slice() else { return None };
+    let [d, m, s] = dms.as_slice() else {
+        return None;
+    };
     let degrees = to_f64(d) + to_f64(m) / 60.0 + to_f64(s) / 3600.0;
     let hemisphere = ascii(exif, ref_tag)?.chars().next()?.to_ascii_uppercase();
     let hemisphere = if hemisphere == neg { neg } else { pos };

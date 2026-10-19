@@ -615,7 +615,11 @@ mod tests {
                 && (r.h - 40.0).abs() < 0.5,
             "{r:?}"
         );
-        assert!(rect.style.fill.is_some_and(|c| c.r > 0.85 && c.g < 0.2), "fill {:?}", rect.style);
+        assert!(
+            rect.style.fill.is_some_and(|c| c.r > 0.85 && c.g < 0.2),
+            "fill {:?}",
+            rect.style
+        );
 
         // Lines and arrows come back as themselves, with the same end points.
         let line = find(|s| matches!(s, Shape::Line(..)));

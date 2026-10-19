@@ -25,17 +25,19 @@ use crate::{
     annotate::{self, Tool},
     document::{self, DocumentInfo, DocumentKind, OpenError, Opened},
     edit::{Adjustments, EditOp},
-    folder, print,
+    folder,
+    pdf::{
+        self, Granularity, HitRect, LinkTarget, LinkWorker, LinksLoaded, NamedAction,
+        OutlineTarget, PageCache, PageLayout, PagePoint, PageRenderer, PdfSource, RenderJob,
+        RenderedPage, SearchEvent, SearchWorker, SelectRequest, SelectionResult, SelectionWorker,
+    },
+    print,
     save::Format,
     settings::{self, DefaultZoom, Settings, Store},
-    pdf::{
-        self, HitRect, OutlineTarget, PageCache, PageLayout, PageRenderer, RenderJob, RenderedPage,
-        LinkTarget, LinkWorker, LinksLoaded, NamedAction, PdfSource, SearchEvent, SearchWorker, Granularity, PagePoint, SelectRequest, SelectionResult, SelectionWorker,
-    },
     thumbnails::{ThumbData, ThumbnailLoader},
     widgets::{
-        CanvasContent, FileStrip, LumenCanvas, MarkupEvent, OutlinePanel, PageStrip, PageStripCallbacks,
-        PropertiesPanel, SelectGesture, THUMB_WIDTH, ViewInfo,
+        CanvasContent, FileStrip, LumenCanvas, MarkupEvent, OutlinePanel, PageStrip,
+        PageStripCallbacks, PropertiesPanel, SelectGesture, THUMB_WIDTH, ViewInfo,
     },
 };
 
@@ -213,7 +215,10 @@ pub enum AppMsg {
     /// Open files (from the dialog, CLI, drag-and-drop, recents).
     Open(Vec<PathBuf>),
     /// The folder of a single opened file was listed.
-    FolderListed { anchor: PathBuf, files: Vec<PathBuf> },
+    FolderListed {
+        anchor: PathBuf,
+        files: Vec<PathBuf>,
+    },
     /// Move by this many files in the list.
     Navigate(isize),
     /// Jump to a list index (sidebar click).
@@ -234,7 +239,9 @@ pub enum AppMsg {
     /// The canvas zoom or the visible pages changed.
     ViewChanged(ViewInfo),
     /// The delay for render request `ticket` has passed.
-    RenderPages { ticket: u64 },
+    RenderPages {
+        ticket: u64,
+    },
     PageRendered {
         doc_key: u64,
         job: RenderJob,
@@ -263,7 +270,10 @@ pub enum AppMsg {
         result: SelectionResult,
     },
     /// The links of a page were read.
-    LinksLoaded { doc_key: u64, loaded: LinksLoaded },
+    LinksLoaded {
+        doc_key: u64,
+        loaded: LinksLoaded,
+    },
     /// Put the selected text on the clipboard.
     Copy,
     /// The search text changed.
@@ -295,8 +305,14 @@ pub enum AppMsg {
     SaveConfirmed,
     SaveCancelled,
     SaveAs,
-    SaveTo { dest: PathBuf, format: Format },
-    Saved { dest: PathBuf, result: Result<(), String> },
+    SaveTo {
+        dest: PathBuf,
+        format: Format,
+    },
+    Saved {
+        dest: PathBuf,
+        result: Result<(), String>,
+    },
     ToggleFullscreen,
     FullscreenChanged(bool),
     ToggleSlideshow,
@@ -322,15 +338,25 @@ pub enum AppMsg {
         path: PathBuf,
         result: Result<Opened, OpenError>,
     },
-    InsertFiles { paths: Vec<PathBuf>, at: Option<usize> },
+    InsertFiles {
+        paths: Vec<PathBuf>,
+        at: Option<usize>,
+    },
     InsertDialog,
     DeletePages,
     ExportPagesDialog,
-    ExportPagesTo { dest: PathBuf, pages: Vec<usize> },
+    ExportPagesTo {
+        dest: PathBuf,
+        pages: Vec<usize>,
+    },
     ExportPngDialog,
-    ExportPngTo { dest: PathBuf },
+    ExportPngTo {
+        dest: PathBuf,
+    },
     ExportImagePdfDialog,
-    ExportImagePdfTo { dest: PathBuf },
+    ExportImagePdfTo {
+        dest: PathBuf,
+    },
     Exported(Result<(), String>),
     /// A pointer event while the markup tools are in use.
     Markup(MarkupEvent),
@@ -341,9 +367,18 @@ pub enum AppMsg {
     SetFontSize(f64),
     MarkupDelete,
     MarkupNudge(f64, f64),
-    MarkupText { page: usize, id: u64, text: String },
+    MarkupText {
+        page: usize,
+        id: u64,
+        text: String,
+    },
     /// Place a text annotation without the editor popover (scripted use).
-    MarkupAddText { page: usize, x: f64, y: f64, text: String },
+    MarkupAddText {
+        page: usize,
+        x: f64,
+        y: f64,
+        text: String,
+    },
     /// The window is closing with unsaved edits.
     CloseRequested,
     /// The user chose to save before going on to `Pending`.
@@ -377,18 +412,35 @@ impl App {
         }
         let summary = match (&self.pdf, &self.document) {
             (Some(pdf), _) => {
-                let edited = if self.markup.pdf_dirty { tr(" · edited") } else { String::new() };
+                let edited = if self.markup.pdf_dirty {
+                    tr(" · edited")
+                } else {
+                    String::new()
+                };
                 let position = tr_fmt(
                     "Page {page} of {total}",
-                    &[("page", &(pdf.page + 1).to_string()), ("total", &pdf.n_pages.to_string())],
+                    &[
+                        ("page", &(pdf.page + 1).to_string()),
+                        ("total", &pdf.n_pages.to_string()),
+                    ],
                 );
                 format!("{position}{edited}")
             }
             // An edited image can have a different size from the file's.
             (None, Some(_)) if self.shown_image().is_some() => {
                 let (w, h) = self.shown_image().map_or((0, 0), |i| i.display_size());
-                let edited = if self.is_dirty() { tr(" · edited") } else { String::new() };
-                format!("{}{edited}", tr_fmt("{width} × {height} px", &[("width", &w.to_string()), ("height", &h.to_string())]))
+                let edited = if self.is_dirty() {
+                    tr(" · edited")
+                } else {
+                    String::new()
+                };
+                format!(
+                    "{}{edited}",
+                    tr_fmt(
+                        "{width} × {height} px",
+                        &[("width", &w.to_string()), ("height", &h.to_string())]
+                    )
+                )
             }
             (None, Some(d)) => d.summary.clone(),
             (None, None) => String::new(),
@@ -396,7 +448,11 @@ impl App {
         if self.list.len() > 1 {
             tr_fmt(
                 "{index} of {total} · {summary}",
-                &[("index", &(self.index + 1).to_string()), ("total", &self.list.len().to_string()), ("summary", &summary)],
+                &[
+                    ("index", &(self.index + 1).to_string()),
+                    ("total", &self.list.len().to_string()),
+                    ("summary", &summary),
+                ],
             )
         } else {
             summary
@@ -418,11 +474,17 @@ impl App {
     }
 
     fn page_text(&self) -> String {
-        self.pdf.as_ref().map(|p| (p.page + 1).to_string()).unwrap_or_default()
+        self.pdf
+            .as_ref()
+            .map(|p| (p.page + 1).to_string())
+            .unwrap_or_default()
     }
 
     fn page_total(&self) -> String {
-        self.pdf.as_ref().map(|p| format!("/ {}", p.n_pages)).unwrap_or_default()
+        self.pdf
+            .as_ref()
+            .map(|p| format!("/ {}", p.n_pages))
+            .unwrap_or_default()
     }
 
     fn goto_page(&mut self, page: usize) {
@@ -454,7 +516,10 @@ impl App {
         for page in pages {
             pdf.cache.touch(page);
             let scale = pdf::effective_scale(pdf.layout.rects[page].size(), wanted_scale);
-            let up_to_date = pdf.cache.scale(page).is_some_and(|s| (s / scale - 1.0).abs() < 0.02);
+            let up_to_date = pdf
+                .cache
+                .scale(page)
+                .is_some_and(|s| (s / scale - 1.0).abs() < 0.02);
             if !up_to_date {
                 jobs.push(RenderJob { page, scale });
             }
@@ -498,8 +563,10 @@ impl App {
     fn request_links(&mut self) {
         let Some(pdf) = &self.pdf else { return };
         let (first, last) = pdf.visible;
-        let wanted = first.saturating_sub(RENDER_AHEAD)..=(last + RENDER_AHEAD).min(pdf.n_pages - 1);
-        pdf.links.request(wanted.filter(|p| !pdf.links_loaded.contains(p)));
+        let wanted =
+            first.saturating_sub(RENDER_AHEAD)..=(last + RENDER_AHEAD).min(pdf.n_pages - 1);
+        pdf.links
+            .request(wanted.filter(|p| !pdf.links_loaded.contains(p)));
     }
 
     fn follow_link(&mut self, target: LinkTarget) {
@@ -517,11 +584,15 @@ impl App {
             }
             LinkTarget::Uri(uri) if pdf::is_safe_uri(&uri) => {
                 let parent = relm4::main_application().active_window();
-                gtk::UriLauncher::new(&uri).launch(parent.as_ref(), gio::Cancellable::NONE, move |result| {
-                    if let Err(err) = result {
-                        tracing::warn!(uri, "could not open link: {err}");
-                    }
-                });
+                gtk::UriLauncher::new(&uri).launch(
+                    parent.as_ref(),
+                    gio::Cancellable::NONE,
+                    move |result| {
+                        if let Err(err) = result {
+                            tracing::warn!(uri, "could not open link: {err}");
+                        }
+                    },
+                );
             }
             LinkTarget::Uri(uri) => tracing::warn!(uri, "ignored link with an unsupported scheme"),
         }
@@ -537,15 +608,28 @@ impl App {
             },
             (None, Some(image)) => print::Job::Image {
                 image: image.clone(),
-                layer: self.markup.store.borrow().pages.layers.get(&0).cloned().unwrap_or_default(),
+                layer: self
+                    .markup
+                    .store
+                    .borrow()
+                    .pages
+                    .layers
+                    .get(&0)
+                    .cloned()
+                    .unwrap_or_default(),
             },
             (None, None) => return,
         };
-        let name = self.document.as_ref().map(DocumentInfo::file_name).unwrap_or_default();
+        let name = self
+            .document
+            .as_ref()
+            .map(DocumentInfo::file_name)
+            .unwrap_or_default();
         let parent = relm4::main_application().active_window();
         if let Err(err) = print::print(job, &name, parent.as_ref(), export_to.as_deref()) {
             tracing::warn!("print failed: {err:#}");
-            let dialog = adw::AlertDialog::new(Some(&tr("Could Not Print")), Some(&format!("{err:#}")));
+            let dialog =
+                adw::AlertDialog::new(Some(&tr("Could Not Print")), Some(&format!("{err:#}")));
             dialog.add_response("ok", &tr("_OK"));
             dialog.present(parent.as_ref());
         }
@@ -559,7 +643,9 @@ impl App {
 
     /// Ask the selection worker for the rectangles (and optionally the text) of the selection.
     fn request_selection(&mut self, want_text: bool) {
-        let Some(selection) = self.selection else { return };
+        let Some(selection) = self.selection else {
+            return;
+        };
         let Some(pdf) = &self.pdf else { return };
         self.selection_id += 1;
         pdf.selector.request(SelectRequest {
@@ -583,7 +669,8 @@ impl App {
         let Some(pdf) = &self.pdf else { return };
         if self.search_open && !self.search_text.is_empty() {
             self.searching = true;
-            pdf.search.start(self.search_id, self.search_text.clone(), pdf.page);
+            pdf.search
+                .start(self.search_id, self.search_text.clone(), pdf.page);
         } else {
             pdf.search.stop(self.search_id);
         }
@@ -611,10 +698,19 @@ impl App {
         }
         let positions = self.hit_positions();
         let more = if self.searching { "…" } else { "" };
-        match self.current_hit.and_then(|c| positions.iter().position(|&p| p == c)) {
+        match self
+            .current_hit
+            .and_then(|c| positions.iter().position(|&p| p == c))
+        {
             Some(i) => format!(
                 "{}{more}",
-                tr_fmt("{current} of {total}", &[("current", &(i + 1).to_string()), ("total", &positions.len().to_string())])
+                tr_fmt(
+                    "{current} of {total}",
+                    &[
+                        ("current", &(i + 1).to_string()),
+                        ("total", &positions.len().to_string())
+                    ]
+                )
             ),
             None if self.searching => tr("Searching…"),
             None => tr("No results"),
@@ -695,9 +791,12 @@ impl App {
         self.canvas.set_cursor_hidden(false);
         if self.fullscreen {
             let sender = sender.clone();
-            self.cursor_timer = Some(glib::timeout_add_local_once(std::time::Duration::from_secs(2), move || {
-                sender.input(AppMsg::HideCursor);
-            }));
+            self.cursor_timer = Some(glib::timeout_add_local_once(
+                std::time::Duration::from_secs(2),
+                move || {
+                    sender.input(AppMsg::HideCursor);
+                },
+            ));
         }
     }
 
@@ -706,11 +805,18 @@ impl App {
         let store = self.store.borrow();
         self.canvas.set_background(store.settings.background);
         self.canvas.set_smooth_zoom(store.settings.smooth_zoom);
-        self.canvas.set_start_actual_size(store.settings.default_zoom == DefaultZoom::ActualSize);
+        self.canvas
+            .set_start_actual_size(store.settings.default_zoom == DefaultZoom::ActualSize);
     }
 
     /// The viewer state for a PDF shown from `path` (a working copy of `original`).
-    fn make_pdf_view(&mut self, path: &std::path::Path, original: PathBuf, pdf_info: &pdf::PdfInfo, sender: &ComponentSender<Self>) -> PdfView {
+    fn make_pdf_view(
+        &mut self,
+        path: &std::path::Path,
+        original: PathBuf,
+        pdf_info: &pdf::PdfInfo,
+        sender: &ComponentSender<Self>,
+    ) -> PdfView {
         self.next_key += 1;
         let doc_key = self.next_key;
         let layout = Rc::new(PageLayout::new(&pdf_info.page_sizes));
@@ -728,11 +834,23 @@ impl App {
             cache: PageCache::new(PAGE_CACHE_BYTES),
             renderer: PageRenderer::new(&source, {
                 let input = input.clone();
-                move |job, result| input.emit(AppMsg::PageRendered { doc_key, job, result })
+                move |job, result| {
+                    input.emit(AppMsg::PageRendered {
+                        doc_key,
+                        job,
+                        result,
+                    })
+                }
             }),
             thumb_renderer: PageRenderer::new(&source, {
                 let input = input.clone();
-                move |job, result| input.emit(AppMsg::ThumbRendered { doc_key, job, result })
+                move |job, result| {
+                    input.emit(AppMsg::ThumbRendered {
+                        doc_key,
+                        job,
+                        result,
+                    })
+                }
             }),
             search: SearchWorker::new(&source, {
                 let input = input.clone();
@@ -768,17 +886,29 @@ impl App {
             .as_ref()
             .map(|pdf_info| self.make_pdf_view(&info.path, info.path.clone(), pdf_info, sender));
         match &self.pdf {
-            Some(pdf) => self.page_strip.set_document(&pdf.layout.rects.iter().map(|r| r.size()).collect::<Vec<_>>()),
+            Some(pdf) => self.page_strip.set_document(
+                &pdf.layout
+                    .rects
+                    .iter()
+                    .map(|r| r.size())
+                    .collect::<Vec<_>>(),
+            ),
             None => self.page_strip.clear(),
         }
         match &opened_outline {
             Some(items) => self.outline.set_outline(items),
             None => self.outline.set_outline(&[]),
         }
-        self.sidebar_mode = if self.pdf.is_some() { SidebarMode::Pages } else { SidebarMode::Files };
+        self.sidebar_mode = if self.pdf.is_some() {
+            SidebarMode::Pages
+        } else {
+            SidebarMode::Files
+        };
         self.load_markup(opened_annotations);
         self.pending_goto = None;
-        if self.store.borrow().settings.remember_state && let Some(pdf) = &self.pdf {
+        if self.store.borrow().settings.remember_state
+            && let Some(pdf) = &self.pdf
+        {
             let saved = self.store.borrow().state.last_page(&pdf.original);
             self.pending_goto = saved.filter(|&p| p < pdf.n_pages);
         }
@@ -851,7 +981,11 @@ impl App {
     }
 
     fn page(&self) -> &'static str {
-        if self.image.is_some() || self.pdf.is_some() { "image" } else { "empty" }
+        if self.image.is_some() || self.pdf.is_some() {
+            "image"
+        } else {
+            "empty"
+        }
     }
 
     fn status_icon(&self) -> &'static str {
@@ -1427,8 +1561,14 @@ impl SimpleComponent for App {
             ("save", model.can_save()),
             ("save-as", model.can_edit() || model.can_save()),
             ("markup", model.can_markup() || model.markup.open),
-            ("leave-presentation", model.fullscreen || model.slideshow.is_some()),
-            ("slideshow", model.slideshow.is_some() || model.can_slideshow()),
+            (
+                "leave-presentation",
+                model.fullscreen || model.slideshow.is_some(),
+            ),
+            (
+                "slideshow",
+                model.slideshow.is_some() || model.can_slideshow(),
+            ),
             ("delete-pages", model.can_pages()),
             ("insert-pages", model.can_pages()),
             ("export-pages", model.can_pages()),
@@ -1436,7 +1576,11 @@ impl SimpleComponent for App {
             ("export-image-pdf", model.can_edit()),
         ];
         for (name, enabled) in states {
-            if let Some(action) = widgets.main_window.lookup_action(name).and_downcast::<gio::SimpleAction>() {
+            if let Some(action) = widgets
+                .main_window
+                .lookup_action(name)
+                .and_downcast::<gio::SimpleAction>()
+            {
                 action.set_enabled(enabled);
             }
         }
@@ -1454,7 +1598,10 @@ impl SimpleComponent for App {
         let initial_size = {
             let store = store.borrow();
             if store.settings.remember_state {
-                (store.state.window_width.max(400), store.state.window_height.max(300))
+                (
+                    store.state.window_width.max(400),
+                    store.state.window_height.max(300),
+                )
             } else {
                 (1000, 720)
             }
@@ -1494,10 +1641,16 @@ impl SimpleComponent for App {
         pages_menu.append_section(None, &page_turns);
         let page_edits = gio::Menu::new();
         page_edits.append(Some(&tr("Delete Pages")), Some("win.delete-pages"));
-        page_edits.append(Some(&tr("Insert Pages from File…")), Some("win.insert-pages"));
+        page_edits.append(
+            Some(&tr("Insert Pages from File…")),
+            Some("win.insert-pages"),
+        );
         pages_menu.append_section(None, &page_edits);
         let page_exports = gio::Menu::new();
-        page_exports.append(Some(&tr("Export Selected Pages…")), Some("win.export-pages"));
+        page_exports.append(
+            Some(&tr("Export Selected Pages…")),
+            Some("win.export-pages"),
+        );
         page_exports.append(Some(&tr("Export Page as PNG…")), Some("win.export-png"));
         pages_menu.append_section(None, &page_exports);
 
@@ -1551,11 +1704,18 @@ impl SimpleComponent for App {
                 }),
                 on_reorder: Box::new({
                     let sender = sender.clone();
-                    move |pages, before| sender.input(AppMsg::PageRequest(PageRequest::Move { pages, before }))
+                    move |pages, before| {
+                        sender.input(AppMsg::PageRequest(PageRequest::Move { pages, before }))
+                    }
                 }),
                 on_files: Box::new({
                     let sender = sender.clone();
-                    move |paths, before| sender.input(AppMsg::InsertFiles { paths, at: Some(before) })
+                    move |paths, before| {
+                        sender.input(AppMsg::InsertFiles {
+                            paths,
+                            at: Some(before),
+                        })
+                    }
                 }),
                 on_delete: Box::new({
                     let sender = sender.clone();
@@ -1583,7 +1743,9 @@ impl SimpleComponent for App {
             index: 0,
             generation: 0,
             loading: false,
-            sidebar_open: store.borrow().settings.remember_state && store.borrow().state.sidebar_open || !store.borrow().settings.remember_state,
+            sidebar_open: store.borrow().settings.remember_state
+                && store.borrow().state.sidebar_open
+                || !store.borrow().settings.remember_state,
             hover: false,
             cache: Vec::new(),
             preloading: HashSet::new(),
@@ -1629,7 +1791,12 @@ impl SimpleComponent for App {
             let sender = sender.clone();
             move |button| {
                 let c = button.rgba();
-                sender.input(AppMsg::SetColor(annotate::Color::rgba(c.red(), c.green(), c.blue(), c.alpha())));
+                sender.input(AppMsg::SetColor(annotate::Color::rgba(
+                    c.red(),
+                    c.green(),
+                    c.blue(),
+                    c.alpha(),
+                )));
             }
         });
         let sidebar_stack = model.sidebar_stack.clone();
@@ -1646,8 +1813,14 @@ impl SimpleComponent for App {
         }
         label_icon_buttons(widgets.main_window.upcast_ref());
         for (entry, label) in [
-            (widgets.page_entry.upcast_ref::<gtk::Widget>(), tr("Page number")),
-            (widgets.search_entry.upcast_ref::<gtk::Widget>(), tr("Search in the document")),
+            (
+                widgets.page_entry.upcast_ref::<gtk::Widget>(),
+                tr("Page number"),
+            ),
+            (
+                widgets.search_entry.upcast_ref::<gtk::Widget>(),
+                tr("Search in the document"),
+            ),
         ] {
             entry.update_property(&[gtk::accessible::Property::Label(&label)]);
         }
@@ -1728,21 +1901,45 @@ impl SimpleComponent for App {
             ("next", || AppMsg::Navigate(1), &["Right", "space"]),
             ("prev", || AppMsg::Navigate(-1), &["Left", "BackSpace"]),
             ("toggle-sidebar", || AppMsg::ToggleSidebar, &["F9"]),
-            ("toggle-properties", || AppMsg::ToggleProperties, &["<Alt>Return"]),
+            (
+                "toggle-properties",
+                || AppMsg::ToggleProperties,
+                &["<Alt>Return"],
+            ),
             ("find-next", || AppMsg::SearchStep(1), &["F3"]),
             ("find-prev", || AppMsg::SearchStep(-1), &["<Shift>F3"]),
             ("find-close", || AppMsg::SearchOpened(false), &[]),
             ("copy", || AppMsg::Copy, &[]),
             ("print", || AppMsg::Print(None), &["<Control>p"]),
             ("undo", || AppMsg::Undo, &["<Control>z"]),
-            ("redo", || AppMsg::Redo, &["<Control><Shift>z", "<Control>y"]),
-            ("rotate-right", || AppMsg::Edit(EditOp::RotateCw), &["<Control>r"]),
-            ("rotate-left", || AppMsg::Edit(EditOp::RotateCcw), &["<Control><Shift>r"]),
+            (
+                "redo",
+                || AppMsg::Redo,
+                &["<Control><Shift>z", "<Control>y"],
+            ),
+            (
+                "rotate-right",
+                || AppMsg::Edit(EditOp::RotateCw),
+                &["<Control>r"],
+            ),
+            (
+                "rotate-left",
+                || AppMsg::Edit(EditOp::RotateCcw),
+                &["<Control><Shift>r"],
+            ),
             ("flip-h", || AppMsg::Edit(EditOp::FlipH), &[]),
             ("flip-v", || AppMsg::Edit(EditOp::FlipV), &[]),
-            ("crop", || AppMsg::EnterMode(EditMode::Crop), &["<Control>k"]),
+            (
+                "crop",
+                || AppMsg::EnterMode(EditMode::Crop),
+                &["<Control>k"],
+            ),
             ("resize", || AppMsg::ResizeDialog, &["<Control><Alt>r"]),
-            ("adjust", || AppMsg::EnterMode(EditMode::Adjust), &["<Control><Alt>c"]),
+            (
+                "adjust",
+                || AppMsg::EnterMode(EditMode::Adjust),
+                &["<Control><Alt>c"],
+            ),
             ("save", || AppMsg::Save, &["<Control>s"]),
             ("save-as", || AppMsg::SaveAs, &["<Control><Shift>s"]),
             ("apply-tool", || AppMsg::Confirm, &[]),
@@ -1750,9 +1947,17 @@ impl SimpleComponent for App {
             ("preferences", || AppMsg::Preferences, &["<Control>comma"]),
             ("fullscreen", || AppMsg::ToggleFullscreen, &["F11"]),
             ("slideshow", || AppMsg::ToggleSlideshow, &["F5"]),
-            ("leave-presentation", || AppMsg::LeavePresentation, &["Escape"]),
+            (
+                "leave-presentation",
+                || AppMsg::LeavePresentation,
+                &["Escape"],
+            ),
             ("about", || AppMsg::About, &[]),
-            ("shortcuts", || AppMsg::Shortcuts, &["<Control>question", "<Control>slash"]),
+            (
+                "shortcuts",
+                || AppMsg::Shortcuts,
+                &["<Control>question", "<Control>slash"],
+            ),
             ("delete-pages", || AppMsg::DeletePages, &[]),
             ("insert-pages", || AppMsg::InsertDialog, &[]),
             ("export-pages", || AppMsg::ExportPagesDialog, &[]),
@@ -1771,7 +1976,11 @@ impl SimpleComponent for App {
         // Ctrl+F opens the search bar, but only for PDFs.
         let find_action = gio::SimpleAction::new("find", None);
         {
-            let (bar, entry, canvas) = (widgets.search_bar.clone(), widgets.search_entry.clone(), canvas.clone());
+            let (bar, entry, canvas) = (
+                widgets.search_bar.clone(),
+                widgets.search_entry.clone(),
+                canvas.clone(),
+            );
             find_action.connect_activate(move |_, _| {
                 if canvas.has_pages() {
                     bar.set_search_mode(true);
@@ -1791,12 +2000,17 @@ impl SimpleComponent for App {
         {
             let sender = sender.clone();
             select_action.connect_activate(move |_, args| {
-                let Some((page, x1, y1, x2, y2)) = args.and_then(|a| a.get::<(u32, f64, f64, f64, f64)>()) else {
+                let Some((page, x1, y1, x2, y2)) =
+                    args.and_then(|a| a.get::<(u32, f64, f64, f64, f64)>())
+                else {
                     return;
                 };
                 let page = page as usize;
                 for gesture in [
-                    SelectGesture::Start { point: PagePoint { page, x: x1, y: y1 }, clicks: 1 },
+                    SelectGesture::Start {
+                        point: PagePoint { page, x: x1, y: y1 },
+                        clicks: 1,
+                    },
                     SelectGesture::Extend(PagePoint { page, x: x2, y: y2 }),
                     SelectGesture::End { moved: true },
                 ] {
@@ -1836,17 +2050,26 @@ impl SimpleComponent for App {
         // Scripted edits, for tests: `win.crop-to` takes (x, y, w, h), `win.resize-to` (w, h),
         // `win.adjust-to` (exposure, contrast, saturation) while the Adjust bar is open, `win.apply-tool`
         // to confirm it, and `win.save-to` a path whose extension picks the format.
-        let crop_action = gio::SimpleAction::new("crop-to", Some(&<(u32, u32, u32, u32)>::static_variant_type()));
+        let crop_action = gio::SimpleAction::new(
+            "crop-to",
+            Some(&<(u32, u32, u32, u32)>::static_variant_type()),
+        );
         {
             let sender = sender.clone();
             crop_action.connect_activate(move |_, args| {
                 if let Some((x, y, w, h)) = args.and_then(|a| a.get::<(u32, u32, u32, u32)>()) {
-                    sender.input(AppMsg::Edit(EditOp::Crop(crate::edit::CropRect { x, y, w, h })));
+                    sender.input(AppMsg::Edit(EditOp::Crop(crate::edit::CropRect {
+                        x,
+                        y,
+                        w,
+                        h,
+                    })));
                 }
             });
         }
         widgets.main_window.add_action(&crop_action);
-        let resize_action = gio::SimpleAction::new("resize-to", Some(&<(u32, u32)>::static_variant_type()));
+        let resize_action =
+            gio::SimpleAction::new("resize-to", Some(&<(u32, u32)>::static_variant_type()));
         {
             let sender = sender.clone();
             resize_action.connect_activate(move |_, args| {
@@ -1856,14 +2079,20 @@ impl SimpleComponent for App {
             });
         }
         widgets.main_window.add_action(&resize_action);
-        let adjust_action = gio::SimpleAction::new("adjust-to", Some(&<(f64, f64, f64)>::static_variant_type()));
+        let adjust_action =
+            gio::SimpleAction::new("adjust-to", Some(&<(f64, f64, f64)>::static_variant_type()));
         {
             let sender = sender.clone();
             adjust_action.connect_activate(move |_, args| {
-                if let Some((exposure, contrast, saturation)) = args.and_then(|a| a.get::<(f64, f64, f64)>()) {
+                if let Some((exposure, contrast, saturation)) =
+                    args.and_then(|a| a.get::<(f64, f64, f64)>())
+                {
                     sender.input(AppMsg::AdjustField(AdjustField::Exposure, exposure as f32));
                     sender.input(AppMsg::AdjustField(AdjustField::Contrast, contrast as f32));
-                    sender.input(AppMsg::AdjustField(AdjustField::Saturation, saturation as f32));
+                    sender.input(AppMsg::AdjustField(
+                        AdjustField::Saturation,
+                        saturation as f32,
+                    ));
                 }
             });
         }
@@ -1890,7 +2119,9 @@ impl SimpleComponent for App {
         {
             let sender = sender.clone();
             draw_action.connect_activate(move |_, args| {
-                let Some((tool, page, x1, y1, x2, y2)) = args.and_then(|a| a.get::<(String, u32, f64, f64, f64, f64)>()) else {
+                let Some((tool, page, x1, y1, x2, y2)) =
+                    args.and_then(|a| a.get::<(String, u32, f64, f64, f64, f64)>())
+                else {
                     return;
                 };
                 let tool = match tool.as_str() {
@@ -1903,10 +2134,22 @@ impl SimpleComponent for App {
                     "highlight" => Tool::Highlight,
                     _ => Tool::Select,
                 };
-                let (page, a, b) = (page as usize, annotate::Point::new(x1, y1), annotate::Point::new(x2, y2));
+                let (page, a, b) = (
+                    page as usize,
+                    annotate::Point::new(x1, y1),
+                    annotate::Point::new(x2, y2),
+                );
                 sender.input(AppMsg::SetTool(tool));
-                sender.input(AppMsg::Markup(MarkupEvent::Press { page, point: a, tolerance: 4.0, clicks: 1 }));
-                sender.input(AppMsg::Markup(MarkupEvent::Drag(annotate::Point::new((x1 + x2) / 2.0, (y1 + y2) / 2.0))));
+                sender.input(AppMsg::Markup(MarkupEvent::Press {
+                    page,
+                    point: a,
+                    tolerance: 4.0,
+                    clicks: 1,
+                }));
+                sender.input(AppMsg::Markup(MarkupEvent::Drag(annotate::Point::new(
+                    (x1 + x2) / 2.0,
+                    (y1 + y2) / 2.0,
+                ))));
                 sender.input(AppMsg::Markup(MarkupEvent::Release(b)));
             });
         }
@@ -1936,8 +2179,15 @@ impl SimpleComponent for App {
         {
             let sender = sender.clone();
             text_action.connect_activate(move |_, args| {
-                if let Some((page, x, y, text)) = args.and_then(|a| a.get::<(u32, f64, f64, String)>()) {
-                    sender.input(AppMsg::MarkupAddText { page: page as usize, x, y, text });
+                if let Some((page, x, y, text)) =
+                    args.and_then(|a| a.get::<(u32, f64, f64, String)>())
+                {
+                    sender.input(AppMsg::MarkupAddText {
+                        page: page as usize,
+                        x,
+                        y,
+                        text,
+                    });
                 }
             });
         }
@@ -1952,15 +2202,26 @@ impl SimpleComponent for App {
         {
             let sender = sender.clone();
             page_op_action.connect_activate(move |_, args| {
-                let Some((kind, pages, number, path)) = args.and_then(|a| a.get::<(String, Vec<u32>, i32, String)>()) else {
+                let Some((kind, pages, number, path)) =
+                    args.and_then(|a| a.get::<(String, Vec<u32>, i32, String)>())
+                else {
                     return;
                 };
                 let pages: Vec<usize> = pages.into_iter().map(|p| p as usize).collect();
                 let request = match kind.as_str() {
-                    "rotate" => PageRequest::Rotate { pages, degrees: number },
+                    "rotate" => PageRequest::Rotate {
+                        pages,
+                        degrees: number,
+                    },
                     "delete" => PageRequest::Delete(pages),
-                    "move" => PageRequest::Move { pages, before: number as usize },
-                    "insert" => PageRequest::Insert { at: number as usize, file: PathBuf::from(path) },
+                    "move" => PageRequest::Move {
+                        pages,
+                        before: number as usize,
+                    },
+                    "insert" => PageRequest::Insert {
+                        at: number as usize,
+                        file: PathBuf::from(path),
+                    },
                     _ => return,
                 };
                 sender.input(AppMsg::PageRequest(request));
@@ -1976,27 +2237,36 @@ impl SimpleComponent for App {
             export_pages_action.connect_activate(move |_, args| {
                 if let Some((path, pages)) = args.and_then(|a| a.get::<(String, Vec<u32>)>()) {
                     let pages = pages.into_iter().map(|p| p as usize).collect();
-                    sender.input(AppMsg::ExportPagesTo { dest: PathBuf::from(path), pages });
+                    sender.input(AppMsg::ExportPagesTo {
+                        dest: PathBuf::from(path),
+                        pages,
+                    });
                 }
             });
         }
         widgets.main_window.add_action(&export_pages_action);
-        let export_png_action = gio::SimpleAction::new("export-png-to", Some(glib::VariantTy::STRING));
+        let export_png_action =
+            gio::SimpleAction::new("export-png-to", Some(glib::VariantTy::STRING));
         {
             let sender = sender.clone();
             export_png_action.connect_activate(move |_, path| {
                 if let Some(path) = path.and_then(|p| p.str()) {
-                    sender.input(AppMsg::ExportPngTo { dest: PathBuf::from(path) });
+                    sender.input(AppMsg::ExportPngTo {
+                        dest: PathBuf::from(path),
+                    });
                 }
             });
         }
         widgets.main_window.add_action(&export_png_action);
-        let export_image_action = gio::SimpleAction::new("export-image-pdf-to", Some(glib::VariantTy::STRING));
+        let export_image_action =
+            gio::SimpleAction::new("export-image-pdf-to", Some(glib::VariantTy::STRING));
         {
             let sender = sender.clone();
             export_image_action.connect_activate(move |_, path| {
                 if let Some(path) = path.and_then(|p| p.str()) {
-                    sender.input(AppMsg::ExportImagePdfTo { dest: PathBuf::from(path) });
+                    sender.input(AppMsg::ExportImagePdfTo {
+                        dest: PathBuf::from(path),
+                    });
                 }
             });
         }
@@ -2017,7 +2287,11 @@ impl SimpleComponent for App {
         // `win.search` takes the text to look for: opens the bar and fills it in.
         let search_action = gio::SimpleAction::new("search", Some(glib::VariantTy::STRING));
         {
-            let (bar, entry, canvas) = (widgets.search_bar.clone(), widgets.search_entry.clone(), canvas.clone());
+            let (bar, entry, canvas) = (
+                widgets.search_bar.clone(),
+                widgets.search_entry.clone(),
+                canvas.clone(),
+            );
             search_action.connect_activate(move |_, text| {
                 if let (true, Some(text)) = (canvas.has_pages(), text.and_then(|t| t.str())) {
                     bar.set_search_mode(true);
@@ -2038,7 +2312,11 @@ impl SimpleComponent for App {
                 if key != gdk::Key::Return && key != gdk::Key::KP_Enter {
                     return glib::Propagation::Proceed;
                 }
-                let step = if state.contains(gdk::ModifierType::SHIFT_MASK) { -1 } else { 1 };
+                let step = if state.contains(gdk::ModifierType::SHIFT_MASK) {
+                    -1
+                } else {
+                    1
+                };
                 sender.input(AppMsg::SearchStep(step));
                 glib::Propagation::Stop
             }
@@ -2062,7 +2340,11 @@ impl SimpleComponent for App {
         widgets.main_window.add_controller(pointer);
 
         let view_actions: [ViewAction; 4] = [
-            ("zoom-in", LumenCanvas::zoom_in, &["<Control>plus", "<Control>equal"]),
+            (
+                "zoom-in",
+                LumenCanvas::zoom_in,
+                &["<Control>plus", "<Control>equal"],
+            ),
             ("zoom-out", LumenCanvas::zoom_out, &["<Control>minus"]),
             ("best-fit", LumenCanvas::best_fit, &["<Control>0"]),
             ("actual-size", LumenCanvas::actual_size, &["<Control>1"]),
@@ -2149,7 +2431,11 @@ impl App {
                     self.index = files.iter().position(|f| *f == anchor).unwrap_or(0);
                     self.list = files;
                     self.refresh_strip();
-                    tracing::info!(files = self.list.len(), ms = started.elapsed().as_millis() as u64, "file list shown");
+                    tracing::info!(
+                        files = self.list.len(),
+                        ms = started.elapsed().as_millis() as u64,
+                        "file list shown"
+                    );
                     self.preload_neighbours(&sender);
                 }
             }
@@ -2161,7 +2447,10 @@ impl App {
                 if !self.guard(Pending::Navigate(delta), &sender) {
                     return;
                 }
-                let target = self.index.saturating_add_signed(delta).min(self.list.len().saturating_sub(1));
+                let target = self
+                    .index
+                    .saturating_add_signed(delta)
+                    .min(self.list.len().saturating_sub(1));
                 if !self.list.is_empty() && target != self.index {
                     self.show_index(target, &sender);
                 }
@@ -2223,7 +2512,10 @@ impl App {
                 if !self.first_view_logged && (self.image.is_some() || self.pdf.is_some()) {
                     self.first_view_logged = true;
                     if let Some(started) = crate::STARTED.get() {
-                        tracing::info!(ms = started.elapsed().as_millis() as u64, "first view on screen");
+                        tracing::info!(
+                            ms = started.elapsed().as_millis() as u64,
+                            "first view on screen"
+                        );
                     }
                 }
                 if let Some(page) = self.pending_goto.take() {
@@ -2239,7 +2531,11 @@ impl App {
                     pdf.page = info.current_page;
                     self.page_strip.set_current(info.current_page);
                     pdf.visible = (info.first_visible, info.last_visible);
-                    let delay = if zoom_changed { RERENDER_DELAY_MS } else { SCROLL_RENDER_DELAY_MS };
+                    let delay = if zoom_changed {
+                        RERENDER_DELAY_MS
+                    } else {
+                        SCROLL_RENDER_DELAY_MS
+                    };
                     self.schedule_render(delay, &sender);
                     // Rectangles are only computed near the view, so refresh them when it moves.
                     self.request_selection(false);
@@ -2251,7 +2547,11 @@ impl App {
                     self.render_visible();
                 }
             }
-            AppMsg::PageRendered { doc_key, job, result } => {
+            AppMsg::PageRendered {
+                doc_key,
+                job,
+                result,
+            } => {
                 let Some(pdf) = &mut self.pdf else { return };
                 if doc_key != pdf.doc_key {
                     return;
@@ -2280,14 +2580,22 @@ impl App {
                 let jobs = self.page_strip.wanted().into_iter().map(|page| {
                     let size = pdf.layout.rects[page].size();
                     let scale = THUMB_WIDTH / size.0 * self.scale_factor as f64;
-                    RenderJob { page, scale: pdf::effective_scale(size, scale) }
+                    RenderJob {
+                        page,
+                        scale: pdf::effective_scale(size, scale),
+                    }
                 });
                 pdf.thumb_renderer.request(jobs);
             }
-            AppMsg::ThumbRendered { doc_key, job, result } => {
+            AppMsg::ThumbRendered {
+                doc_key,
+                job,
+                result,
+            } => {
                 let Some(pdf) = &self.pdf else { return };
                 if let (true, Ok(rendered)) = (doc_key == pdf.doc_key, result) {
-                    self.page_strip.set_thumbnail(job.page, rendered.into_texture());
+                    self.page_strip
+                        .set_thumbnail(job.page, rendered.into_texture());
                 }
             }
             AppMsg::PageBy(delta) => {
@@ -2312,7 +2620,11 @@ impl App {
                             2 => Granularity::Word,
                             _ => Granularity::Line,
                         };
-                        self.selection = Some(Selection { anchor: point, head: point, granularity });
+                        self.selection = Some(Selection {
+                            anchor: point,
+                            head: point,
+                            granularity,
+                        });
                         self.request_selection(false);
                     }
                     SelectGesture::Extend(point) => {
@@ -2335,7 +2647,11 @@ impl App {
                             return;
                         }
                         // A plain single click just deselects; double and triple clicks keep their word or line.
-                        if !moved && self.selection.is_some_and(|s| s.granularity == Granularity::Glyph) {
+                        if !moved
+                            && self
+                                .selection
+                                .is_some_and(|s| s.granularity == Granularity::Glyph)
+                        {
                             self.clear_selection();
                         }
                     }
@@ -2354,9 +2670,10 @@ impl App {
                         self.canvas.set_selection(result.rects);
                     }
                 }
-                if let (Some(text), Some(display)) =
-                    (result.text.filter(|t| !t.is_empty()), gdk::Display::default())
-                {
+                if let (Some(text), Some(display)) = (
+                    result.text.filter(|t| !t.is_empty()),
+                    gdk::Display::default(),
+                ) {
                     display.clipboard().set_text(&text);
                 }
             }
@@ -2470,10 +2787,15 @@ impl App {
             AppMsg::About => prefs::show_about(),
             AppMsg::Shortcuts => shortcuts::show(),
             AppMsg::PageRequest(request) => self.page_request(request, &sender),
-            AppMsg::PageOpDone { out, goto, result } => self.page_op_done(out, goto, result, &sender),
-            AppMsg::PdfReloaded { generation, goto, path, result } => {
-                self.pdf_reloaded(generation, goto, path, result, &sender)
+            AppMsg::PageOpDone { out, goto, result } => {
+                self.page_op_done(out, goto, result, &sender)
             }
+            AppMsg::PdfReloaded {
+                generation,
+                goto,
+                path,
+                result,
+            } => self.pdf_reloaded(generation, goto, path, result, &sender),
             AppMsg::InsertFiles { paths, at } => self.insert_files(paths, at, &sender),
             AppMsg::InsertDialog => self.insert_dialog(&sender),
             AppMsg::DeletePages => self.delete_pages(&sender),
@@ -2497,13 +2819,17 @@ impl App {
                 }
             }
             AppMsg::SetWidth(width) => self.set_markup_style(|style| style.width = width, &sender),
-            AppMsg::SetFontSize(size) => self.set_markup_style(|style| style.font_size = size, &sender),
+            AppMsg::SetFontSize(size) => {
+                self.set_markup_style(|style| style.font_size = size, &sender)
+            }
             AppMsg::MarkupDelete => self.markup_delete(&sender),
             AppMsg::MarkupNudge(dx, dy) => {
                 self.markup_nudge(dx, dy, &sender);
             }
             AppMsg::MarkupText { page, id, text } => self.markup_text(page, id, &text, &sender),
-            AppMsg::MarkupAddText { page, x, y, text } => self.markup_add_text(page, x, y, &text, &sender),
+            AppMsg::MarkupAddText { page, x, y, text } => {
+                self.markup_add_text(page, x, y, &text, &sender)
+            }
             AppMsg::CropAspect(index) => {
                 self.crop_choice = index.min(CropAspect::CHOICES.len() - 1);
                 if self.edit_mode == EditMode::Crop {
@@ -2566,7 +2892,9 @@ impl App {
                 if positions.is_empty() {
                     return;
                 }
-                let current = self.current_hit.and_then(|c| positions.iter().position(|&p| p == c));
+                let current = self
+                    .current_hit
+                    .and_then(|c| positions.iter().position(|&p| p == c));
                 let next = match current {
                     Some(i) => (i as isize + step).rem_euclid(positions.len() as isize) as usize,
                     None => 0,
@@ -2574,7 +2902,9 @@ impl App {
                 self.select_hit(positions[next]);
             }
             AppMsg::OpenWithPassword(password) => {
-                let Some(path) = self.list.get(self.index).cloned() else { return };
+                let Some(path) = self.list.get(self.index).cloned() else {
+                    return;
+                };
                 self.generation += 1;
                 self.loading = true;
                 let generation = self.generation;
@@ -2583,7 +2913,9 @@ impl App {
                     sender.input(AppMsg::Loaded { generation, result });
                 });
             }
-            AppMsg::PasswordCancelled => self.fail(OpenError::PasswordRequired { retry: false }.message()),
+            AppMsg::PasswordCancelled => {
+                self.fail(OpenError::PasswordRequired { retry: false }.message())
+            }
             AppMsg::Print(export_to) => self.print(export_to),
             AppMsg::ToggleSidebar => {
                 self.sidebar_open = !self.sidebar_open;
@@ -2598,12 +2930,24 @@ impl App {
 /// Ask for the password of an encrypted PDF; the answer comes back as a message.
 fn ask_password(name: &str, retry: bool, sender: ComponentSender<App>) {
     let body = if retry {
-        tr_fmt("The password for “{name}” was incorrect. Try again.", &[("name", name)])
+        tr_fmt(
+            "The password for “{name}” was incorrect. Try again.",
+            &[("name", name)],
+        )
     } else {
-        tr_fmt("“{name}” is protected. Enter its password to open it.", &[("name", name)])
+        tr_fmt(
+            "“{name}” is protected. Enter its password to open it.",
+            &[("name", name)],
+        )
     };
     let dialog = adw::AlertDialog::new(Some(&tr("Password Required")), Some(&body));
-    crate::i18n::add_responses(&dialog, &[("cancel", crate::i18n::n_("_Cancel")), ("open", crate::i18n::n_("_Open"))]);
+    crate::i18n::add_responses(
+        &dialog,
+        &[
+            ("cancel", crate::i18n::n_("_Cancel")),
+            ("open", crate::i18n::n_("_Open")),
+        ],
+    );
     dialog.set_response_appearance("open", adw::ResponseAppearance::Suggested);
     dialog.set_default_response(Some("open"));
     dialog.set_close_response("cancel");
@@ -2642,9 +2986,7 @@ fn refresh_recent_menu(menu: &gio::Menu) {
         .items()
         .into_iter()
         .filter(|item| {
-            item.is_local()
-                && item.exists()
-                && DocumentKind::from_mime(&item.mime_type()).is_some()
+            item.is_local() && item.exists() && DocumentKind::from_mime(&item.mime_type()).is_some()
         })
         .collect();
     items.sort_by_key(|item| std::cmp::Reverse(item.modified().to_unix()));

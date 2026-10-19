@@ -53,7 +53,11 @@ fn inherited(doc: &Document, page: ObjectId, key: &[u8]) -> Option<Object> {
 fn rotation_of(doc: &Document, page: ObjectId) -> i64 {
     match inherited(doc, page, b"Rotate") {
         Some(Object::Integer(r)) => r,
-        Some(Object::Reference(id)) => doc.get_object(id).ok().and_then(|o| o.as_i64().ok()).unwrap_or(0),
+        Some(Object::Reference(id)) => doc
+            .get_object(id)
+            .ok()
+            .and_then(|o| o.as_i64().ok())
+            .unwrap_or(0),
         _ => 0,
     }
 }
@@ -78,12 +82,18 @@ pub fn compose(base: &Source, extras: &[Source], plan: &[Entry], out: &Path) -> 
 
     // Make every page self-contained and work out each one's current turn.
     let mut turn: BTreeMap<ObjectId, i64> = BTreeMap::new();
-    for id in pages.iter().flat_map(|p| p.values().copied()).collect::<Vec<_>>() {
+    for id in pages
+        .iter()
+        .flat_map(|p| p.values().copied())
+        .collect::<Vec<_>>()
+    {
         let missing: Vec<(&[u8], Object)> = INHERITED
             .iter()
             .filter_map(|key| {
                 let has = doc.get_object(id).ok()?.as_dict().ok()?.has(key);
-                (!has).then(|| inherited(&doc, id, key).map(|value| (*key, value))).flatten()
+                (!has)
+                    .then(|| inherited(&doc, id, key).map(|value| (*key, value)))
+                    .flatten()
             })
             .collect();
         turn.insert(id, rotation_of(&doc, id));
@@ -104,7 +114,13 @@ pub fn compose(base: &Source, extras: &[Source], plan: &[Entry], out: &Path) -> 
         let id = *pages
             .get(entry.source)
             .and_then(|p| p.get(&(entry.index as u32 + 1)))
-            .with_context(|| format!("page {} of document {} is missing", entry.index + 1, entry.source))?;
+            .with_context(|| {
+                format!(
+                    "page {} of document {} is missing",
+                    entry.index + 1,
+                    entry.source
+                )
+            })?;
         let total = (turn[&id] + entry.rotate as i64).rem_euclid(360);
         let dict = doc.get_object_mut(id)?.as_dict_mut()?;
         dict.set("Parent", Object::Reference(root));
@@ -124,15 +140,19 @@ pub fn compose(base: &Source, extras: &[Source], plan: &[Entry], out: &Path) -> 
 
     doc.trailer.remove(b"Encrypt");
     doc.prune_objects();
-    doc.save(out).with_context(|| format!("cannot write {}", out.display()))?;
+    doc.save(out)
+        .with_context(|| format!("cannot write {}", out.display()))?;
     Ok(())
 }
 
 /// A one-page PDF showing the picture at `source`, upright, one pixel per 0.75 point
 /// (the size it has on screen).
 pub fn image_to_pdf(source: &Path, dest: &Path) -> Result<()> {
-    let mut picture = image::open(source).with_context(|| format!("cannot read {}", source.display()))?;
-    if let Some(orientation) = image::metadata::Orientation::from_exif(Metadata::read(source).orientation.exif_value()) {
+    let mut picture =
+        image::open(source).with_context(|| format!("cannot read {}", source.display()))?;
+    if let Some(orientation) =
+        image::metadata::Orientation::from_exif(Metadata::read(source).orientation.exif_value())
+    {
         picture.apply_orientation(orientation);
     }
     let rgba = picture.to_rgba8();
@@ -146,7 +166,13 @@ pub fn image_to_pdf(source: &Path, dest: &Path) -> Result<()> {
         let premultiply = |c: u8| ((c as u16 * a as u16 + 127) / 255) as u8;
         *dst = [premultiply(b), premultiply(g), premultiply(r), a];
     }
-    let surface = cairo::ImageSurface::create_for_data(data, cairo::Format::ARgb32, width, height, stride as i32)?;
+    let surface = cairo::ImageSurface::create_for_data(
+        data,
+        cairo::Format::ARgb32,
+        width,
+        height,
+        stride as i32,
+    )?;
 
     const SCALE: f64 = 0.75;
     let pdf = cairo::PdfSurface::new(width as f64 * SCALE, height as f64 * SCALE, dest)?;
@@ -164,10 +190,19 @@ pub fn image_to_pdf(source: &Path, dest: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pdf::{PdfSource, load_info, open_document, pageops::{PageOp, plan}, poppler_lock};
+    use crate::pdf::{
+        PdfSource, load_info, open_document,
+        pageops::{PageOp, plan},
+        poppler_lock,
+    };
 
     fn fixture(name: &str) -> Source {
-        Source { path: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name), password: None }
+        Source {
+            path: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures")
+                .join(name),
+            password: None,
+        }
     }
 
     fn scratch(name: &str) -> PathBuf {
@@ -183,7 +218,10 @@ mod tests {
         (0..doc.n_pages())
             .map(|i| {
                 let page = doc.page(i).unwrap();
-                (page.text().map(|t| t.trim().to_owned()).unwrap_or_default(), page.size())
+                (
+                    page.text().map(|t| t.trim().to_owned()).unwrap_or_default(),
+                    page.size(),
+                )
             })
             .collect()
     }
@@ -201,7 +239,15 @@ mod tests {
 
     #[test]
     fn reordering_changes_the_page_order() {
-        let out = run(PageOp::Move { pages: vec![0, 1], before: 5 }, 5, &[], "move");
+        let out = run(
+            PageOp::Move {
+                pages: vec![0, 1],
+                before: 5,
+            },
+            5,
+            &[],
+            "move",
+        );
         assert_eq!(texts(&out), ["P3", "P4", "P5", "P1", "P2"]);
         let _ = std::fs::remove_dir_all(out.parent().unwrap());
     }
@@ -216,16 +262,44 @@ mod tests {
 
     #[test]
     fn rotating_turns_the_chosen_pages() {
-        let out = run(PageOp::Rotate { pages: vec![2], degrees: 90 }, 5, &[], "rotate");
+        let out = run(
+            PageOp::Rotate {
+                pages: vec![2],
+                degrees: 90,
+            },
+            5,
+            &[],
+            "rotate",
+        );
         let pages = describe(&out);
-        assert_eq!(pages[2].1, (200.0, 300.0), "a landscape page turned a quarter is portrait");
+        assert_eq!(
+            pages[2].1,
+            (200.0, 300.0),
+            "a landscape page turned a quarter is portrait"
+        );
         assert_eq!(pages[1].1, (300.0, 200.0));
         assert_eq!(pages[2].0, "P3", "the text is still there");
 
         // Turning it back (as a second operation on the result) restores the size.
         let back = scratch("rotate-back");
-        let entries = plan(&PageOp::Rotate { pages: vec![2], degrees: -90 }, 5).unwrap();
-        compose(&Source { path: out.clone(), password: None }, &[], &entries, &back).unwrap();
+        let entries = plan(
+            &PageOp::Rotate {
+                pages: vec![2],
+                degrees: -90,
+            },
+            5,
+        )
+        .unwrap();
+        compose(
+            &Source {
+                path: out.clone(),
+                password: None,
+            },
+            &[],
+            &entries,
+            &back,
+        )
+        .unwrap();
         assert_eq!(describe(&back)[2].1, (300.0, 200.0));
         for p in [out, back] {
             let _ = std::fs::remove_dir_all(p.parent().unwrap());
@@ -235,12 +309,29 @@ mod tests {
     #[test]
     fn inserting_brings_pages_from_another_file() {
         // Two pages of "selection.pdf" (400×300) go between pages 2 and 3.
-        let out = run(PageOp::Insert { at: 2, source: 1, count: 2 }, 5, &[fixture("selection.pdf")], "insert");
+        let out = run(
+            PageOp::Insert {
+                at: 2,
+                source: 1,
+                count: 2,
+            },
+            5,
+            &[fixture("selection.pdf")],
+            "insert",
+        );
         let pages = describe(&out);
         assert_eq!(pages.len(), 7);
         assert_eq!(pages[0].0, "P1");
-        assert!(pages[2].0.contains("Hello brave"), "inserted page: {:?}", pages[2].0);
-        assert!(pages[3].0.contains("Page two"), "inserted page: {:?}", pages[3].0);
+        assert!(
+            pages[2].0.contains("Hello brave"),
+            "inserted page: {:?}",
+            pages[2].0
+        );
+        assert!(
+            pages[3].0.contains("Page two"),
+            "inserted page: {:?}",
+            pages[3].0
+        );
         assert_eq!(pages[2].1, (400.0, 300.0));
         assert_eq!(pages[4].0, "P3");
         let _ = std::fs::remove_dir_all(out.parent().unwrap());
@@ -251,10 +342,42 @@ mod tests {
         // Delete, then move, then rotate: each works on the previous file, as in the app.
         let first = run(PageOp::Delete(vec![0]), 5, &[], "chain1");
         let second = scratch("chain2");
-        compose(&Source { path: first.clone(), password: None }, &[], &plan(&PageOp::Move { pages: vec![3], before: 0 }, 4).unwrap(), &second).unwrap();
+        compose(
+            &Source {
+                path: first.clone(),
+                password: None,
+            },
+            &[],
+            &plan(
+                &PageOp::Move {
+                    pages: vec![3],
+                    before: 0,
+                },
+                4,
+            )
+            .unwrap(),
+            &second,
+        )
+        .unwrap();
         assert_eq!(texts(&second), ["P5", "P2", "P3", "P4"]);
         let third = scratch("chain3");
-        compose(&Source { path: second.clone(), password: None }, &[], &plan(&PageOp::Rotate { pages: vec![0], degrees: 180 }, 4).unwrap(), &third).unwrap();
+        compose(
+            &Source {
+                path: second.clone(),
+                password: None,
+            },
+            &[],
+            &plan(
+                &PageOp::Rotate {
+                    pages: vec![0],
+                    degrees: 180,
+                },
+                4,
+            )
+            .unwrap(),
+            &third,
+        )
+        .unwrap();
         assert_eq!(describe(&third)[0].1, (300.0, 200.0));
         assert_eq!(texts(&third), ["P5", "P2", "P3", "P4"]);
         for p in [first, second, third] {
@@ -272,7 +395,9 @@ mod tests {
         let dir = scratch("image");
         let dir = dir.parent().unwrap().to_owned();
         let png = dir.join("pic.png");
-        image::RgbaImage::from_pixel(80, 40, image::Rgba([200, 30, 30, 255])).save(&png).unwrap();
+        image::RgbaImage::from_pixel(80, 40, image::Rgba([200, 30, 30, 255]))
+            .save(&png)
+            .unwrap();
         let pdf = dir.join("pic.pdf");
         image_to_pdf(&png, &pdf).unwrap();
         let pages = describe(&pdf);

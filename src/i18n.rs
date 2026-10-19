@@ -75,9 +75,14 @@ mod tests {
 
     #[test]
     fn placeholders_are_filled_in_wherever_the_translation_puts_them() {
-        assert_eq!(tr_fmt("Page {page} of {total}", &[("page", "3"), ("total", "40")]), "Page 3 of 40");
+        assert_eq!(
+            tr_fmt("Page {page} of {total}", &[("page", "3"), ("total", "40")]),
+            "Page 3 of 40"
+        );
         // A translation may reorder them; the same values still land in the right places.
-        let swapped = "{total} pages, now on {page}".replace("{page}", "3").replace("{total}", "40");
+        let swapped = "{total} pages, now on {page}"
+            .replace("{page}", "3")
+            .replace("{total}", "40");
         assert_eq!(swapped, "40 pages, now on 3");
     }
 }

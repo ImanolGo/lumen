@@ -7,7 +7,9 @@ use relm4::{ComponentSender, gtk::prelude::*};
 
 use super::{App, AppMsg};
 use crate::{
-    annotate::{AnnotationLayer, Editor, GeometryChange, History, Outcome, Rect, Shape, Store, Tool},
+    annotate::{
+        AnnotationLayer, Editor, GeometryChange, History, Outcome, Rect, Shape, Store, Tool,
+    },
     edit::EditOp,
     pdf::HitRect,
     widgets::{MarkupEvent, MarkupMode},
@@ -44,8 +46,14 @@ impl Default for MarkupState {
             open: false,
             editor: Editor::default(),
             store: Rc::default(),
-            pdf_history: History::new(PdfState { file: Default::default(), layers: Layers::new() }),
-            pdf_baseline: PdfState { file: Default::default(), layers: Layers::new() },
+            pdf_history: History::new(PdfState {
+                file: Default::default(),
+                layers: Layers::new(),
+            }),
+            pdf_baseline: PdfState {
+                file: Default::default(),
+                layers: Layers::new(),
+            },
             pdf_dirty: false,
             highlight_pending: false,
         }
@@ -59,12 +67,17 @@ impl App {
 
     /// Markup applies to images and PDFs, but not while a crop or colour tool is open.
     pub(super) fn can_markup(&self) -> bool {
-        (self.image.is_some() || self.pdf.is_some()) && self.edit_mode == super::edit::EditMode::None
+        (self.image.is_some() || self.pdf.is_some())
+            && self.edit_mode == super::edit::EditMode::None
     }
 
     /// How the canvas should treat the pointer.
     pub(super) fn markup_canvas_mode(&self) -> MarkupMode {
-        match (self.markup.open, self.pdf.is_some(), self.markup.editor.tool) {
+        match (
+            self.markup.open,
+            self.pdf.is_some(),
+            self.markup.editor.tool,
+        ) {
             (false, ..) => MarkupMode::Off,
             (true, true, Tool::Highlight) => MarkupMode::TextSelect,
             (true, _, tool) => MarkupMode::Draw(tool),
@@ -99,7 +112,12 @@ impl App {
             let mut store = self.markup.store.borrow_mut();
             let editor = &mut self.markup.editor;
             match event {
-                MarkupEvent::Press { page, point, tolerance, clicks } => editor.press(&mut store, page, point, tolerance, clicks),
+                MarkupEvent::Press {
+                    page,
+                    point,
+                    tolerance,
+                    clicks,
+                } => editor.press(&mut store, page, point, tolerance, clicks),
                 MarkupEvent::Drag(point) => editor.drag(&mut store, point),
                 MarkupEvent::Release(point) => editor.release(&mut store, point),
             }
@@ -123,7 +141,11 @@ impl App {
     fn open_text_editor(&self, page: usize, id: u64, sender: &ComponentSender<App>) {
         let (bounds, text) = {
             let store = self.markup.store.borrow();
-            match store.layer(page).and_then(|l| l.get(id)).map(|a| (a.bounds(), a.shape.clone())) {
+            match store
+                .layer(page)
+                .and_then(|l| l.get(id))
+                .map(|a| (a.bounds(), a.shape.clone()))
+            {
                 Some((bounds, Shape::Text { text, .. })) => (bounds, text),
                 _ => return,
             }
@@ -134,7 +156,13 @@ impl App {
         });
     }
 
-    pub(super) fn markup_text(&mut self, page: usize, id: u64, text: &str, sender: &ComponentSender<App>) {
+    pub(super) fn markup_text(
+        &mut self,
+        page: usize,
+        id: u64,
+        text: &str,
+        sender: &ComponentSender<App>,
+    ) {
         let outcome = {
             let mut store = self.markup.store.borrow_mut();
             self.markup.editor.set_text(&mut store, page, id, text)
@@ -143,7 +171,14 @@ impl App {
     }
 
     /// Place text directly, as the Text tool plus the editor would.
-    pub(super) fn markup_add_text(&mut self, page: usize, x: f64, y: f64, text: &str, sender: &ComponentSender<App>) {
+    pub(super) fn markup_add_text(
+        &mut self,
+        page: usize,
+        x: f64,
+        y: f64,
+        text: &str,
+        sender: &ComponentSender<App>,
+    ) {
         let outcome = {
             let mut store = self.markup.store.borrow_mut();
             let editor = &mut self.markup.editor;
@@ -192,7 +227,11 @@ impl App {
     }
 
     /// Change the drawing style, and the selected annotation along with it.
-    pub(super) fn set_markup_style(&mut self, change: impl FnOnce(&mut crate::annotate::Style), sender: &ComponentSender<App>) {
+    pub(super) fn set_markup_style(
+        &mut self,
+        change: impl FnOnce(&mut crate::annotate::Style),
+        sender: &ComponentSender<App>,
+    ) {
         change(&mut self.markup.editor.style);
         let outcome = {
             let mut store = self.markup.store.borrow_mut();
@@ -202,11 +241,18 @@ impl App {
     }
 
     /// Text selected in a PDF becomes a highlight.
-    pub(super) fn highlight_selection(&mut self, rects: &[(usize, Vec<HitRect>)], sender: &ComponentSender<App>) {
+    pub(super) fn highlight_selection(
+        &mut self,
+        rects: &[(usize, Vec<HitRect>)],
+        sender: &ComponentSender<App>,
+    ) {
         self.markup.highlight_pending = false;
         let mut committed = false;
         for (page, hits) in rects {
-            let rects: Vec<Rect> = hits.iter().map(|h| Rect::new(h.x1, h.y1, h.x2 - h.x1, h.y2 - h.y1)).collect();
+            let rects: Vec<Rect> = hits
+                .iter()
+                .map(|h| Rect::new(h.x1, h.y1, h.x2 - h.x1, h.y2 - h.y1))
+                .collect();
             let outcome = {
                 let mut store = self.markup.store.borrow_mut();
                 self.markup.editor.add_highlight(&mut store, *page, rects)
@@ -229,12 +275,25 @@ impl App {
     /// The annotations changed for good: record an undo step.
     fn commit_markup(&mut self, _sender: &ComponentSender<App>) {
         if self.pdf.is_some() {
-            let state = PdfState { file: self.markup.pdf_history.present().file.clone(), layers: self.store_layers() };
+            let state = PdfState {
+                file: self.markup.pdf_history.present().file.clone(),
+                layers: self.store_layers(),
+            };
             self.markup.pdf_history.commit(state);
             self.markup.pdf_dirty = true;
         } else if let Some(session) = &mut self.edit {
-            let layer = self.markup.store.borrow().pages.layers.get(&0).cloned().unwrap_or_default();
-            session.stack.push_with_layer(EditOp::Annotate, Some(Arc::new(layer)));
+            let layer = self
+                .markup
+                .store
+                .borrow()
+                .pages
+                .layers
+                .get(&0)
+                .cloned()
+                .unwrap_or_default();
+            session
+                .stack
+                .push_with_layer(EditOp::Annotate, Some(Arc::new(layer)));
         }
     }
 
@@ -244,7 +303,9 @@ impl App {
             self.markup.pdf_history.present().layers.clone()
         } else {
             let layer = self.edit.as_ref().and_then(|e| e.stack.current_layer());
-            layer.map(|l| BTreeMap::from([(0, (*l).clone())])).unwrap_or_default()
+            layer
+                .map(|l| BTreeMap::from([(0, (*l).clone())]))
+                .unwrap_or_default()
         };
         self.markup.store.borrow_mut().set_pages(layers);
         self.canvas.queue_draw();
@@ -265,8 +326,15 @@ impl App {
     /// Start from the PDF's own annotations (or none, for an image).
     pub(super) fn load_markup(&mut self, annotations: Option<Layers>) {
         let layers = annotations.unwrap_or_default();
-        let file = self.pdf.as_ref().map(|p| p.source.path.clone()).unwrap_or_default();
-        let state = PdfState { file, layers: layers.clone() };
+        let file = self
+            .pdf
+            .as_ref()
+            .map(|p| p.source.path.clone())
+            .unwrap_or_default();
+        let state = PdfState {
+            file,
+            layers: layers.clone(),
+        };
         self.markup.pdf_baseline = state.clone();
         self.markup.pdf_history = History::new(state);
         self.markup.pdf_dirty = false;
@@ -288,16 +356,34 @@ impl App {
     // --- geometry edits under annotations -----------------------------------------
 
     /// The layer after `op`, moved along with the image, and the change it applied.
-    pub(super) fn layer_after_geometry(&self, op: EditOp, size: (f64, f64)) -> Option<Arc<AnnotationLayer>> {
-        let layer = self.markup.store.borrow().pages.layers.get(&0).filter(|l| !l.is_empty())?.clone();
+    pub(super) fn layer_after_geometry(
+        &self,
+        op: EditOp,
+        size: (f64, f64),
+    ) -> Option<Arc<AnnotationLayer>> {
+        let layer = self
+            .markup
+            .store
+            .borrow()
+            .pages
+            .layers
+            .get(&0)
+            .filter(|l| !l.is_empty())?
+            .clone();
         let (w, h) = size;
         let change = match op {
             EditOp::RotateCw => Some(GeometryChange::RotateCw { height: h }),
             EditOp::RotateCcw => Some(GeometryChange::RotateCcw { width: w }),
             EditOp::FlipH => Some(GeometryChange::FlipH { width: w }),
             EditOp::FlipV => Some(GeometryChange::FlipV { height: h }),
-            EditOp::Crop(r) => Some(GeometryChange::Crop { x: r.x as f64, y: r.y as f64 }),
-            EditOp::Resize { w: nw, h: nh } => Some(GeometryChange::Scale { sx: nw as f64 / w, sy: nh as f64 / h }),
+            EditOp::Crop(r) => Some(GeometryChange::Crop {
+                x: r.x as f64,
+                y: r.y as f64,
+            }),
+            EditOp::Resize { w: nw, h: nh } => Some(GeometryChange::Scale {
+                sx: nw as f64 / w,
+                sy: nh as f64 / h,
+            }),
             EditOp::Adjust(_) | EditOp::Annotate => None,
         };
         let mut moved = layer;

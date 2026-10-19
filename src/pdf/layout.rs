@@ -78,7 +78,10 @@ impl PageLayout {
     /// span only covers gaps or margin, the nearest page is returned.
     pub fn visible(&self, top: f64, bottom: f64) -> Option<(usize, usize)> {
         let last_index = self.rects.len().checked_sub(1)?;
-        let first = self.rects.partition_point(|r| r.y + r.h <= top).min(last_index);
+        let first = self
+            .rects
+            .partition_point(|r| r.y + r.h <= top)
+            .min(last_index);
         let end = self.rects.partition_point(|r| r.y < bottom);
         Some((first, end.saturating_sub(1).clamp(first, last_index)))
     }
@@ -114,7 +117,10 @@ mod tests {
         // The narrow page is centred on the wide one.
         assert_eq!(l.rects[0].x, MARGIN + 50.0);
         assert_eq!(l.rects[1].x, MARGIN);
-        assert_eq!(l.size.1, MARGIN + 200.0 + 100.0 + 200.0 + 2.0 * PAGE_GAP + MARGIN);
+        assert_eq!(
+            l.size.1,
+            MARGIN + 200.0 + 100.0 + 200.0 + 2.0 * PAGE_GAP + MARGIN
+        );
     }
 
     #[test]
@@ -144,7 +150,10 @@ mod tests {
         // In the gap: the nearer page.
         let gap_top = l.rects[0].y + l.rects[0].h;
         assert_eq!(l.locate(0.0, gap_top + 2.0).map(|p| p.0), Some(0));
-        assert_eq!(l.locate(0.0, gap_top + PAGE_GAP - 2.0).map(|p| p.0), Some(1));
+        assert_eq!(
+            l.locate(0.0, gap_top + PAGE_GAP - 2.0).map(|p| p.0),
+            Some(1)
+        );
         assert_eq!(PageLayout::new(&[]).locate(0.0, 0.0), None);
     }
 

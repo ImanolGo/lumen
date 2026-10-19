@@ -88,7 +88,10 @@ impl Default for SavedState {
 impl SavedState {
     pub fn last_page(&self, path: &Path) -> Option<usize> {
         let key = path.to_string_lossy();
-        self.last_pages.iter().find(|(p, _)| *p == key).map(|(_, page)| *page)
+        self.last_pages
+            .iter()
+            .find(|(p, _)| *p == key)
+            .map(|(_, page)| *page)
     }
 
     /// Remember that `path` was left on `page`. Page 0 is the default, so it is not kept.
@@ -133,8 +136,12 @@ pub struct Paths {
 impl Paths {
     pub fn user() -> Self {
         Self {
-            settings: relm4::gtk::glib::user_config_dir().join("lumen").join("settings.toml"),
-            state: relm4::gtk::glib::user_data_dir().join("lumen").join("state.toml"),
+            settings: relm4::gtk::glib::user_config_dir()
+                .join("lumen")
+                .join("settings.toml"),
+            state: relm4::gtk::glib::user_data_dir()
+                .join("lumen")
+                .join("state.toml"),
         }
     }
 }
@@ -176,13 +183,17 @@ mod tests {
     use super::*;
 
     fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("lumen-settings-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("lumen-settings-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         dir
     }
 
     fn paths(dir: &Path) -> Paths {
-        Paths { settings: dir.join("config/settings.toml"), state: dir.join("data/state.toml") }
+        Paths {
+            settings: dir.join("config/settings.toml"),
+            state: dir.join("data/state.toml"),
+        }
     }
 
     #[test]
@@ -222,7 +233,11 @@ mod tests {
         assert_eq!(Store::load(paths(&dir)).settings, Settings::default());
 
         // A file with only some keys keeps the defaults for the rest, and unknown keys are ignored.
-        fs::write(dir.join("config/settings.toml"), "slideshow_seconds = 9\nfuture_option = true\n").unwrap();
+        fs::write(
+            dir.join("config/settings.toml"),
+            "slideshow_seconds = 9\nfuture_option = true\n",
+        )
+        .unwrap();
         let store = Store::load(paths(&dir));
         assert_eq!(store.settings.slideshow_seconds, 9);
         assert!(store.settings.smooth_zoom);
@@ -250,7 +265,11 @@ mod tests {
         state.set_last_page(Path::new("/a.pdf"), 3);
         state.set_last_page(Path::new("/b.pdf"), 7);
         state.set_last_page(Path::new("/a.pdf"), 4);
-        assert_eq!(state.last_pages[0], ("/a.pdf".to_owned(), 4), "updated entries move to the front");
+        assert_eq!(
+            state.last_pages[0],
+            ("/a.pdf".to_owned(), 4),
+            "updated entries move to the front"
+        );
         assert_eq!(state.last_pages.len(), 2);
 
         // The first page is the default and is not worth a slot.
@@ -261,7 +280,14 @@ mod tests {
             state.set_last_page(Path::new(&format!("/book{i}.pdf")), 1);
         }
         assert_eq!(state.last_pages.len(), REMEMBERED_FILES);
-        assert_eq!(state.last_page(Path::new("/book0.pdf")), None, "the oldest were dropped");
-        assert_eq!(state.last_page(Path::new(&format!("/book{}.pdf", REMEMBERED_FILES + 49))), Some(1));
+        assert_eq!(
+            state.last_page(Path::new("/book0.pdf")),
+            None,
+            "the oldest were dropped"
+        );
+        assert_eq!(
+            state.last_page(Path::new(&format!("/book{}.pdf", REMEMBERED_FILES + 49))),
+            Some(1)
+        );
     }
 }
