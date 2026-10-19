@@ -2481,6 +2481,18 @@ impl SimpleComponent for App {
         }
         widgets.main_window.add_action(&screenshot_action);
 
+        // `win.add-files` takes a list of paths and adds them as dropping them onto the window would.
+        let add_action = gio::SimpleAction::new("add-files", Some(glib::VariantTy::STRING_ARRAY));
+        {
+            let sender = sender.clone();
+            add_action.connect_activate(move |_, paths| {
+                if let Some(paths) = paths.and_then(|p| p.get::<Vec<String>>()) {
+                    sender.input(AppMsg::Add(paths.into_iter().map(PathBuf::from).collect()));
+                }
+            });
+        }
+        widgets.main_window.add_action(&add_action);
+
         // `win.password` answers the password dialog without typing (for scripts and tests).
         let password_action = gio::SimpleAction::new("password", Some(glib::VariantTy::STRING));
         {
@@ -2642,8 +2654,10 @@ impl App {
                 }
                 if add {
                     // Show the first file that was not there yet; `GoTo` deals with unsaved edits.
-                    let mut new: Vec<PathBuf> =
-                        files.into_iter().filter(|f| !self.list.contains(f)).collect();
+                    let mut new: Vec<PathBuf> = files
+                        .into_iter()
+                        .filter(|f| !self.list.contains(f))
+                        .collect();
                     new.dedup();
                     if new.is_empty() {
                         return;
@@ -2655,11 +2669,9 @@ impl App {
                 } else if files.is_empty() {
                     self.fail(tr("There are no pictures or PDFs to open there."));
                 } else {
+                    // Files picked together are shown in name order.
                     let mut files = files;
-                    // Files picked together are shown in name order; a folder is already sorted.
-                    if files.len() > 1 && !files.is_sorted_by(|a, b| folder::natural_cmp(a, b).is_le()) {
-                        files.sort_by(|a, b| folder::natural_cmp(a, b));
-                    }
+                    files.sort_by(|a, b| folder::natural_cmp(a, b));
                     files.dedup();
                     self.cache.clear();
                     self.list = files;

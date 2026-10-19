@@ -89,7 +89,8 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("lumen-expand-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("sub")).unwrap();
         for name in ["b10.png", "b2.jpg", "notes.txt", ".hidden.png", "doc.pdf"] {
-            std::fs::write(dir.join(name), b"").unwrap();
+            // Not empty: GIO types every empty file as `application/x-zerosize`.
+            std::fs::write(dir.join(name), b"x").unwrap();
         }
         let loose = PathBuf::from("/elsewhere/x.txt");
 

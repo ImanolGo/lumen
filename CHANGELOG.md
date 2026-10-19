@@ -13,7 +13,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 First release.
 
 ### Added
-- Image viewing with zoom, pan, folder browsing and EXIF orientation.
+- Image viewing with zoom, pan and EXIF orientation. Lumen shows the files you open (or every picture and PDF in a folder you open), and files or folders dropped onto the window are added to them.
 - PDF viewing with continuous scroll, thumbnails, outline, search, text selection, links and password support.
 - Rotate, flip, crop, resize and colour adjustment with undo; lossless JPEG rotation.
 - Markup on pictures and PDFs: shapes, arrows, lines, pen, text and highlights.

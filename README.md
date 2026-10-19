@@ -21,7 +21,7 @@
 ## Features
 
 - **Fast.** Pictures and pages load in the background, so the UI never freezes. A 50 MP JPEG is on screen in about half a second and a 500-page PDF opens in about 50 ms (release build, measured on a 2020 laptop).
-- **Pictures and PDFs in one app.** Browse a whole folder with thumbnails, zoom and pan smoothly, honour EXIF orientation, run a slideshow or go fullscreen.
+- **Pictures and PDFs in one app.** Open the files you pick, or a whole folder, then drop in more from anywhere and flip through them with thumbnails. Zoom and pan smoothly, honour EXIF orientation, run a slideshow or go fullscreen.
 - **Light editing.** Rotate, flip, crop, resize and adjust colour, with undo and redo. Rotating a JPEG does not recompress it.
 - **Markup.** Rectangles, ellipses, arrows, lines, pen strokes, text and highlights on pictures and PDFs. PDF annotations are real annotations, so other readers can still edit them.
 - **PDF reading.** Continuous scroll, page thumbnails, table of contents, search, text selection and copy, clickable links, password-protected files and document properties.
@@ -105,7 +105,10 @@ Remove an installed copy with `make uninstall` (use the same `PREFIX`).
 ```sh
 lumen                      # empty window, Ctrl+O to open
 lumen photo.jpg report.pdf # open files directly
+lumen ~/Pictures/Trip      # or every picture and PDF in a folder
 ```
+
+Drop more files or folders onto the window to add them to the ones you are browsing.
 
 Lumen registers itself for PDF, PNG, JPEG, GIF, WebP, BMP, TIFF, SVG, AVIF and HEIF. All of them can be viewed (SVG, AVIF and HEIF need the matching gdk-pixbuf loaders); JPEG, PNG, WebP, GIF, BMP and TIFF can also be edited and marked up. Edits are saved in place for JPEG, PNG and WebP, and as a copy for the others. Animated GIFs show their first frame. To make it the default PDF viewer:
 
@@ -118,7 +121,7 @@ Press `Ctrl+?` in the app for the full, searchable list of shortcuts. The main o
 | Shortcut | Action |
 |---|---|
 | `Ctrl+O` | Open |
-| `←` / `→` | Previous / next file in the folder |
+| `←` / `→` | Previous / next file |
 | `Page Up` / `Page Down`, `Ctrl+G` | Previous / next PDF page, go to page |
 | `Ctrl+=` / `Ctrl+-`, `Ctrl+0` / `Ctrl+1` | Zoom in / out, best fit / 100 % |
 | `Ctrl+R` / `Ctrl+Shift+R` | Rotate right / left |
