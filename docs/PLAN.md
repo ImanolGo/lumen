@@ -128,7 +128,7 @@ Install `glycin` + `glycin-loaders` and use `glycin::Loader`. This gives sandbox
 - Tasks: `adw::OverlaySplitView` + `gtk::ListView` (virtualised) with small renders; click to jump; highlight the current page.
 - **Done when:** `F9` toggles the sidebar and thumbnails appear lazily.
 
-### 2.5 Outline (table of contents) 🟢
+### 2.5 ✅ Outline (table of contents) 🟢
 - Tasks: `poppler::IndexIter` → `gtk::TreeListModel`; clicking jumps to the destination.
 
 ### 2.6 Text search 🟡

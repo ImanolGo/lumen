@@ -12,9 +12,12 @@ use crate::{
     APP_NAME,
     document::{self, DocumentInfo, DocumentKind, Opened},
     folder,
-    pdf::{self, PageCache, PageLayout, PageRenderer, RenderJob, RenderedPage},
+    pdf::{self, OutlineTarget, PageCache, PageLayout, PageRenderer, RenderJob, RenderedPage},
     thumbnails::{ThumbData, ThumbnailLoader},
-    widgets::{CanvasContent, FileStrip, LumenCanvas, PageStrip, PropertiesPanel, THUMB_WIDTH, ViewInfo},
+    widgets::{
+        CanvasContent, FileStrip, LumenCanvas, OutlinePanel, PageStrip, PropertiesPanel, THUMB_WIDTH,
+        ViewInfo,
+    },
 };
 
 /// Action name, canvas handler and keyboard accelerators.
@@ -32,9 +35,18 @@ const PAGE_CACHE_BYTES: usize = 160 * 1024 * 1024;
 /// Pages beyond the visible ones that are rendered ahead of time.
 const RENDER_AHEAD: usize = 1;
 
+/// What the sidebar lists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidebarMode {
+    Files,
+    Pages,
+    Outline,
+}
+
 /// The PDF being shown as a continuous column of pages.
 struct PdfView {
     n_pages: usize,
+    has_outline: bool,
     layout: Rc<PageLayout>,
     /// Page filling most of the viewport.
     page: usize,
@@ -70,8 +82,8 @@ pub struct App {
     strip: FileStrip,
     page_strip: PageStrip,
     sidebar_stack: gtk::Stack,
-    /// Show page thumbnails instead of the file list while a PDF is open.
-    sidebar_pages: bool,
+    outline: OutlinePanel,
+    sidebar_mode: SidebarMode,
     properties: PropertiesPanel,
     properties_open: bool,
     thumbnails: ThumbnailLoader,
@@ -139,8 +151,9 @@ pub enum AppMsg {
     GotoPage(usize),
     /// Text typed into the page entry (1-based).
     GotoPageText(String),
-    /// Switch the sidebar between the file list (false) and page thumbnails (true).
-    SidebarPages(bool),
+    SidebarMode(SidebarMode),
+    /// Scroll to an outline entry.
+    GotoTarget(OutlineTarget),
     /// Rows appeared or disappeared in the thumbnail sidebar.
     PageStripChanged,
     ThumbRendered {
@@ -249,17 +262,31 @@ impl App {
         self.sidebar_open && (self.list.len() > 1 || self.pdf.is_some())
     }
 
-    fn show_pages(&self) -> bool {
-        self.pdf.is_some() && self.sidebar_pages
+    /// The mode actually shown: the chosen one, unless the document cannot offer it.
+    fn mode(&self) -> SidebarMode {
+        match (&self.pdf, self.sidebar_mode) {
+            (None, _) => SidebarMode::Files,
+            (Some(pdf), SidebarMode::Outline) if !pdf.has_outline => SidebarMode::Pages,
+            (Some(_), SidebarMode::Files) if self.list.len() < 2 => SidebarMode::Pages,
+            (Some(_), mode) => mode,
+        }
     }
 
     fn sidebar_page_name(&self) -> &'static str {
-        if self.show_pages() { "pages" } else { "files" }
+        match self.mode() {
+            SidebarMode::Files => "files",
+            SidebarMode::Pages => "pages",
+            SidebarMode::Outline => "outline",
+        }
     }
 
-    /// Whether both the file list and page thumbnails are available.
+    fn has_outline(&self) -> bool {
+        self.pdf.as_ref().is_some_and(|p| p.has_outline)
+    }
+
+    /// Whether more than one sidebar view exists, so a switcher is worth showing.
     fn sidebar_switchable(&self) -> bool {
-        self.pdf.is_some() && self.list.len() > 1
+        self.pdf.is_some() && (self.list.len() > 1 || self.has_outline())
     }
 
     fn can_go_prev(&self) -> bool {
@@ -307,6 +334,7 @@ impl App {
         self.error = None;
         self.image = opened.image;
         self.properties.set_image(self.image.as_ref());
+        let opened_outline = opened.pdf.as_ref().map(|p| p.outline.clone());
         self.pdf = opened.pdf.map(|pdf_info| {
             self.next_key += 1;
             let doc_key = self.next_key;
@@ -314,6 +342,7 @@ impl App {
             let input = sender.input_sender().clone();
             PdfView {
                 n_pages: pdf_info.n_pages,
+                has_outline: !pdf_info.outline.is_empty(),
                 layout,
                 page: 0,
                 doc_key,
@@ -332,7 +361,11 @@ impl App {
             Some(pdf) => self.page_strip.set_document(&pdf.layout.rects.iter().map(|r| r.size()).collect::<Vec<_>>()),
             None => self.page_strip.clear(),
         }
-        self.sidebar_pages = self.pdf.is_some();
+        match &opened_outline {
+            Some(items) => self.outline.set_outline(items),
+            None => self.outline.set_outline(&[]),
+        }
+        self.sidebar_mode = if self.pdf.is_some() { SidebarMode::Pages } else { SidebarMode::Files };
         self.document = Some(info);
         self.sync_canvas();
         self.preload_neighbours(sender);
@@ -555,14 +588,24 @@ impl SimpleComponent for App {
                                 gtk::ToggleButton {
                                     set_label: "Files",
                                     #[watch]
-                                    set_active: !model.show_pages(),
-                                    connect_clicked[sender] => move |_| sender.input(AppMsg::SidebarPages(false)),
+                                    set_visible: model.list.len() > 1,
+                                    #[watch]
+                                    set_active: model.mode() == SidebarMode::Files,
+                                    connect_clicked[sender] => move |_| sender.input(AppMsg::SidebarMode(SidebarMode::Files)),
                                 },
                                 gtk::ToggleButton {
                                     set_label: "Pages",
                                     #[watch]
-                                    set_active: model.show_pages(),
-                                    connect_clicked[sender] => move |_| sender.input(AppMsg::SidebarPages(true)),
+                                    set_active: model.mode() == SidebarMode::Pages,
+                                    connect_clicked[sender] => move |_| sender.input(AppMsg::SidebarMode(SidebarMode::Pages)),
+                                },
+                                gtk::ToggleButton {
+                                    set_label: "Outline",
+                                    #[watch]
+                                    set_visible: model.has_outline(),
+                                    #[watch]
+                                    set_active: model.mode() == SidebarMode::Outline,
+                                    connect_clicked[sender] => move |_| sender.input(AppMsg::SidebarMode(SidebarMode::Outline)),
                                 },
                             },
 
@@ -689,7 +732,11 @@ impl SimpleComponent for App {
                 },
             ),
             sidebar_stack: gtk::Stack::new(),
-            sidebar_pages: false,
+            outline: OutlinePanel::new({
+                let sender = sender.clone();
+                move |target| sender.input(AppMsg::GotoTarget(target))
+            }),
+            sidebar_mode: SidebarMode::Files,
             properties: PropertiesPanel::new(),
             properties_open: false,
             thumbnails,
@@ -716,6 +763,7 @@ impl SimpleComponent for App {
         let sidebar_stack = model.sidebar_stack.clone();
         sidebar_stack.add_named(model.strip.root(), Some("files"));
         sidebar_stack.add_named(model.page_strip.root(), Some("pages"));
+        sidebar_stack.add_named(model.outline.root(), Some("outline"));
         let properties_root = model.properties.root().clone();
         let widgets = view_output!();
 
@@ -731,6 +779,20 @@ impl SimpleComponent for App {
             let sender = sender.clone();
             move |info| sender.input(AppMsg::ViewChanged(info))
         });
+
+        // `win.sidebar-mode` takes "files", "pages" or "outline".
+        let mode_action = gio::SimpleAction::new("sidebar-mode", Some(glib::VariantTy::STRING));
+        let mode_sender = sender.clone();
+        mode_action.connect_activate(move |_, name| {
+            let mode = match name.and_then(|n| n.str()) {
+                Some("files") => SidebarMode::Files,
+                Some("pages") => SidebarMode::Pages,
+                Some("outline") => SidebarMode::Outline,
+                _ => return,
+            };
+            mode_sender.input(AppMsg::SidebarMode(mode));
+        });
+        widgets.main_window.add_action(&mode_action);
 
         let goto_action = gio::SimpleAction::new("goto-page", None);
         let entry = widgets.page_entry.clone();
@@ -935,7 +997,12 @@ impl SimpleComponent for App {
                     Err(err) => tracing::warn!(page = job.page, "render failed: {err}"),
                 }
             }
-            AppMsg::SidebarPages(pages) => self.sidebar_pages = pages,
+            AppMsg::SidebarMode(mode) => self.sidebar_mode = mode,
+            AppMsg::GotoTarget(target) => {
+                if self.pdf.is_some() {
+                    self.canvas.scroll_to_point(target.page, target.y);
+                }
+            }
             AppMsg::PageStripChanged => {
                 let Some(pdf) = &self.pdf else { return };
                 let jobs = self.page_strip.wanted().into_iter().map(|page| {

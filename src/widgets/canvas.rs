@@ -390,6 +390,11 @@ impl LumenCanvas {
 
     /// Scroll so that page `index` starts at the top of the viewport.
     pub fn scroll_to_page(&self, index: usize) {
+        self.scroll_to_point(index, None);
+    }
+
+    /// Scroll to `y` points below the top of page `index` (the page top if `None`).
+    pub fn scroll_to_point(&self, index: usize, y: Option<f64>) {
         let top = {
             let pages = self.imp().pages.borrow();
             pages
@@ -398,9 +403,10 @@ impl LumenCanvas {
                 .map(|r| r.y)
         };
         if let Some(top) = top {
-            // Leave a sliver of the gap above the page visible.
-            let y = (top - crate::pdf::layout::PAGE_GAP / 2.0) * self.effective_zoom();
-            self.set_adjustment_value(gtk::Orientation::Vertical, y);
+            // Leave a sliver above the target visible.
+            let margin = crate::pdf::layout::PAGE_GAP / 2.0;
+            let value = (top + y.unwrap_or(0.0) - margin) * self.effective_zoom();
+            self.set_adjustment_value(gtk::Orientation::Vertical, value);
         }
     }
 

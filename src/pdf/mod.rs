@@ -5,6 +5,7 @@
 
 mod cache;
 pub mod layout;
+mod outline;
 mod renderer;
 
 use std::path::Path;
@@ -14,6 +15,7 @@ use relm4::gtk::{cairo, gdk, gio, glib, prelude::*};
 
 pub use cache::PageCache;
 pub use layout::PageLayout;
+pub use outline::{OutlineItem, OutlineTarget};
 pub use renderer::{PageRenderer, RenderJob};
 
 /// Rendering is capped so a high zoom on a huge page cannot exhaust memory.
@@ -26,6 +28,8 @@ pub struct PdfInfo {
     pub n_pages: usize,
     /// Size of every page in points (1/72 inch), already rotated.
     pub page_sizes: Vec<(f64, f64)>,
+    /// Table of contents; empty if the document has none.
+    pub outline: Vec<std::sync::Arc<OutlineItem>>,
 }
 
 /// A rendered page: premultiplied BGRA pixels, safe to move between threads.
@@ -61,15 +65,17 @@ pub fn load_info(path: &Path) -> Result<PdfInfo> {
     let doc = open_document(path)?;
     let n_pages = doc.n_pages().max(0) as usize;
     anyhow::ensure!(n_pages > 0, "the PDF has no pages");
-    let page_sizes = (0..n_pages)
+    let page_sizes: Vec<(f64, f64)> = (0..n_pages)
         .map(|i| {
             doc.page(i as i32)
                 .map_or((612.0, 792.0), |page| page.size())
         })
         .collect();
+    let outline = outline::read_outline(&doc, &page_sizes);
     Ok(PdfInfo {
         n_pages,
         page_sizes,
+        outline,
     })
 }
 
