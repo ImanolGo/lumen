@@ -250,9 +250,31 @@ This is the heart of "Preview-like". **Design the model first, UI second.**
 - [ ] **7.4 Accessibility and keyboard** — `gtk::ShortcutsWindow` (`Ctrl+?`), accessible labels, a full keyboard pass.
 - [ ] **7.5 i18n** — `gettext-rs`, `po/` directory.
 - [ ] **7.6 Icon and metainfo** — app icon (SVG), `metainfo.xml`, screenshots.
-- [ ] **7.7 Flatpak** — manifest in `build-aux/`, `flatpak-cargo-generator` for offline builds, test via GNOME Builder.
+- [ ] **7.7 Flatpak** — manifest in `build-aux/`, `flatpak-cargo-generator` for offline builds, test via GNOME Builder. This is also the place for the optional step 1.8 (glycin sandboxed decoding), which was skipped earlier.
 - [ ] **7.8 Packaging** — AUR `PKGBUILD` (you're on CachyOS), release tags, GitHub Actions building release artifacts.
 - [ ] **7.9 Performance pass** — `cargo flamegraph`, startup time < 150 ms, test with huge files.
+
+## Phase 8 — Agent control (optional)
+
+Let an AI agent drive Lumen through an MCP server. Optional: do it after Phase 7, and only if it is still wanted.
+
+Lumen already exports its actions on the session D-Bus (that is how the features were tested), and the editing logic is plain Rust. What is missing is a way to read state back and to learn whether an operation worked.
+
+- [ ] **8.1 Control interface** — a D-Bus interface on the application (for example `io.github.imanolgo.Lumen.Control`) with typed methods that return JSON, replacing the ad-hoc `win.*` test hooks. First slice:
+  - `state()`: open file, kind, page and page count, zoom, dirty flag, selection, annotations of the current page, edit stack.
+  - `open(path)`, `list_pages()`, `goto_page(n)`.
+  - Page operations: rotate, delete, move, insert, export.
+  - Image edits: rotate, flip, crop, resize, adjust.
+  - Markup: `annotate(shape…)`, `list_annotations()`, `delete_annotation(id)`.
+  - `save(path?)`, `export(…)`, `screenshot()`.
+  - Every method reports success or a clear error, including for work that finishes later.
+- [ ] **8.2 Safety** — session bus only; destructive calls (overwriting a file, discarding edits) refuse unless the caller passes an explicit flag; dialogs that need a person (password, unsaved changes) become errors or explicit parameters, never silent blocks.
+- [ ] **8.3 MCP server** — a small separate binary (`lumen-mcp`, stdio transport, `rmcp` crate) that exposes the control interface as MCP tools with JSON schemas, plus a `screenshot` tool so the agent can see the result. Document how to register it in Claude Code and OpenCode.
+- [ ] **8.4 Tests** — drive the control interface from an integration test: open a fixture, edit, save, and check the file.
+- **Done when:** an agent can open a PDF, rearrange and annotate it, save the result and check it, using only the MCP tools.
+- **Not included:** a GUI-free engine. That would mean splitting the project into a core crate and a UI crate, and is a separate, larger decision.
+
+---
 
 ## Stretch goals
 
