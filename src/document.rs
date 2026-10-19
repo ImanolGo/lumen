@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use relm4::gtk::{gio, prelude::*};
 
-use crate::image::ImageDocument;
+use crate::{image::ImageDocument, pdf::{self, PdfInfo}};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DocumentKind {
@@ -67,26 +67,25 @@ pub fn detect_kind(path: &Path) -> Result<DocumentKind> {
 pub struct Opened {
     pub info: DocumentInfo,
     pub image: Option<ImageDocument>,
+    pub pdf: Option<PdfInfo>,
 }
 
 /// Detect, decode and summarize `path`. Blocking: call it off the main thread.
 pub fn open(path: &Path) -> Result<Opened> {
     let kind = detect_kind(path)?;
-    let (summary, image) = match kind {
+    let (summary, image, pdf) = match kind {
         DocumentKind::Image => {
             let image = ImageDocument::load(path)?;
             let (w, h) = image.display_size();
-            let summary = format!("{w} × {h} px");
-            (summary, Some(image))
+            (format!("{w} × {h} px"), Some(image), None)
         }
         DocumentKind::Pdf => {
-            let uri = gio::File::for_path(path).uri();
-            let doc = poppler::Document::from_file(&uri, None).context("failed to open PDF")?;
-            let summary = match doc.n_pages() {
+            let info = pdf::load_info(path)?;
+            let summary = match info.n_pages {
                 1 => "1 page".to_owned(),
                 n => format!("{n} pages"),
             };
-            (summary, None)
+            (summary, None, Some(info))
         }
     };
 
@@ -97,6 +96,7 @@ pub fn open(path: &Path) -> Result<Opened> {
             summary,
         },
         image,
+        pdf,
     })
 }
 

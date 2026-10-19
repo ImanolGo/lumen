@@ -102,7 +102,7 @@ Install `glycin` + `glycin-loaders` and use `glycin::Loader`. This gives sandbox
 
 ## Phase 2 — PDF viewer
 
-### 2.1 Render one page 🟢 🧠 Cairo surfaces
+### 2.1 ✅ Render one page 🟢 🧠 Cairo surfaces
 **Goal:** show page 1 of a PDF.
 - Tasks
   - `src/pdf/mod.rs`: `PdfDocument` wrapping `poppler::Document`.
@@ -111,7 +111,7 @@ Install `glycin` + `glycin-loaders` and use `glycin::Loader`. This gives sandbox
 - Hints: `widget.scale_factor()` for HiDPI. Reuse `LumenCanvas` to display the texture.
 - **Done when:** a PDF page shows crisp text on both 1× and 2× displays.
 
-### 2.2 Navigate pages 🟢
+### 2.2 ✅ Navigate pages 🟢
 - Tasks: page Up/Down, Home/End, a "Page N of M" entry in the header bar, `Ctrl+G` "go to page".
 - **Done when:** you can jump to any page of a 300-page PDF.
 

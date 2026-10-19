@@ -12,8 +12,9 @@ use crate::{
     APP_NAME,
     document::{self, DocumentInfo, DocumentKind, Opened},
     folder,
+    pdf::{self, PdfInfo, RenderedPage},
     thumbnails::{ThumbData, ThumbnailLoader},
-    widgets::{FileStrip, LumenCanvas, PropertiesPanel},
+    widgets::{CanvasContent, FileStrip, LumenCanvas, PropertiesPanel},
 };
 
 /// Action name, canvas handler and keyboard accelerators.
@@ -22,6 +23,18 @@ type ViewAction<'a> = (&'a str, fn(&LumenCanvas), &'a [&'a str]);
 const RECENT_LIMIT: usize = 10;
 /// How many neighbours on each side of the current file stay decoded.
 const PRELOAD_RADIUS: usize = 1;
+/// Wait this long after the zoom stops changing before re-rendering a page.
+const RERENDER_DELAY_MS: u64 = 150;
+
+/// The PDF being shown, one page at a time.
+struct PdfView {
+    path: PathBuf,
+    info: PdfInfo,
+    page: usize,
+    /// Identifies this page to the canvas (changes with the page or document).
+    key: u64,
+    texture: Option<gdk::Texture>,
+}
 
 thread_local! {
     /// Lets `open_files` (called from the GApplication `open` signal) reach the component.
@@ -62,6 +75,14 @@ pub struct App {
     awaiting: Option<PathBuf>,
     document: Option<DocumentInfo>,
     image: Option<crate::image::ImageDocument>,
+    pdf: Option<PdfView>,
+    next_key: u64,
+    /// Zoom and scale factor last reported by the canvas.
+    zoom: f64,
+    scale_factor: i32,
+    /// Bumped on every render request; only the latest one is acted on.
+    render_ticket: u64,
+    applied_ticket: u64,
     error: Option<String>,
 }
 
@@ -88,6 +109,21 @@ pub enum AppMsg {
         result: Result<Opened, String>,
     },
     Thumbnail(PathBuf, ThumbData),
+    /// The canvas zoom changed (or new content appeared).
+    ZoomChanged { zoom: f64, scale_factor: i32 },
+    /// The re-render delay for `ticket` has passed.
+    RenderPage { ticket: u64 },
+    PageRendered {
+        ticket: u64,
+        key: u64,
+        result: Result<RenderedPage, String>,
+    },
+    /// Move by this many pages in the open PDF.
+    PageBy(isize),
+    /// Jump to a page (0-based).
+    GotoPage(usize),
+    /// Text typed into the page entry (1-based).
+    GotoPageText(String),
     ToggleSidebar,
     ToggleProperties,
     Hover(bool),
@@ -105,16 +141,61 @@ impl App {
         if self.loading {
             return "Loading…".to_owned();
         }
-        let summary = self
-            .document
-            .as_ref()
-            .map(|d| d.summary.clone())
-            .unwrap_or_default();
+        let summary = match (&self.pdf, &self.document) {
+            (Some(pdf), _) => format!("Page {} of {}", pdf.page + 1, pdf.info.n_pages),
+            (None, Some(d)) => d.summary.clone(),
+            (None, None) => String::new(),
+        };
         if self.list.len() > 1 {
             format!("{} of {} · {summary}", self.index + 1, self.list.len())
         } else {
             summary
         }
+    }
+
+    fn canvas_content(&self) -> CanvasContent<'_> {
+        if let Some(pdf) = &self.pdf {
+            CanvasContent::Page {
+                key: pdf.key,
+                size: pdf.info.page_sizes.get(pdf.page).copied().unwrap_or((612.0, 792.0)),
+                texture: pdf.texture.as_ref(),
+            }
+        } else if let Some(image) = &self.image {
+            CanvasContent::Image(image)
+        } else {
+            CanvasContent::None
+        }
+    }
+
+    fn page_text(&self) -> String {
+        self.pdf.as_ref().map(|p| (p.page + 1).to_string()).unwrap_or_default()
+    }
+
+    fn page_total(&self) -> String {
+        self.pdf.as_ref().map(|p| format!("/ {}", p.info.n_pages)).unwrap_or_default()
+    }
+
+    /// Re-render the current page once `delay_ms` has passed without a newer request.
+    fn schedule_render(&mut self, delay_ms: u64, sender: &ComponentSender<Self>) {
+        self.render_ticket += 1;
+        let ticket = self.render_ticket;
+        let sender = sender.clone();
+        glib::timeout_add_local_once(std::time::Duration::from_millis(delay_ms), move || {
+            sender.input(AppMsg::RenderPage { ticket });
+        });
+    }
+
+    fn goto_page(&mut self, page: usize, sender: &ComponentSender<Self>) {
+        let Some(pdf) = &mut self.pdf else { return };
+        let page = page.min(pdf.info.n_pages.saturating_sub(1));
+        if page == pdf.page {
+            return;
+        }
+        pdf.page = page;
+        pdf.texture = None;
+        self.next_key += 1;
+        pdf.key = self.next_key;
+        self.schedule_render(0, sender);
     }
 
     fn sidebar_visible(&self) -> bool {
@@ -166,6 +247,16 @@ impl App {
         self.error = None;
         self.image = opened.image;
         self.properties.set_image(self.image.as_ref());
+        self.pdf = opened.pdf.map(|pdf_info| {
+            self.next_key += 1;
+            PdfView {
+                path: info.path.clone(),
+                info: pdf_info,
+                page: 0,
+                key: self.next_key,
+                texture: None,
+            }
+        });
         self.document = Some(info);
         self.preload_neighbours(sender);
     }
@@ -198,6 +289,7 @@ impl App {
         self.loading = false;
         self.document = None;
         self.image = None;
+        self.pdf = None;
         self.properties.set_image(None);
         self.error = Some(err);
     }
@@ -216,7 +308,7 @@ impl App {
     }
 
     fn page(&self) -> &'static str {
-        if self.image.is_some() { "image" } else { "empty" }
+        if self.image.is_some() || self.pdf.is_some() { "image" } else { "empty" }
     }
 
     fn status_icon(&self) -> &'static str {
@@ -314,6 +406,32 @@ impl SimpleComponent for App {
                         set_menu_model: Some(&recent_menu),
                     },
 
+                    pack_end = &gtk::Box {
+                        set_spacing: 6,
+                        #[watch]
+                        set_visible: model.pdf.is_some(),
+
+                        #[name = "page_entry"]
+                        gtk::Entry {
+                            set_width_chars: 4,
+                            set_max_width_chars: 6,
+                            gtk::prelude::EditableExt::set_alignment: 1.0,
+                            set_valign: gtk::Align::Center,
+                            set_tooltip_text: Some("Go to page (Ctrl+G)"),
+                            #[watch]
+                            set_text: &model.page_text(),
+                            connect_activate[sender] => move |entry| {
+                                sender.input(AppMsg::GotoPageText(entry.text().to_string()));
+                            },
+                        },
+
+                        gtk::Label {
+                            add_css_class: "dim-label",
+                            #[watch]
+                            set_label: &model.page_total(),
+                        },
+                    },
+
                     pack_end = &gtk::Button {
                         set_icon_name: "info-outline-symbolic",
                         set_tooltip_text: Some("Properties (Alt+Enter)"),
@@ -370,7 +488,7 @@ impl SimpleComponent for App {
                                 #[wrap(Some)]
                                 set_child = &LumenCanvas::default() {
                                     #[watch]
-                                    set_image: model.image.as_ref(),
+                                    set_content: model.canvas_content(),
                                 },
                             },
 
@@ -470,6 +588,12 @@ impl SimpleComponent for App {
             cache: Vec::new(),
             preloading: HashSet::new(),
             awaiting: None,
+            pdf: None,
+            next_key: 0,
+            zoom: 0.0,
+            scale_factor: 1,
+            render_ticket: 0,
+            applied_ticket: 0,
             document: None,
             image: None,
             error: None,
@@ -484,7 +608,25 @@ impl SimpleComponent for App {
         open_action.connect_activate(move |_, _| open_sender.input(AppMsg::OpenDialog));
         widgets.main_window.add_action(&open_action);
 
-        let nav_actions: [(&str, AppMsg, &[&str]); 4] = [
+        widgets.canvas.connect_zoom_changed({
+            let sender = sender.clone();
+            move |zoom, scale_factor| sender.input(AppMsg::ZoomChanged { zoom, scale_factor })
+        });
+
+        let goto_action = gio::SimpleAction::new("goto-page", None);
+        let entry = widgets.page_entry.clone();
+        goto_action.connect_activate(move |_, _| {
+            entry.grab_focus();
+            entry.select_region(0, -1);
+        });
+        widgets.main_window.add_action(&goto_action);
+        relm4::main_application().set_accels_for_action("win.goto-page", &["<Control>g"]);
+
+        let nav_actions: [(&str, AppMsg, &[&str]); 8] = [
+            ("page-next", AppMsg::PageBy(1), &["Page_Down"]),
+            ("page-prev", AppMsg::PageBy(-1), &["Page_Up"]),
+            ("page-first", AppMsg::GotoPage(0), &["Home"]),
+            ("page-last", AppMsg::GotoPage(usize::MAX), &["End"]),
             ("next", AppMsg::Navigate(1), &["Right", "space"]),
             ("prev", AppMsg::Navigate(-1), &["Left", "BackSpace"]),
             ("toggle-sidebar", AppMsg::ToggleSidebar, &["F9"]),
@@ -497,6 +639,8 @@ impl SimpleComponent for App {
             action.connect_activate(move |_, _| {
                 sender.input(match msg {
                     AppMsg::Navigate(delta) => AppMsg::Navigate(delta),
+                    AppMsg::PageBy(delta) => AppMsg::PageBy(delta),
+                    AppMsg::GotoPage(page) => AppMsg::GotoPage(page),
                     AppMsg::ToggleProperties => AppMsg::ToggleProperties,
                     _ => AppMsg::ToggleSidebar,
                 })
@@ -636,6 +780,49 @@ impl SimpleComponent for App {
             }
             AppMsg::Thumbnail(path, data) => {
                 self.strip.set_thumbnail(&path, &data.into_texture());
+            }
+            AppMsg::ZoomChanged { zoom, scale_factor } => {
+                self.zoom = zoom;
+                self.scale_factor = scale_factor;
+                if self.pdf.is_some() {
+                    self.schedule_render(RERENDER_DELAY_MS, &sender);
+                }
+            }
+            AppMsg::RenderPage { ticket } => {
+                if ticket != self.render_ticket || self.zoom <= 0.0 {
+                    return;
+                }
+                let Some(pdf) = &self.pdf else { return };
+                let (path, page, key) = (pdf.path.clone(), pdf.page, pdf.key);
+                let scale = self.zoom * self.scale_factor as f64;
+                relm4::spawn_blocking(move || {
+                    let result = pdf::render(&path, page, scale).map_err(|err| format!("{err:#}"));
+                    sender.input(AppMsg::PageRendered { ticket, key, result });
+                });
+            }
+            AppMsg::PageRendered { ticket, key, result } => {
+                let Some(pdf) = &mut self.pdf else { return };
+                if key != pdf.key || ticket < self.applied_ticket {
+                    return;
+                }
+                match result {
+                    Ok(page) => {
+                        self.applied_ticket = ticket;
+                        pdf.texture = Some(page.into_texture());
+                    }
+                    Err(err) => tracing::warn!("render failed: {err}"),
+                }
+            }
+            AppMsg::PageBy(delta) => {
+                if let Some(pdf) = &self.pdf {
+                    self.goto_page(pdf.page.saturating_add_signed(delta), &sender);
+                }
+            }
+            AppMsg::GotoPage(page) => self.goto_page(page, &sender),
+            AppMsg::GotoPageText(text) => {
+                if let Ok(page) = text.trim().parse::<usize>() {
+                    self.goto_page(page.saturating_sub(1), &sender);
+                }
             }
             AppMsg::ToggleSidebar => self.sidebar_open = !self.sidebar_open,
             AppMsg::ToggleProperties => self.properties_open = !self.properties_open,

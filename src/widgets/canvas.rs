@@ -1,9 +1,14 @@
-//! The surface everything is drawn on: shows a texture at an arbitrary zoom.
+//! The surface everything is drawn on: shows an image or a PDF page at an arbitrary zoom.
 //!
 //! The canvas implements `gtk::Scrollable`, so a `gtk::ScrolledWindow` drives
 //! its adjustments. Content smaller than the viewport is centred; larger
 //! content is shifted by the adjustment values. In fit mode the zoom follows
 //! the allocation; any manual zoom leaves fit mode until `best_fit()`.
+//!
+//! Content has a *logical* size (image pixels, or PDF points) that zoom is
+//! applied to. A PDF page's texture may have more pixels than that, rendered
+//! for the current zoom; it is simply stretched over the logical rectangle, so
+//! an outdated texture still shows (blurry) until the fresh one arrives.
 
 use relm4::gtk::{self, gdk, glib, graphene, gsk, prelude::*, subclass::prelude::*};
 
@@ -13,6 +18,19 @@ const MIN_ZOOM: f64 = 0.02;
 const MAX_ZOOM: f64 = 32.0;
 /// Above this zoom, pixels are drawn as crisp squares instead of smoothed.
 const NEAREST_ABOVE: f64 = 2.0;
+/// What the canvas shows.
+pub enum CanvasContent<'a> {
+    None,
+    Image(&'a ImageDocument),
+    /// One PDF page. `key` identifies the page: the same key with a new
+    /// texture keeps the view; a new key starts at best fit. `size` is in points.
+    Page {
+        key: u64,
+        size: (f64, f64),
+        texture: Option<&'a gdk::Texture>,
+    },
+}
+
 const KEY_ZOOM_STEP: f64 = 1.25;
 const WHEEL_ZOOM_STEP: f64 = 0.1;
 
@@ -26,6 +44,13 @@ mod imp {
     pub struct LumenCanvas {
         pub texture: RefCell<Option<gdk::Texture>>,
         pub orientation: Cell<Orientation>,
+        /// Unoriented size the zoom applies to; `None` when there is no content.
+        pub logical: Cell<Option<(f64, f64)>>,
+        /// Draw pixels as hard squares when zoomed in (images, not PDF pages).
+        pub crisp: Cell<bool>,
+        pub content_key: Cell<u64>,
+        pub notified_zoom: Cell<f64>,
+        pub zoom_callback: RefCell<Option<Box<dyn Fn(f64, i32)>>>,
         pub zoom: Cell<f64>,
         pub fit: Cell<bool>,
         pub pointer: Cell<Option<(f64, f64)>>,
@@ -46,6 +71,11 @@ mod imp {
             Self {
                 texture: RefCell::default(),
                 orientation: Cell::new(Orientation::NORMAL),
+                logical: Cell::new(None),
+                crisp: Cell::new(true),
+                content_key: Cell::new(0),
+                notified_zoom: Cell::new(0.0),
+                zoom_callback: RefCell::default(),
                 zoom: Cell::new(1.0),
                 fit: Cell::new(true),
                 pointer: Cell::new(None),
@@ -209,28 +239,35 @@ mod imp {
 
         fn snapshot(&self, snapshot: &gtk::Snapshot) {
             let canvas = self.obj();
-            let Some(texture) = self.texture.borrow().clone() else {
+            let Some((logical_w, logical_h)) = self.logical.get() else {
                 return;
             };
             let zoom = canvas.effective_zoom();
             let (x, y) = canvas.origin();
             // Draw the stored pixels centred on the origin, then rotate/flip
             // them into place inside the (oriented) bounds.
-            let (w, h) = (texture.width() as f64 * zoom, texture.height() as f64 * zoom);
+            let (w, h) = (logical_w * zoom, logical_h * zoom);
             let (shown_w, shown_h) = if self.orientation.get().swaps_axes() { (h, w) } else { (w, h) };
             let bounds = graphene::Rect::new((-w / 2.0) as f32, (-h / 2.0) as f32, w as f32, h as f32);
-            let filter = if zoom > NEAREST_ABOVE {
-                gsk::ScalingFilter::Nearest
-            } else {
-                gsk::ScalingFilter::Trilinear
-            };
+
             snapshot.save();
             snapshot.translate(&graphene::Point::new(
                 (x + shown_w / 2.0) as f32,
                 (y + shown_h / 2.0) as f32,
             ));
             snapshot.transform(Some(&self.orientation.get().transform()));
-            snapshot.append_scaled_texture(&texture, filter, &bounds);
+            match self.texture.borrow().as_ref() {
+                Some(texture) => {
+                    let filter = if self.crisp.get() && zoom > NEAREST_ABOVE {
+                        gsk::ScalingFilter::Nearest
+                    } else {
+                        gsk::ScalingFilter::Trilinear
+                    };
+                    snapshot.append_scaled_texture(texture, filter, &bounds);
+                }
+                // A page that has not been rendered yet: blank paper.
+                None => snapshot.append_color(&gdk::RGBA::WHITE, &bounds),
+            }
             snapshot.restore();
         }
     }
@@ -251,15 +288,59 @@ impl Default for LumenCanvas {
 }
 
 impl LumenCanvas {
-    pub fn set_image(&self, image: Option<&ImageDocument>) {
+    pub fn set_content(&self, content: CanvasContent) {
         let imp = self.imp();
-        let texture = image.map(|i| &i.texture);
-        let orientation = image.map_or(Orientation::NORMAL, |i| i.orientation);
-        if imp.texture.borrow().as_ref() != texture || imp.orientation.get() != orientation {
-            *imp.texture.borrow_mut() = texture.cloned();
-            imp.orientation.set(orientation);
-            self.best_fit();
+        match content {
+            CanvasContent::None => {
+                if imp.logical.get().is_some() {
+                    *imp.texture.borrow_mut() = None;
+                    imp.logical.set(None);
+                    self.best_fit();
+                }
+            }
+            CanvasContent::Image(image) => {
+                let unchanged = imp.crisp.get()
+                    && imp.logical.get().is_some()
+                    && imp.texture.borrow().as_ref() == Some(&image.texture)
+                    && imp.orientation.get() == image.orientation;
+                if !unchanged {
+                    *imp.texture.borrow_mut() = Some(image.texture.clone());
+                    imp.orientation.set(image.orientation);
+                    imp.logical
+                        .set(Some((image.texture.width() as f64, image.texture.height() as f64)));
+                    imp.crisp.set(true);
+                    self.new_content();
+                }
+            }
+            CanvasContent::Page { key, size, texture } => {
+                let same_page = !imp.crisp.get() && imp.logical.get().is_some() && imp.content_key.get() == key;
+                if same_page {
+                    if imp.texture.borrow().as_ref() != texture {
+                        *imp.texture.borrow_mut() = texture.cloned();
+                        self.queue_draw();
+                    }
+                } else {
+                    *imp.texture.borrow_mut() = texture.cloned();
+                    imp.orientation.set(Orientation::NORMAL);
+                    imp.logical.set(Some(size));
+                    imp.crisp.set(false);
+                    imp.content_key.set(key);
+                    self.new_content();
+                }
+            }
         }
+    }
+
+    fn new_content(&self) {
+        // Force a zoom notification even if the fit zoom happens to be unchanged.
+        self.imp().notified_zoom.set(0.0);
+        self.best_fit();
+    }
+
+    /// Called with `(zoom, scale_factor)` whenever the effective zoom changes
+    /// or new content is shown, so the owner can re-render at the right resolution.
+    pub fn connect_zoom_changed(&self, callback: impl Fn(f64, i32) + 'static) {
+        *self.imp().zoom_callback.borrow_mut() = Some(Box::new(callback));
     }
 
     /// The zoom actually used for drawing (the fit zoom while in fit mode).
@@ -269,7 +350,7 @@ impl LumenCanvas {
 
     fn effective_zoom_for(&self, width: f64, height: f64) -> f64 {
         let imp = self.imp();
-        match (imp.fit.get(), imp.texture.borrow().as_ref()) {
+        match (imp.fit.get(), imp.logical.get()) {
             (true, Some(_)) => {
                 let (iw, ih) = self.texture_size().unwrap_or((1.0, 1.0));
                 // Never upscale small images past 100 % just to fill the window.
@@ -327,10 +408,10 @@ impl LumenCanvas {
         self.set_zoom(1.0, None);
     }
 
+    /// Size of the content as displayed (after orientation), at 100 % zoom.
     fn texture_size(&self) -> Option<(f64, f64)> {
         let imp = self.imp();
-        imp.texture.borrow().as_ref().map(|t| {
-            let (w, h) = (t.width() as f64, t.height() as f64);
+        imp.logical.get().map(|(w, h)| {
             if imp.orientation.get().swaps_axes() { (h, w) } else { (w, h) }
         })
     }
@@ -402,5 +483,18 @@ impl LumenCanvas {
         }
         self.update_cursor();
         self.queue_draw();
+        self.notify_zoom(zoom, width, height);
+    }
+
+    fn notify_zoom(&self, zoom: f64, width: f64, height: f64) {
+        let imp = self.imp();
+        let has_content = imp.logical.get().is_some();
+        if !has_content || width < 1.0 || height < 1.0 || (zoom - imp.notified_zoom.get()).abs() < 1e-4 {
+            return;
+        }
+        imp.notified_zoom.set(zoom);
+        if let Some(callback) = imp.zoom_callback.borrow().as_ref() {
+            callback(zoom, self.scale_factor());
+        }
     }
 }

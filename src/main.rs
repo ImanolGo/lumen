@@ -2,6 +2,7 @@ mod app;
 mod document;
 mod folder;
 mod image;
+mod pdf;
 mod thumbnails;
 mod widgets;
 

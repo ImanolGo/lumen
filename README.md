@@ -51,6 +51,8 @@ cargo run -- path/to/file.pdf   # open a file directly
 | `←` / `→`, `Backspace` / `Space` | Previous / next file in the folder |
 | `F9` | Toggle the thumbnail sidebar |
 | `Alt+Enter` | Toggle the properties panel |
+| `Page Up` / `Page Down`, `Home` / `End` | Previous / next / first / last PDF page |
+| `Ctrl+G` | Go to page |
 | `Ctrl+=` / `Ctrl+-` | Zoom in / out |
 | `Ctrl+0` / `Ctrl+1` | Best fit / 100 % |
 | `Ctrl`+scroll | Zoom around the cursor |
