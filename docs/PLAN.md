@@ -160,9 +160,9 @@ Install `glycin` + `glycin-loaders` and use `glycin::Loader`. This gives sandbox
 
 ---
 
-## Phase 4 — Basic image editing
+## Phase 4 — Basic image editing ✅
 
-### 4.1 Edit pipeline and undo 🟡 🧠 command pattern
+### 4.1 ✅ Edit pipeline and undo 🟡 🧠 command pattern
 **Goal:** the foundation for every edit.
 - Tasks
   - `src/edit/mod.rs`: `enum EditOp { Rotate(Rotation), FlipH, FlipV, Crop(Rect), Resize(w,h) }`.
@@ -171,10 +171,10 @@ Install `glycin` + `glycin-loaders` and use `glycin::Loader`. This gives sandbox
   - Unit-test the op composition (e.g. 4× rotate = identity).
 - **Done when:** `Ctrl+Z` / `Ctrl+Shift+Z` work for any sequence of the ops below.
 
-### 4.2 Rotate and flip 🟢
+### 4.2 ✅ Rotate and flip 🟢
 - Tasks: `Ctrl+R` / `Ctrl+Shift+R`, flip in the menu. Display-only until saved.
 
-### 4.3 Save, Save As, Export 🟡
+### 4.3 ✅ Save, Save As, Export 🟡
 - Tasks
   - `Ctrl+S` writes back (asking before overwriting); `Ctrl+Shift+S` Save As with a format choice (PNG/JPEG/WebP), plus a JPEG quality setting.
   - **Lossless JPEG rotation:** for rotate-only edits, update the EXIF orientation tag instead of re-encoding (`little_exif` crate) so quality is never lost.
@@ -182,10 +182,10 @@ Install `glycin` + `glycin-loaders` and use `glycin::Loader`. This gives sandbox
   - Warn on close with unsaved changes (`adw::AlertDialog`).
 - **Done when:** rotating a JPEG and saving gives a byte-identical image body (only the tag changed).
 
-### 4.4 Crop 🟠
+### 4.4 ✅ Crop 🟠
 - Tasks: a crop mode with draggable handles drawn on the canvas, aspect presets (free, 1:1, 4:3, 16:9), Enter to apply, Esc to cancel.
 
-### 4.5 Resize and adjust 🟡
+### 4.5 ✅ Resize and adjust 🟡
 - Tasks: a resize dialog (keep aspect, px/%); optionally exposure/contrast/saturation sliders with a live preview (do this on the GPU via a `gsk::GLShader`, or with the CPU plus a downscaled preview).
 
 ---

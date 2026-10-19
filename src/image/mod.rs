@@ -52,6 +52,64 @@ impl Orientation {
         }
     }
 
+    /// The EXIF value, 1 to 8.
+    pub fn exif_value(self) -> u8 {
+        self.0
+    }
+
+    /// The orientation as a 2×2 matrix from stored to displayed coordinates (y down).
+    fn matrix(self) -> [[i8; 2]; 2] {
+        match self.0 {
+            2 => [[-1, 0], [0, 1]],
+            3 => [[-1, 0], [0, -1]],
+            4 => [[1, 0], [0, -1]],
+            5 => [[0, 1], [1, 0]],
+            6 => [[0, -1], [1, 0]],
+            7 => [[0, -1], [-1, 0]],
+            8 => [[0, 1], [-1, 0]],
+            _ => [[1, 0], [0, 1]],
+        }
+    }
+
+    /// The orientation that first applies `self`, then `op` to the displayed result.
+    fn then(self, op: [[i8; 2]; 2]) -> Self {
+        let m = self.matrix();
+        let product = [
+            [
+                op[0][0] * m[0][0] + op[0][1] * m[1][0],
+                op[0][0] * m[0][1] + op[0][1] * m[1][1],
+            ],
+            [
+                op[1][0] * m[0][0] + op[1][1] * m[1][0],
+                op[1][0] * m[0][1] + op[1][1] * m[1][1],
+            ],
+        ];
+        (1..=8)
+            .map(Self)
+            .find(|candidate| candidate.matrix() == product)
+            .expect("the eight orientations are closed under rotation and mirroring")
+    }
+
+    /// Turn the displayed image a quarter turn clockwise.
+    pub fn rotated_cw(self) -> Self {
+        self.then([[0, -1], [1, 0]])
+    }
+
+    /// Turn the displayed image a quarter turn counter-clockwise.
+    pub fn rotated_ccw(self) -> Self {
+        self.then([[0, 1], [-1, 0]])
+    }
+
+    /// Mirror the displayed image left to right.
+    pub fn flipped_horizontally(self) -> Self {
+        self.then([[-1, 0], [0, 1]])
+    }
+
+    /// Mirror the displayed image top to bottom.
+    pub fn flipped_vertically(self) -> Self {
+        self.then([[1, 0], [0, -1]])
+    }
+
     /// Whether width and height trade places (the 90° and 270° cases).
     pub fn swaps_axes(self) -> bool {
         self.0 >= 5

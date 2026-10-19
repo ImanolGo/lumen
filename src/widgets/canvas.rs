@@ -15,6 +15,10 @@ use relm4::gtk::{self, gdk, glib, graphene, gsk, prelude::*, subclass::prelude::
 use std::{cell::Cell, collections::HashMap, rc::Rc};
 
 use crate::{
+    edit::{
+        CropRect,
+        crop::{self, Grab, Rect},
+    },
     image::{ImageDocument, Orientation},
     pdf::{HitRect, Link, LinkTarget, PageLayout, PagePoint},
 };
@@ -83,6 +87,18 @@ const WHEEL_ZOOM_STEP: f64 = 0.1;
 type ViewCallback = Box<dyn Fn(ViewInfo)>;
 type SelectCallback = Box<dyn Fn(SelectGesture)>;
 
+/// The crop rectangle being edited, in pixels of the image as displayed.
+pub struct CropState {
+    rect: Rect,
+    aspect: Option<f64>,
+    /// The drag in progress: what is grabbed and the rectangle when it began.
+    drag: Option<(Grab, Rect)>,
+}
+
+/// How close (in screen pixels) the pointer must be to grab a crop edge or corner.
+const CROP_REACH: f64 = 12.0;
+const CROP_HANDLE: f32 = 10.0;
+
 pub struct PagesState {
     layout: Rc<PageLayout>,
     textures: HashMap<usize, gdk::Texture>,
@@ -115,6 +131,7 @@ mod imp {
         pub last_view: Cell<Option<ViewInfo>>,
         pub view_callback: RefCell<Option<ViewCallback>>,
         pub select_callback: RefCell<Option<SelectCallback>>,
+        pub crop: RefCell<Option<CropState>>,
         /// A pan drag is in progress (the hover cursor must not override "grabbing").
         pub dragging: Cell<bool>,
         /// Time (ms), position and count of the last press, to detect double and triple clicks.
@@ -146,6 +163,7 @@ mod imp {
                 last_view: Cell::new(None),
                 view_callback: RefCell::default(),
                 select_callback: RefCell::default(),
+                crop: RefCell::default(),
                 dragging: Cell::new(false),
                 last_press: Cell::new(None),
                 zoom: Cell::new(1.0),
@@ -251,6 +269,7 @@ mod imp {
             canvas.add_pan_gesture(gdk::BUTTON_PRIMARY, false);
             canvas.add_pan_gesture(gdk::BUTTON_MIDDLE, true);
             canvas.add_select_gesture();
+            canvas.add_crop_gesture();
             canvas.set_focusable(true);
 
             // Touchpad / touchscreen pinch.
@@ -321,6 +340,7 @@ mod imp {
                 None => snapshot.append_color(&gdk::RGBA::WHITE, &bounds),
             }
             snapshot.restore();
+            canvas.snapshot_crop(snapshot, zoom, (x, y));
         }
     }
 
@@ -431,7 +451,7 @@ impl LumenCanvas {
             start,
             move |gesture, _, _| {
                 // On PDF pages the primary button selects text instead.
-                if canvas.has_pages() && !also_on_pages {
+                if (canvas.has_pages() || canvas.in_crop_mode()) && !also_on_pages {
                     gesture.set_state(gtk::EventSequenceState::Denied);
                     return;
                 }
@@ -562,9 +582,171 @@ impl LumenCanvas {
     }
 
     fn update_hover_cursor(&self, x: f64, y: f64) {
+        if self.in_crop_mode() {
+            if self.imp().crop.borrow().as_ref().is_some_and(|c| c.drag.is_none()) {
+                let name = self.crop_grab_at(x, y).map_or("default", Grab::cursor);
+                self.set_cursor_from_name(Some(name));
+            }
+            return;
+        }
         if self.has_pages() && !self.imp().dragging.get() {
             let name = if self.link_at(x, y).is_some() { "pointer" } else { "text" };
             self.set_cursor_from_name(Some(name));
+        }
+    }
+
+    // --- crop mode ---------------------------------------------------------------
+
+    pub fn in_crop_mode(&self) -> bool {
+        self.imp().crop.borrow().is_some()
+    }
+
+    /// Start cropping the image on screen, with a centred rectangle.
+    pub fn begin_crop(&self, aspect: Option<f64>) {
+        let Some(bounds) = self.texture_size().filter(|_| !self.has_pages()) else {
+            return;
+        };
+        *self.imp().crop.borrow_mut() = Some(CropState {
+            rect: crop::initial(bounds, aspect, 0.8),
+            aspect,
+            drag: None,
+        });
+        self.grab_focus();
+        self.queue_draw();
+        self.update_cursor();
+    }
+
+    /// Change the aspect ratio of the crop rectangle (`None` for free), resetting its size.
+    pub fn set_crop_aspect(&self, aspect: Option<f64>) {
+        let Some(bounds) = self.texture_size() else { return };
+        if let Some(state) = self.imp().crop.borrow_mut().as_mut() {
+            state.aspect = aspect;
+            state.rect = crop::initial(bounds, aspect, 0.8);
+        }
+        self.queue_draw();
+    }
+
+    pub fn end_crop(&self) {
+        *self.imp().crop.borrow_mut() = None;
+        self.queue_draw();
+        self.update_cursor();
+    }
+
+    /// The chosen crop in whole pixels of the displayed image.
+    pub fn crop_rect(&self) -> Option<CropRect> {
+        let (bw, bh) = self.texture_size()?;
+        let rect = self.imp().crop.borrow().as_ref()?.rect;
+        let x = rect.x.floor().clamp(0.0, bw - 1.0);
+        let y = rect.y.floor().clamp(0.0, bh - 1.0);
+        let w = (rect.right().round() - x).clamp(1.0, bw - x);
+        let h = (rect.bottom().round() - y).clamp(1.0, bh - y);
+        Some(CropRect { x: x as u32, y: y as u32, w: w as u32, h: h as u32 })
+    }
+
+    /// What the point (`x`, `y`) in widget coordinates would grab of the crop rectangle.
+    fn crop_grab_at(&self, x: f64, y: f64) -> Option<Grab> {
+        let zoom = self.effective_zoom();
+        let (ox, oy) = self.origin();
+        let rect = self.imp().crop.borrow().as_ref()?.rect;
+        crop::grab_at(rect, (x - ox) / zoom, (y - oy) / zoom, CROP_REACH / zoom)
+    }
+
+    fn add_crop_gesture(&self) {
+        let drag = gtk::GestureDrag::builder().button(gdk::BUTTON_PRIMARY).build();
+        drag.connect_drag_begin(glib::clone!(
+            #[weak(rename_to = canvas)]
+            self,
+            move |gesture, x, y| {
+                let grab = canvas.crop_grab_at(x, y);
+                let mut crop = canvas.imp().crop.borrow_mut();
+                match (crop.as_mut(), grab) {
+                    (Some(state), Some(grab)) => state.drag = Some((grab, state.rect)),
+                    _ => {
+                        gesture.set_state(gtk::EventSequenceState::Denied);
+                    }
+                }
+            }
+        ));
+        drag.connect_drag_update(glib::clone!(
+            #[weak(rename_to = canvas)]
+            self,
+            move |_, dx, dy| {
+                let Some(bounds) = canvas.texture_size() else { return };
+                let zoom = canvas.effective_zoom();
+                if let Some(state) = canvas.imp().crop.borrow_mut().as_mut()
+                    && let Some((grab, start)) = state.drag
+                {
+                    state.rect = crop::drag(start, grab, dx / zoom, dy / zoom, bounds, state.aspect);
+                }
+                canvas.queue_draw();
+            }
+        ));
+        drag.connect_drag_end(glib::clone!(
+            #[weak(rename_to = canvas)]
+            self,
+            move |_, _, _| {
+                if let Some(state) = canvas.imp().crop.borrow_mut().as_mut() {
+                    state.drag = None;
+                }
+            }
+        ));
+        self.add_controller(drag);
+    }
+
+    fn snapshot_crop(&self, snapshot: &gtk::Snapshot, zoom: f64, (ox, oy): (f64, f64)) {
+        let crop = self.imp().crop.borrow();
+        let (Some(state), Some((bw, bh))) = (crop.as_ref(), self.texture_size()) else {
+            return;
+        };
+        let to_widget = |r: Rect| {
+            graphene::Rect::new(
+                (ox + r.x * zoom) as f32,
+                (oy + r.y * zoom) as f32,
+                (r.w * zoom) as f32,
+                (r.h * zoom) as f32,
+            )
+        };
+        let r = state.rect;
+
+        // Dim everything outside the crop, inside the image.
+        let dim = gdk::RGBA::new(0.0, 0.0, 0.0, 0.55);
+        for outside in [
+            Rect { x: 0.0, y: 0.0, w: bw, h: r.y },
+            Rect { x: 0.0, y: r.bottom(), w: bw, h: bh - r.bottom() },
+            Rect { x: 0.0, y: r.y, w: r.x, h: r.h },
+            Rect { x: r.right(), y: r.y, w: bw - r.right(), h: r.h },
+        ] {
+            snapshot.append_color(&dim, &to_widget(outside));
+        }
+
+        // Frame and rule-of-thirds guides.
+        let white = gdk::RGBA::new(1.0, 1.0, 1.0, 0.95);
+        let guide = gdk::RGBA::new(1.0, 1.0, 1.0, 0.4);
+        let area = to_widget(r);
+        let (x, y, w, h) = (area.x(), area.y(), area.width(), area.height());
+        for (rect, color) in [
+            (graphene::Rect::new(x, y, w, 2.0), &white),
+            (graphene::Rect::new(x, y + h - 2.0, w, 2.0), &white),
+            (graphene::Rect::new(x, y, 2.0, h), &white),
+            (graphene::Rect::new(x + w - 2.0, y, 2.0, h), &white),
+            (graphene::Rect::new(x + w / 3.0, y, 1.0, h), &guide),
+            (graphene::Rect::new(x + 2.0 * w / 3.0, y, 1.0, h), &guide),
+            (graphene::Rect::new(x, y + h / 3.0, w, 1.0), &guide),
+            (graphene::Rect::new(x, y + 2.0 * h / 3.0, w, 1.0), &guide),
+        ] {
+            snapshot.append_color(color, &rect);
+        }
+
+        // Handles at the corners and the middle of the sides.
+        let outline = gdk::RGBA::new(0.0, 0.0, 0.0, 0.7);
+        for (hx, hy) in [
+            (x, y), (x + w / 2.0, y), (x + w, y),
+            (x, y + h / 2.0), (x + w, y + h / 2.0),
+            (x, y + h), (x + w / 2.0, y + h), (x + w, y + h),
+        ] {
+            let half = CROP_HANDLE / 2.0;
+            snapshot.append_color(&outline, &graphene::Rect::new(hx - half - 1.0, hy - half - 1.0, CROP_HANDLE + 2.0, CROP_HANDLE + 2.0));
+            snapshot.append_color(&white, &graphene::Rect::new(hx - half, hy - half, CROP_HANDLE, CROP_HANDLE));
         }
     }
 
@@ -689,6 +871,7 @@ impl LumenCanvas {
         // Report the view again even if the zoom happens to be unchanged.
         let imp = self.imp();
         imp.last_view.set(None);
+        *imp.crop.borrow_mut() = None;
         self.best_fit();
     }
 

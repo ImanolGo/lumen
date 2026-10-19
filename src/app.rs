@@ -1,7 +1,9 @@
 //! Root Relm4 component: the main window.
 
+mod edit;
+
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::{BTreeMap, HashSet},
     path::PathBuf,
     rc::Rc,
@@ -16,7 +18,9 @@ use relm4::{
 use crate::{
     APP_NAME,
     document::{self, DocumentInfo, DocumentKind, OpenError, Opened},
+    edit::{Adjustments, EditOp},
     folder, print,
+    save::Format,
     pdf::{
         self, HitRect, OutlineTarget, PageCache, PageLayout, PageRenderer, RenderJob, RenderedPage,
         LinkTarget, LinkWorker, LinksLoaded, NamedAction, PdfSource, SearchEvent, SearchWorker, Granularity, PagePoint, SelectRequest, SelectionResult, SelectionWorker,
@@ -33,6 +37,8 @@ type NavAction<'a> = (&'a str, fn() -> AppMsg, &'a [&'a str]);
 
 /// Action name, canvas handler and keyboard accelerators.
 type ViewAction<'a> = (&'a str, fn(&LumenCanvas), &'a [&'a str]);
+
+use edit::{AdjustField, CropAspect, EditMode, EditSession, Pending, RenderedEdit};
 
 const RECENT_LIMIT: usize = 10;
 /// How many neighbours on each side of the current file stay decoded.
@@ -138,6 +144,21 @@ pub struct App {
     awaiting: Option<PathBuf>,
     document: Option<DocumentInfo>,
     image: Option<crate::image::ImageDocument>,
+    /// The edits of the open image, and the image as edited (if it differs from the file).
+    edit: Option<EditSession>,
+    edited: Option<crate::image::ImageDocument>,
+    edit_mode: EditMode,
+    /// Slider values while the colour adjustment bar is open.
+    adjust: Adjustments,
+    /// Mirrors `is_dirty()` for the window's close handler, which cannot see the model.
+    dirty: Rc<Cell<bool>>,
+    /// Files the user already agreed to overwrite this session.
+    overwrite_ok: HashSet<PathBuf>,
+    /// What to do once a save the user asked for has finished.
+    after_save: Option<Pending>,
+    saving: bool,
+    /// Index into `CropAspect::CHOICES`.
+    crop_choice: usize,
     canvas: LumenCanvas,
     pdf: Option<PdfView>,
     next_key: u64,
@@ -207,7 +228,6 @@ pub enum AppMsg {
     LinksLoaded { doc_key: u64, loaded: LinksLoaded },
     /// Put the selected text on the clipboard.
     Copy,
-    ClearSelection,
     /// The search text changed.
     SearchChanged(String),
     Search {
@@ -218,6 +238,35 @@ pub enum AppMsg {
     SearchStep(isize),
     /// The search bar was opened or closed.
     SearchOpened(bool),
+    /// An editing operation on top of the current edits.
+    Edit(EditOp),
+    Undo,
+    Redo,
+    EnterMode(EditMode),
+    /// Apply (Enter) or cancel (Escape) the open tool.
+    Confirm,
+    Escape,
+    CropAspect(usize),
+    AdjustField(AdjustField, f32),
+    ResizeDialog,
+    EditRendered {
+        ticket: u64,
+        result: Result<(Option<std::sync::Arc<image::DynamicImage>>, RenderedEdit), String>,
+    },
+    Save,
+    SaveConfirmed,
+    SaveCancelled,
+    SaveAs,
+    SaveTo { dest: PathBuf, format: Format },
+    Saved { dest: PathBuf, result: Result<(), String> },
+    /// The window is closing with unsaved edits.
+    CloseRequested,
+    /// The user chose to save before going on to `Pending`.
+    SaveThen(Pending),
+    /// The user chose to discard the edits before going on to `Pending`.
+    Discard(Pending),
+    /// Carry out something that was waiting for the edits to be dealt with.
+    Replay(Pending),
     /// Open the current encrypted file with the password the user typed.
     OpenWithPassword(String),
     /// The password dialog was dismissed.
@@ -243,6 +292,12 @@ impl App {
         }
         let summary = match (&self.pdf, &self.document) {
             (Some(pdf), _) => format!("Page {} of {}", pdf.page + 1, pdf.n_pages),
+            // An edited image can have a different size from the file's.
+            (None, Some(_)) if self.shown_image().is_some() => {
+                let (w, h) = self.shown_image().map_or((0, 0), |i| i.display_size());
+                let edited = if self.is_dirty() { " · edited" } else { "" };
+                format!("{w} × {h} px{edited}")
+            }
             (None, Some(d)) => d.summary.clone(),
             (None, None) => String::new(),
         };
@@ -255,7 +310,7 @@ impl App {
 
     /// Show the current document in the canvas (a no-op if nothing changed).
     fn sync_canvas(&self) {
-        let content = match (&self.pdf, &self.image) {
+        let content = match (&self.pdf, self.shown_image()) {
             (Some(pdf), _) => CanvasContent::Pages {
                 key: pdf.doc_key,
                 layout: &pdf.layout,
@@ -378,7 +433,7 @@ impl App {
 
     /// Print the current document through the GTK print dialog, or export it to `export_to`.
     fn print(&self, export_to: Option<PathBuf>) {
-        let job = match (&self.pdf, &self.image) {
+        let job = match (&self.pdf, self.shown_image()) {
             (Some(pdf), _) => print::Job::Pdf {
                 source: pdf.source.clone(),
                 page_sizes: pdf.layout.rects.iter().map(|r| r.size()).collect(),
@@ -516,6 +571,7 @@ impl App {
         self.loading = false;
         self.error = None;
         self.image = opened.image;
+        self.reset_edit_session();
         self.properties.set_image(self.image.as_ref());
         let opened_outline = opened.pdf.as_ref().map(|p| p.outline.clone());
         self.pdf = opened.pdf.map(|pdf_info| {
@@ -617,6 +673,7 @@ impl App {
         self.document = None;
         self.image = None;
         self.pdf = None;
+        self.reset_edit_session();
         self.page_strip.clear();
         self.properties.set_image(None);
         self.error = Some(err);
@@ -719,6 +776,15 @@ impl SimpleComponent for App {
             set_default_size: (1000, 720),
             #[watch]
             set_title: Some(&model.title()),
+            connect_close_request[sender, dirty] => move |_| {
+                // Unsaved edits: ask first, and close only once they are dealt with.
+                if dirty.get() {
+                    sender.input(AppMsg::CloseRequested);
+                    glib::Propagation::Stop
+                } else {
+                    glib::Propagation::Proceed
+                }
+            },
 
             #[wrap(Some)]
             set_content = &adw::ToolbarView {
@@ -759,6 +825,14 @@ impl SimpleComponent for App {
                             #[watch]
                             set_label: &model.page_total(),
                         },
+                    },
+
+                    pack_end = &gtk::MenuButton {
+                        set_icon_name: "document-edit-symbolic",
+                        set_tooltip_text: Some("Edit"),
+                        set_menu_model: Some(&edit_menu),
+                        #[watch]
+                        set_visible: model.image.is_some(),
                     },
 
                     pack_end = &gtk::MenuButton {
@@ -832,6 +906,85 @@ impl SimpleComponent for App {
                             set_tooltip_text: Some("Next Match (Enter)"),
                             set_action_name: Some("win.find-next"),
                         },
+                    },
+                },
+
+                add_bottom_bar = &gtk::Box {
+                    set_spacing: 12,
+                    set_margin_all: 8,
+                    #[watch]
+                    set_visible: model.edit_mode != EditMode::None,
+
+                    gtk::Box {
+                        set_spacing: 8,
+                        set_valign: gtk::Align::Center,
+                        #[watch]
+                        set_visible: model.edit_mode == EditMode::Crop,
+
+                        gtk::Label { set_label: "Aspect ratio" },
+                        gtk::DropDown::from_strings(&["Free", "Original", "1:1", "4:3", "3:2", "16:9"]) {
+                            #[watch]
+                            set_selected: model.crop_choice as u32,
+                            connect_selected_notify[sender] => move |dropdown| {
+                                sender.input(AppMsg::CropAspect(dropdown.selected() as usize));
+                            },
+                        },
+                    },
+
+                    gtk::Box {
+                        set_spacing: 12,
+                        set_hexpand: true,
+                        set_valign: gtk::Align::Center,
+                        #[watch]
+                        set_visible: model.edit_mode == EditMode::Adjust,
+
+                        gtk::Label { set_label: "Exposure" },
+                        gtk::Scale {
+                            set_range: (-2.0, 2.0),
+                            set_hexpand: true,
+                            set_draw_value: false,
+                            #[watch]
+                            set_value: model.adjust.exposure as f64,
+                            connect_value_changed[sender] => move |scale| {
+                                sender.input(AppMsg::AdjustField(AdjustField::Exposure, scale.value() as f32));
+                            },
+                        },
+                        gtk::Label { set_label: "Contrast" },
+                        gtk::Scale {
+                            set_range: (-1.0, 1.0),
+                            set_hexpand: true,
+                            set_draw_value: false,
+                            #[watch]
+                            set_value: model.adjust.contrast as f64,
+                            connect_value_changed[sender] => move |scale| {
+                                sender.input(AppMsg::AdjustField(AdjustField::Contrast, scale.value() as f32));
+                            },
+                        },
+                        gtk::Label { set_label: "Saturation" },
+                        gtk::Scale {
+                            set_range: (-1.0, 1.0),
+                            set_hexpand: true,
+                            set_draw_value: false,
+                            #[watch]
+                            set_value: model.adjust.saturation as f64,
+                            connect_value_changed[sender] => move |scale| {
+                                sender.input(AppMsg::AdjustField(AdjustField::Saturation, scale.value() as f32));
+                            },
+                        },
+                    },
+
+                    gtk::Box { set_hexpand: true },
+
+                    gtk::Button {
+                        set_label: "Cancel",
+                        set_tooltip_text: Some("Cancel (Esc)"),
+                        connect_clicked[sender] => move |_| sender.input(AppMsg::Escape),
+                    },
+                    gtk::Button {
+                        set_label: "Apply",
+                        set_tooltip_text: Some("Apply (Enter)"),
+                        add_css_class: "suggested-action",
+                        connect_clicked[sender] => move |_| sender.input(AppMsg::Confirm),
                     },
                 },
 
@@ -967,12 +1120,57 @@ impl SimpleComponent for App {
         }
     }
 
+    fn post_view() {
+        // Grey out menu items and shortcuts that do not apply right now.
+        let states = [
+            ("undo", model.can_undo()),
+            ("redo", model.can_redo()),
+            ("rotate-right", model.can_edit()),
+            ("rotate-left", model.can_edit()),
+            ("flip-h", model.can_edit()),
+            ("flip-v", model.can_edit()),
+            ("crop", model.can_edit()),
+            ("resize", model.can_edit()),
+            ("adjust", model.can_edit()),
+            ("save", model.can_save()),
+            ("save-as", model.can_edit()),
+        ];
+        for (name, enabled) in states {
+            if let Some(action) = widgets.main_window.lookup_action(name).and_downcast::<gio::SimpleAction>() {
+                action.set_enabled(enabled);
+            }
+        }
+    }
+
     fn init(
         _init: Self::Init,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         INPUT.with(|input| *input.borrow_mut() = Some(sender.input_sender().clone()));
+
+        let dirty = Rc::new(Cell::new(false));
+
+        let edit_menu = gio::Menu::new();
+        let history = gio::Menu::new();
+        history.append(Some("Undo"), Some("win.undo"));
+        history.append(Some("Redo"), Some("win.redo"));
+        edit_menu.append_section(None, &history);
+        let geometry = gio::Menu::new();
+        geometry.append(Some("Rotate Right"), Some("win.rotate-right"));
+        geometry.append(Some("Rotate Left"), Some("win.rotate-left"));
+        geometry.append(Some("Flip Horizontally"), Some("win.flip-h"));
+        geometry.append(Some("Flip Vertically"), Some("win.flip-v"));
+        edit_menu.append_section(None, &geometry);
+        let tools = gio::Menu::new();
+        tools.append(Some("Crop…"), Some("win.crop"));
+        tools.append(Some("Resize…"), Some("win.resize"));
+        tools.append(Some("Adjust Colour…"), Some("win.adjust"));
+        edit_menu.append_section(None, &tools);
+        let saving = gio::Menu::new();
+        saving.append(Some("Save"), Some("win.save"));
+        saving.append(Some("Save As…"), Some("win.save-as"));
+        edit_menu.append_section(None, &saving);
 
         let print_menu = gio::Menu::new();
         print_menu.append(Some("Print…"), Some("win.print"));
@@ -1038,6 +1236,15 @@ impl SimpleComponent for App {
             render_ticket: 0,
             document: None,
             image: None,
+            edit: None,
+            edited: None,
+            edit_mode: EditMode::None,
+            adjust: Adjustments::default(),
+            dirty: dirty.clone(),
+            overwrite_ok: HashSet::new(),
+            after_save: None,
+            saving: false,
+            crop_choice: 0,
             error: None,
         };
         let model_canvas = model.canvas.clone();
@@ -1065,7 +1272,8 @@ impl SimpleComponent for App {
         let shortcuts = gtk::ShortcutController::new();
         for (accel, make_msg) in [
             ("<Control>c", (|| AppMsg::Copy) as fn() -> AppMsg),
-            ("Escape", || AppMsg::ClearSelection),
+            ("Escape", || AppMsg::Escape),
+            ("Return", || AppMsg::Confirm),
         ] {
             let sender = sender.clone();
             shortcuts.add_shortcut(gtk::Shortcut::new(
@@ -1105,7 +1313,7 @@ impl SimpleComponent for App {
         widgets.main_window.add_action(&goto_action);
         relm4::main_application().set_accels_for_action("win.goto-page", &["<Control>g"]);
 
-        let nav_actions: [NavAction; 13] = [
+        let nav_actions: &[NavAction] = &[
             ("page-next", || AppMsg::PageBy(1), &["Page_Down"]),
             ("page-prev", || AppMsg::PageBy(-1), &["Page_Up"]),
             ("page-first", || AppMsg::GotoPage(0), &["Home"]),
@@ -1119,9 +1327,21 @@ impl SimpleComponent for App {
             ("find-close", || AppMsg::SearchOpened(false), &[]),
             ("copy", || AppMsg::Copy, &[]),
             ("print", || AppMsg::Print(None), &["<Control>p"]),
+            ("undo", || AppMsg::Undo, &["<Control>z"]),
+            ("redo", || AppMsg::Redo, &["<Control><Shift>z", "<Control>y"]),
+            ("rotate-right", || AppMsg::Edit(EditOp::RotateCw), &["<Control>r"]),
+            ("rotate-left", || AppMsg::Edit(EditOp::RotateCcw), &["<Control><Shift>r"]),
+            ("flip-h", || AppMsg::Edit(EditOp::FlipH), &[]),
+            ("flip-v", || AppMsg::Edit(EditOp::FlipV), &[]),
+            ("crop", || AppMsg::EnterMode(EditMode::Crop), &["<Control>k"]),
+            ("resize", || AppMsg::ResizeDialog, &["<Control><Alt>r"]),
+            ("adjust", || AppMsg::EnterMode(EditMode::Adjust), &["<Control><Alt>c"]),
+            ("save", || AppMsg::Save, &["<Control>s"]),
+            ("save-as", || AppMsg::SaveAs, &["<Control><Shift>s"]),
+            ("apply-tool", || AppMsg::Confirm, &[]),
         ];
         let app = relm4::main_application();
-        for (name, make_msg, accels) in nav_actions {
+        for &(name, make_msg, accels) in nav_actions {
             let action = gio::SimpleAction::new(name, None);
             let sender = sender.clone();
             action.connect_activate(move |_, _| sender.input(make_msg()));
@@ -1193,6 +1413,54 @@ impl SimpleComponent for App {
             });
         }
         widgets.main_window.add_action(&export_action);
+
+        // Scripted edits, for tests: `win.crop-to` takes (x, y, w, h), `win.resize-to` (w, h),
+        // `win.adjust-to` (exposure, contrast, saturation) while the Adjust bar is open, `win.apply-tool`
+        // to confirm it, and `win.save-to` a path whose extension picks the format.
+        let crop_action = gio::SimpleAction::new("crop-to", Some(&<(u32, u32, u32, u32)>::static_variant_type()));
+        {
+            let sender = sender.clone();
+            crop_action.connect_activate(move |_, args| {
+                if let Some((x, y, w, h)) = args.and_then(|a| a.get::<(u32, u32, u32, u32)>()) {
+                    sender.input(AppMsg::Edit(EditOp::Crop(crate::edit::CropRect { x, y, w, h })));
+                }
+            });
+        }
+        widgets.main_window.add_action(&crop_action);
+        let resize_action = gio::SimpleAction::new("resize-to", Some(&<(u32, u32)>::static_variant_type()));
+        {
+            let sender = sender.clone();
+            resize_action.connect_activate(move |_, args| {
+                if let Some((w, h)) = args.and_then(|a| a.get::<(u32, u32)>()) {
+                    sender.input(AppMsg::Edit(EditOp::Resize { w, h }));
+                }
+            });
+        }
+        widgets.main_window.add_action(&resize_action);
+        let adjust_action = gio::SimpleAction::new("adjust-to", Some(&<(f64, f64, f64)>::static_variant_type()));
+        {
+            let sender = sender.clone();
+            adjust_action.connect_activate(move |_, args| {
+                if let Some((exposure, contrast, saturation)) = args.and_then(|a| a.get::<(f64, f64, f64)>()) {
+                    sender.input(AppMsg::AdjustField(AdjustField::Exposure, exposure as f32));
+                    sender.input(AppMsg::AdjustField(AdjustField::Contrast, contrast as f32));
+                    sender.input(AppMsg::AdjustField(AdjustField::Saturation, saturation as f32));
+                }
+            });
+        }
+        widgets.main_window.add_action(&adjust_action);
+        let save_to_action = gio::SimpleAction::new("save-to", Some(glib::VariantTy::STRING));
+        {
+            let sender = sender.clone();
+            save_to_action.connect_activate(move |_, path| {
+                if let Some(path) = path.and_then(|p| p.str()) {
+                    let dest = PathBuf::from(path);
+                    let format = Format::from_path(&dest).unwrap_or(Format::Png);
+                    sender.input(AppMsg::SaveTo { dest, format });
+                }
+            });
+        }
+        widgets.main_window.add_action(&save_to_action);
 
         // `win.password` answers the password dialog without typing (for scripts and tests).
         let password_action = gio::SimpleAction::new("password", Some(glib::VariantTy::STRING));
@@ -1291,9 +1559,20 @@ impl SimpleComponent for App {
     }
 
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
+        self.update_inner(msg, sender);
+        // Whatever the message did, the canvas must show the current document.
+        self.sync_canvas();
+    }
+}
+
+impl App {
+    fn update_inner(&mut self, msg: AppMsg, sender: ComponentSender<Self>) {
         match msg {
             AppMsg::OpenDialog => Self::show_open_dialog(sender),
             AppMsg::Open(mut paths) => {
+                if !self.guard(Pending::Open(paths.clone()), &sender) {
+                    return;
+                }
                 if paths.len() == 1 {
                     // Browse the whole folder once it has been listed.
                     let anchor = paths[0].clone();
@@ -1321,12 +1600,18 @@ impl SimpleComponent for App {
                 }
             }
             AppMsg::Navigate(delta) => {
+                if !self.guard(Pending::Navigate(delta), &sender) {
+                    return;
+                }
                 let target = self.index.saturating_add_signed(delta).min(self.list.len().saturating_sub(1));
                 if !self.list.is_empty() && target != self.index {
                     self.show_index(target, &sender);
                 }
             }
             AppMsg::GoTo(index) => {
+                if index != self.index && !self.guard(Pending::GoTo(index), &sender) {
+                    return;
+                }
                 if index != self.index && index < self.list.len() {
                     self.show_index(index, &sender);
                 }
@@ -1493,7 +1778,53 @@ impl SimpleComponent for App {
                 }
             }
             AppMsg::Copy => self.request_selection(true),
-            AppMsg::ClearSelection => self.clear_selection(),
+            AppMsg::Edit(op) => self.push_edit(op, &sender),
+            AppMsg::Undo => self.undo(&sender),
+            AppMsg::Redo => self.redo(&sender),
+            AppMsg::EnterMode(mode) => {
+                self.enter_mode(mode);
+                if mode == EditMode::Crop {
+                    self.set_crop_aspect(CropAspect::CHOICES[self.crop_choice].1);
+                }
+            }
+            AppMsg::Confirm => self.apply_mode(&sender),
+            AppMsg::Escape => {
+                if self.edit_mode == EditMode::None {
+                    self.clear_selection();
+                } else {
+                    self.cancel_mode(&sender);
+                }
+            }
+            AppMsg::CropAspect(index) => {
+                self.crop_choice = index.min(CropAspect::CHOICES.len() - 1);
+                if self.edit_mode == EditMode::Crop {
+                    self.set_crop_aspect(CropAspect::CHOICES[self.crop_choice].1);
+                }
+            }
+            AppMsg::AdjustField(field, value) => self.adjust_field(field, value, &sender),
+            AppMsg::ResizeDialog => self.ask_resize(&sender),
+            AppMsg::EditRendered { ticket, result } => self.edit_rendered(ticket, result),
+            AppMsg::Save => self.save(&sender),
+            AppMsg::SaveConfirmed => self.save_confirmed(&sender),
+            AppMsg::SaveCancelled => self.after_save = None,
+            AppMsg::SaveAs => self.save_as(&sender),
+            AppMsg::SaveTo { dest, format } => self.start_save(dest, format, &sender),
+            AppMsg::Saved { dest, result } => self.saved(dest, result, &sender),
+            AppMsg::CloseRequested => {
+                if self.guard(Pending::Close, &sender) {
+                    self.replay(Pending::Close, &sender);
+                }
+            }
+            AppMsg::SaveThen(pending) => {
+                // A tool that is still open would hide the edits from the save.
+                if self.edit_mode != EditMode::None {
+                    self.cancel_mode(&sender);
+                }
+                self.after_save = Some(pending);
+                self.save(&sender);
+            }
+            AppMsg::Discard(pending) => self.discard(pending, &sender),
+            AppMsg::Replay(pending) => self.replay(pending, &sender),
             AppMsg::SearchChanged(text) => {
                 self.search_text = text;
                 self.restart_search();

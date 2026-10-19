@@ -1,9 +1,11 @@
 mod app;
 mod document;
+mod edit;
 mod folder;
 mod image;
 mod pdf;
 mod print;
+mod save;
 mod thumbnails;
 mod widgets;
 

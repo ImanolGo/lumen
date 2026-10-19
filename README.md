@@ -21,7 +21,7 @@ A fast, Preview-like image and PDF viewer for Linux, written in Rust with GTK 4 
 | ✅ | Image viewing: zoom, pan, folder browsing, EXIF orientation | 1 |
 | ✅ | PDF viewing: continuous scroll, thumbnails, outline, search, text selection, links, passwords | 2 |
 | ✅ | Printing | 3 |
-| ⬜ | Rotate / flip / crop / resize, undo, save & export | 4 |
+| ✅ | Rotate / flip / crop / resize / colour adjust, undo, save & export | 4 |
 | ⬜ | Annotations on images and PDFs | 5 |
 | ⬜ | PDF page management: reorder, rotate, delete, merge | 6 |
 | ⬜ | Preferences, Flatpak, AUR | 7 |
@@ -53,6 +53,11 @@ cargo run -- path/to/file.pdf   # open a file directly
 | `Alt+Enter` | Toggle the properties panel |
 | `Page Up` / `Page Down`, `Home` / `End` | Previous / next / first / last PDF page |
 | `Ctrl+G` | Go to page |
+| `Ctrl+R` / `Ctrl+Shift+R` | Rotate right / left (lossless for JPEG) |
+| `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo |
+| `Ctrl+K` | Crop (`Enter` applies, `Esc` cancels) |
+| `Ctrl+Alt+R` / `Ctrl+Alt+C` | Resize / adjust colour |
+| `Ctrl+S` / `Ctrl+Shift+S` | Save / Save As |
 | `Ctrl+P` | Print (the print button's menu also sets Fit to Page / Actual Size) |
 | `Ctrl+C` | Copy the selected PDF text (drag, double-click or triple-click to select) |
 | `Ctrl+F` | Find in PDF; `Enter` / `Shift+Enter` or `F3` / `Shift+F3` for next / previous match |
