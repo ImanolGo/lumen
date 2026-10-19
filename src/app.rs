@@ -2,6 +2,7 @@
 
 mod edit;
 mod markup;
+mod pages;
 
 use std::{
     cell::{Cell, RefCell},
@@ -29,8 +30,8 @@ use crate::{
     },
     thumbnails::{ThumbData, ThumbnailLoader},
     widgets::{
-        CanvasContent, FileStrip, LumenCanvas, MarkupEvent, OutlinePanel, PageStrip, PropertiesPanel,
-        SelectGesture, THUMB_WIDTH, ViewInfo,
+        CanvasContent, FileStrip, LumenCanvas, MarkupEvent, OutlinePanel, PageStrip, PageStripCallbacks,
+        PropertiesPanel, SelectGesture, THUMB_WIDTH, ViewInfo,
     },
 };
 
@@ -42,6 +43,7 @@ type ViewAction<'a> = (&'a str, fn(&LumenCanvas), &'a [&'a str]);
 
 use edit::{AdjustField, CropAspect, EditMode, EditSession, Pending, RenderedEdit};
 use markup::MarkupState;
+use pages::{PageRequest, WorkDir};
 
 const RECENT_LIMIT: usize = 10;
 /// How many neighbours on each side of the current file stay decoded.
@@ -73,6 +75,8 @@ struct Selection {
 
 /// The PDF being shown as a continuous column of pages.
 struct PdfView {
+    /// The file the user opened; saving writes here. `source` is the working copy being shown.
+    original: PathBuf,
     n_pages: usize,
     has_outline: bool,
     layout: Rc<PageLayout>,
@@ -161,6 +165,14 @@ pub struct App {
     after_save: Option<Pending>,
     saving: bool,
     markup: MarkupState,
+    /// Working copies of the PDF being rearranged (they are the undo history of page changes).
+    work: WorkDir,
+    reload_generation: u64,
+    /// A page operation or reload is under way.
+    page_busy: bool,
+    /// Files still to insert, and the page the next one goes in front of.
+    insert_queue: Vec<PathBuf>,
+    insert_at: usize,
     /// Index into `CropAspect::CHOICES`.
     crop_choice: usize,
     canvas: LumenCanvas,
@@ -263,6 +275,29 @@ pub enum AppMsg {
     SaveAs,
     SaveTo { dest: PathBuf, format: Format },
     Saved { dest: PathBuf, result: Result<(), String> },
+    /// A page operation on the open PDF.
+    PageRequest(PageRequest),
+    PageOpDone {
+        out: PathBuf,
+        goto: usize,
+        result: Result<Vec<pdf::pageops::Entry>, String>,
+    },
+    PdfReloaded {
+        generation: u64,
+        goto: usize,
+        path: PathBuf,
+        result: Result<Opened, OpenError>,
+    },
+    InsertFiles { paths: Vec<PathBuf>, at: Option<usize> },
+    InsertDialog,
+    DeletePages,
+    ExportPagesDialog,
+    ExportPagesTo { dest: PathBuf, pages: Vec<usize> },
+    ExportPngDialog,
+    ExportPngTo { dest: PathBuf },
+    ExportImagePdfDialog,
+    ExportImagePdfTo { dest: PathBuf },
+    Exported(Result<(), String>),
     /// A pointer event while the markup tools are in use.
     Markup(MarkupEvent),
     ToggleMarkup,
@@ -307,7 +342,10 @@ impl App {
             return "Loading…".to_owned();
         }
         let summary = match (&self.pdf, &self.document) {
-            (Some(pdf), _) => format!("Page {} of {}", pdf.page + 1, pdf.n_pages),
+            (Some(pdf), _) => {
+                let edited = if self.markup.pdf_dirty { " · edited" } else { "" };
+                format!("Page {} of {}{edited}", pdf.page + 1, pdf.n_pages)
+            }
             // An edited image can have a different size from the file's.
             (None, Some(_)) if self.shown_image().is_some() => {
                 let (w, h) = self.shown_image().map_or((0, 0), |i| i.display_size());
@@ -583,6 +621,46 @@ impl App {
         }
     }
 
+    /// The viewer state for a PDF shown from `path` (a working copy of `original`).
+    fn make_pdf_view(&mut self, path: &std::path::Path, original: PathBuf, pdf_info: &pdf::PdfInfo, sender: &ComponentSender<Self>) -> PdfView {
+        self.next_key += 1;
+        let doc_key = self.next_key;
+        let layout = Rc::new(PageLayout::new(&pdf_info.page_sizes));
+        let input = sender.input_sender().clone();
+        let source = PdfSource::new(path, pdf_info.password.as_deref());
+        PdfView {
+            original,
+            source: source.clone(),
+            n_pages: pdf_info.n_pages,
+            has_outline: !pdf_info.outline.is_empty(),
+            layout,
+            page: 0,
+            doc_key,
+            visible: (0, 0),
+            cache: PageCache::new(PAGE_CACHE_BYTES),
+            renderer: PageRenderer::new(&source, {
+                let input = input.clone();
+                move |job, result| input.emit(AppMsg::PageRendered { doc_key, job, result })
+            }),
+            thumb_renderer: PageRenderer::new(&source, {
+                let input = input.clone();
+                move |job, result| input.emit(AppMsg::ThumbRendered { doc_key, job, result })
+            }),
+            search: SearchWorker::new(&source, {
+                let input = input.clone();
+                move |event| input.emit(AppMsg::Search { doc_key, event })
+            }),
+            selector: SelectionWorker::new(&source, {
+                let input = input.clone();
+                move |result| input.emit(AppMsg::SelectionResult { doc_key, result })
+            }),
+            links: LinkWorker::new(&source, pdf_info.page_sizes.clone(), move |loaded| {
+                input.emit(AppMsg::LinksLoaded { doc_key, loaded })
+            }),
+            links_loaded: HashSet::new(),
+        }
+    }
+
     /// Make a decoded file the current document.
     fn apply(&mut self, opened: Opened, sender: &ComponentSender<Self>) {
         let info = opened.info;
@@ -596,43 +674,10 @@ impl App {
         self.properties.set_image(self.image.as_ref());
         let opened_outline = opened.pdf.as_ref().map(|p| p.outline.clone());
         let opened_annotations = opened.pdf.as_ref().map(|p| p.annotations.clone());
-        self.pdf = opened.pdf.map(|pdf_info| {
-            self.next_key += 1;
-            let doc_key = self.next_key;
-            let layout = Rc::new(PageLayout::new(&pdf_info.page_sizes));
-            let input = sender.input_sender().clone();
-            let source = PdfSource::new(&info.path, pdf_info.password.as_deref());
-            PdfView {
-                source: source.clone(),
-                n_pages: pdf_info.n_pages,
-                has_outline: !pdf_info.outline.is_empty(),
-                layout,
-                page: 0,
-                doc_key,
-                visible: (0, 0),
-                cache: PageCache::new(PAGE_CACHE_BYTES),
-                renderer: PageRenderer::new(&source, {
-                    let input = input.clone();
-                    move |job, result| input.emit(AppMsg::PageRendered { doc_key, job, result })
-                }),
-                thumb_renderer: PageRenderer::new(&source, {
-                    let input = input.clone();
-                    move |job, result| input.emit(AppMsg::ThumbRendered { doc_key, job, result })
-                }),
-                search: SearchWorker::new(&source, {
-                    let input = input.clone();
-                    move |event| input.emit(AppMsg::Search { doc_key, event })
-                }),
-                selector: SelectionWorker::new(&source, {
-                    let input = input.clone();
-                    move |result| input.emit(AppMsg::SelectionResult { doc_key, result })
-                }),
-                links: LinkWorker::new(&source, pdf_info.page_sizes.clone(), move |loaded| {
-                    input.emit(AppMsg::LinksLoaded { doc_key, loaded })
-                }),
-                links_loaded: HashSet::new(),
-            }
-        });
+        self.pdf = opened
+            .pdf
+            .as_ref()
+            .map(|pdf_info| self.make_pdf_view(&info.path, info.path.clone(), pdf_info, sender));
         match &self.pdf {
             Some(pdf) => self.page_strip.set_document(&pdf.layout.rects.iter().map(|r| r.size()).collect::<Vec<_>>()),
             None => self.page_strip.clear(),
@@ -849,6 +894,14 @@ impl SimpleComponent for App {
                             #[watch]
                             set_label: &model.page_total(),
                         },
+                    },
+
+                    pack_end = &gtk::MenuButton {
+                        set_icon_name: "view-paged-symbolic",
+                        set_tooltip_text: Some("Pages"),
+                        set_menu_model: Some(&pages_menu),
+                        #[watch]
+                        set_visible: model.pdf.is_some(),
                     },
 
                     pack_end = &gtk::ToggleButton {
@@ -1252,8 +1305,8 @@ impl SimpleComponent for App {
         let states = [
             ("undo", model.can_undo()),
             ("redo", model.can_redo()),
-            ("rotate-right", model.can_edit()),
-            ("rotate-left", model.can_edit()),
+            ("rotate-right", model.can_edit() || model.can_pages()),
+            ("rotate-left", model.can_edit() || model.can_pages()),
             ("flip-h", model.can_edit()),
             ("flip-v", model.can_edit()),
             ("crop", model.can_edit()),
@@ -1262,6 +1315,11 @@ impl SimpleComponent for App {
             ("save", model.can_save()),
             ("save-as", model.can_edit() || model.can_save()),
             ("markup", model.can_markup() || model.markup.open),
+            ("delete-pages", model.can_pages()),
+            ("insert-pages", model.can_pages()),
+            ("export-pages", model.can_pages()),
+            ("export-png", model.can_pages()),
+            ("export-image-pdf", model.can_edit()),
         ];
         for (name, enabled) in states {
             if let Some(action) = widgets.main_window.lookup_action(name).and_downcast::<gio::SimpleAction>() {
@@ -1295,6 +1353,9 @@ impl SimpleComponent for App {
         tools.append(Some("Resize…"), Some("win.resize"));
         tools.append(Some("Adjust Colour…"), Some("win.adjust"));
         edit_menu.append_section(None, &tools);
+        let export_section = gio::Menu::new();
+        export_section.append(Some("Export as PDF…"), Some("win.export-image-pdf"));
+        edit_menu.append_section(None, &export_section);
         let markup_section = gio::Menu::new();
         markup_section.append(Some("Markup"), Some("win.markup"));
         edit_menu.append_section(None, &markup_section);
@@ -1302,6 +1363,20 @@ impl SimpleComponent for App {
         saving.append(Some("Save"), Some("win.save"));
         saving.append(Some("Save As…"), Some("win.save-as"));
         edit_menu.append_section(None, &saving);
+
+        let pages_menu = gio::Menu::new();
+        let page_turns = gio::Menu::new();
+        page_turns.append(Some("Rotate Right"), Some("win.rotate-right"));
+        page_turns.append(Some("Rotate Left"), Some("win.rotate-left"));
+        pages_menu.append_section(None, &page_turns);
+        let page_edits = gio::Menu::new();
+        page_edits.append(Some("Delete Pages"), Some("win.delete-pages"));
+        page_edits.append(Some("Insert Pages from File…"), Some("win.insert-pages"));
+        pages_menu.append_section(None, &page_edits);
+        let page_exports = gio::Menu::new();
+        page_exports.append(Some("Export Selected Pages…"), Some("win.export-pages"));
+        page_exports.append(Some("Export Page as PNG…"), Some("win.export-png"));
+        pages_menu.append_section(None, &page_exports);
 
         let print_menu = gio::Menu::new();
         print_menu.append(Some("Print…"), Some("win.print"));
@@ -1323,16 +1398,28 @@ impl SimpleComponent for App {
         let model = App {
             recent_menu: recent_menu.clone(),
             strip,
-            page_strip: PageStrip::new(
-                {
+            page_strip: PageStrip::new(PageStripCallbacks {
+                on_activate: Box::new({
                     let sender = sender.clone();
                     move |page| sender.input(AppMsg::GotoPage(page))
-                },
-                {
+                }),
+                on_visible_changed: Box::new({
                     let sender = sender.input_sender().clone();
                     move || sender.emit(AppMsg::PageStripChanged)
-                },
-            ),
+                }),
+                on_reorder: Box::new({
+                    let sender = sender.clone();
+                    move |pages, before| sender.input(AppMsg::PageRequest(PageRequest::Move { pages, before }))
+                }),
+                on_files: Box::new({
+                    let sender = sender.clone();
+                    move |paths, before| sender.input(AppMsg::InsertFiles { paths, at: Some(before) })
+                }),
+                on_delete: Box::new({
+                    let sender = sender.clone();
+                    move || sender.input(AppMsg::DeletePages)
+                }),
+            }),
             sidebar_stack: gtk::Stack::new(),
             outline: OutlinePanel::new({
                 let sender = sender.clone();
@@ -1376,6 +1463,11 @@ impl SimpleComponent for App {
             after_save: None,
             saving: false,
             markup: MarkupState::default(),
+            work: WorkDir::default(),
+            reload_generation: 0,
+            page_busy: false,
+            insert_queue: Vec::new(),
+            insert_at: 0,
             crop_choice: 0,
             error: None,
         };
@@ -1492,6 +1584,11 @@ impl SimpleComponent for App {
             ("save-as", || AppMsg::SaveAs, &["<Control><Shift>s"]),
             ("apply-tool", || AppMsg::Confirm, &[]),
             ("markup", || AppMsg::ToggleMarkup, &["<Control><Shift>a"]),
+            ("delete-pages", || AppMsg::DeletePages, &[]),
+            ("insert-pages", || AppMsg::InsertDialog, &[]),
+            ("export-pages", || AppMsg::ExportPagesDialog, &[]),
+            ("export-png", || AppMsg::ExportPngDialog, &[]),
+            ("export-image-pdf", || AppMsg::ExportImagePdfDialog, &[]),
         ];
         let app = relm4::main_application();
         for &(name, make_msg, accels) in nav_actions {
@@ -1677,6 +1774,65 @@ impl SimpleComponent for App {
         }
         widgets.main_window.add_action(&text_action);
 
+        // Scripted page operations, for tests: `win.page-op` takes (kind, pages, number, path) with kind
+        // "rotate" (number = degrees), "delete", "move" (number = before) or "insert" (number = at, path = file).
+        let page_op_action = gio::SimpleAction::new(
+            "page-op",
+            Some(&<(String, Vec<u32>, i32, String)>::static_variant_type()),
+        );
+        {
+            let sender = sender.clone();
+            page_op_action.connect_activate(move |_, args| {
+                let Some((kind, pages, number, path)) = args.and_then(|a| a.get::<(String, Vec<u32>, i32, String)>()) else {
+                    return;
+                };
+                let pages: Vec<usize> = pages.into_iter().map(|p| p as usize).collect();
+                let request = match kind.as_str() {
+                    "rotate" => PageRequest::Rotate { pages, degrees: number },
+                    "delete" => PageRequest::Delete(pages),
+                    "move" => PageRequest::Move { pages, before: number as usize },
+                    "insert" => PageRequest::Insert { at: number as usize, file: PathBuf::from(path) },
+                    _ => return,
+                };
+                sender.input(AppMsg::PageRequest(request));
+            });
+        }
+        widgets.main_window.add_action(&page_op_action);
+        let export_pages_action = gio::SimpleAction::new(
+            "export-pages-to",
+            Some(&<(String, Vec<u32>)>::static_variant_type()),
+        );
+        {
+            let sender = sender.clone();
+            export_pages_action.connect_activate(move |_, args| {
+                if let Some((path, pages)) = args.and_then(|a| a.get::<(String, Vec<u32>)>()) {
+                    let pages = pages.into_iter().map(|p| p as usize).collect();
+                    sender.input(AppMsg::ExportPagesTo { dest: PathBuf::from(path), pages });
+                }
+            });
+        }
+        widgets.main_window.add_action(&export_pages_action);
+        let export_png_action = gio::SimpleAction::new("export-png-to", Some(glib::VariantTy::STRING));
+        {
+            let sender = sender.clone();
+            export_png_action.connect_activate(move |_, path| {
+                if let Some(path) = path.and_then(|p| p.str()) {
+                    sender.input(AppMsg::ExportPngTo { dest: PathBuf::from(path) });
+                }
+            });
+        }
+        widgets.main_window.add_action(&export_png_action);
+        let export_image_action = gio::SimpleAction::new("export-image-pdf-to", Some(glib::VariantTy::STRING));
+        {
+            let sender = sender.clone();
+            export_image_action.connect_activate(move |_, path| {
+                if let Some(path) = path.and_then(|p| p.str()) {
+                    sender.input(AppMsg::ExportImagePdfTo { dest: PathBuf::from(path) });
+                }
+            });
+        }
+        widgets.main_window.add_action(&export_image_action);
+
         // `win.password` answers the password dialog without typing (for scripts and tests).
         let password_action = gio::SimpleAction::new("password", Some(glib::VariantTy::STRING));
         {
@@ -1775,6 +1931,8 @@ impl SimpleComponent for App {
 
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
         self.update_inner(msg, sender);
+        // A PDF is edited as long as its history can go back; undoing everything makes it clean again.
+        self.markup.pdf_dirty = self.pdf.is_some() && self.markup.pdf_history.can_undo();
         self.dirty.set(self.is_dirty());
         // Whatever the message did, the canvas must show the current document.
         self.sync_canvas();
@@ -2011,7 +2169,18 @@ impl App {
                 }
             }
             AppMsg::Copy => self.request_selection(true),
-            AppMsg::Edit(op) => self.push_edit(op, &sender),
+            AppMsg::Edit(op) => {
+                // On a PDF the rotate commands turn pages.
+                if self.pdf.is_some() {
+                    match op {
+                        EditOp::RotateCw => self.rotate_pages(90, &sender),
+                        EditOp::RotateCcw => self.rotate_pages(-90, &sender),
+                        _ => {}
+                    }
+                } else {
+                    self.push_edit(op, &sender);
+                }
+            }
             AppMsg::Undo => self.undo(&sender),
             AppMsg::Redo => self.redo(&sender),
             AppMsg::EnterMode(mode) => {
@@ -2028,6 +2197,21 @@ impl App {
                     self.clear_selection();
                 }
             }
+            AppMsg::PageRequest(request) => self.page_request(request, &sender),
+            AppMsg::PageOpDone { out, goto, result } => self.page_op_done(out, goto, result, &sender),
+            AppMsg::PdfReloaded { generation, goto, path, result } => {
+                self.pdf_reloaded(generation, goto, path, result, &sender)
+            }
+            AppMsg::InsertFiles { paths, at } => self.insert_files(paths, at, &sender),
+            AppMsg::InsertDialog => self.insert_dialog(&sender),
+            AppMsg::DeletePages => self.delete_pages(&sender),
+            AppMsg::ExportPagesDialog => self.export_pages_dialog(&sender),
+            AppMsg::ExportPagesTo { dest, pages } => self.export_pages(dest, pages, &sender),
+            AppMsg::ExportPngDialog => self.export_png_dialog(&sender),
+            AppMsg::ExportPngTo { dest } => self.export_png(dest, &sender),
+            AppMsg::ExportImagePdfDialog => self.export_image_pdf_dialog(&sender),
+            AppMsg::ExportImagePdfTo { dest } => self.export_image_pdf(dest, &sender),
+            AppMsg::Exported(result) => self.exported(result),
             AppMsg::Markup(event) => self.markup_event(event, &sender),
             AppMsg::ToggleMarkup => self.toggle_markup(),
             AppMsg::SetTool(tool) => self.set_tool(tool),

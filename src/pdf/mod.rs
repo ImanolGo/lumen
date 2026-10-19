@@ -6,7 +6,9 @@
 mod cache;
 pub mod layout;
 pub mod annots;
+pub mod compose;
 mod links;
+pub mod pageops;
 mod outline;
 mod search;
 mod selection;
@@ -214,4 +216,37 @@ impl PrintDocument {
         page.render_for_printing(cr);
         Ok(())
     }
+}
+
+/// Render page `index` at `scale` device pixels per point, with `layer`'s annotations
+/// drawn over it, and write it to `dest` as a PNG. Blocking.
+pub fn export_png(
+    source: &PdfSource,
+    index: usize,
+    scale: f64,
+    layer: Option<&crate::annotate::AnnotationLayer>,
+    dest: &Path,
+) -> Result<()> {
+    let _poppler = poppler_lock();
+    let doc = open_document(source)?;
+    let page = doc.page(index as i32).with_context(|| format!("page {} does not exist", index + 1))?;
+    annots::hide_supported(&page);
+    let (w, h) = page.size();
+    let scale = effective_scale((w, h), scale);
+    let (pixel_w, pixel_h) = ((w * scale).ceil() as i32, (h * scale).ceil() as i32);
+
+    let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, pixel_w, pixel_h).context("cannot allocate the page")?;
+    {
+        let cr = cairo::Context::new(&surface)?;
+        cr.set_source_rgb(1.0, 1.0, 1.0);
+        cr.paint()?;
+        cr.scale(pixel_w as f64 / w, pixel_h as f64 / h);
+        page.render(&cr);
+        if let Some(layer) = layer {
+            crate::annotate::render::draw_layer(&cr, layer);
+        }
+    }
+    let mut file = std::fs::File::create(dest).with_context(|| format!("cannot create {}", dest.display()))?;
+    surface.write_to_png(&mut file).context("cannot write the PNG")?;
+    Ok(())
 }

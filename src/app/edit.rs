@@ -102,14 +102,14 @@ impl App {
 
     pub(super) fn can_undo(&self) -> bool {
         if self.pdf.is_some() {
-            return self.markup.pdf_history.can_undo();
+            return self.markup.pdf_history.can_undo() && !self.page_busy;
         }
         self.edit_mode == EditMode::None && self.edit.as_ref().is_some_and(|e| e.stack.can_undo())
     }
 
     pub(super) fn can_redo(&self) -> bool {
         if self.pdf.is_some() {
-            return self.markup.pdf_history.can_redo();
+            return self.markup.pdf_history.can_redo() && !self.page_busy;
         }
         self.edit_mode == EditMode::None && self.edit.as_ref().is_some_and(|e| e.stack.can_redo())
     }
@@ -124,7 +124,7 @@ impl App {
     /// The file being shown: the image being edited, or the PDF.
     fn document_path(&self) -> Option<PathBuf> {
         match (&self.pdf, &self.edit) {
-            (Some(pdf), _) => Some(pdf.source.path.clone()),
+            (Some(pdf), _) => Some(pdf.original.clone()),
             (None, Some(session)) => Some(session.path.clone()),
             _ => None,
         }
@@ -166,7 +166,9 @@ impl App {
             return;
         }
         if self.pdf.is_some() {
-            self.markup_undo();
+            if self.markup.pdf_history.undo().is_some() {
+                self.pdf_history_changed(sender);
+            }
             return;
         }
         if let Some(session) = &mut self.edit {
@@ -181,7 +183,9 @@ impl App {
             return;
         }
         if self.pdf.is_some() {
-            self.markup_redo();
+            if self.markup.pdf_history.redo().is_some() {
+                self.pdf_history_changed(sender);
+            }
             return;
         }
         if let Some(session) = &mut self.edit {
@@ -549,11 +553,11 @@ fn file_name(path: &std::path::Path) -> String {
 
 // --- dialogs ---------------------------------------------------------------------
 
-fn main_window() -> Option<gtk::Window> {
+pub(super) fn main_window() -> Option<gtk::Window> {
     relm4::main_application().active_window()
 }
 
-fn show_error(heading: &str, message: &str) {
+pub(super) fn show_error(heading: &str, message: &str) {
     let dialog = adw::AlertDialog::new(Some(heading), Some(message));
     dialog.add_response("ok", "_OK");
     dialog.present(main_window().as_ref());

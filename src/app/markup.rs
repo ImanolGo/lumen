@@ -13,18 +13,26 @@ use crate::{
     widgets::{MarkupEvent, MarkupMode},
 };
 
-/// Annotation layers by page: what the PDF history keeps a snapshot of.
+/// Annotation layers by page.
 pub type Layers = BTreeMap<usize, AnnotationLayer>;
+
+/// One step of a PDF's history: the (working copy of the) file and its annotations.
+/// Page operations change the file, drawing changes the layers; both undo as one.
+#[derive(Debug, Clone)]
+pub struct PdfState {
+    pub file: std::path::PathBuf,
+    pub layers: Layers,
+}
 
 pub struct MarkupState {
     pub open: bool,
     pub editor: Editor,
     /// What the canvas draws; shared with it.
     pub store: Rc<RefCell<Store>>,
-    /// Undo history for a PDF's annotations (images use the edit stack instead).
-    pub pdf_history: History<Layers>,
-    /// The annotations as they were in the file, to return to on "discard".
-    pub pdf_baseline: Layers,
+    /// Undo history for a PDF's pages and annotations (images use the edit stack instead).
+    pub pdf_history: History<PdfState>,
+    /// How the PDF was when opened, to return to on "discard".
+    pub pdf_baseline: PdfState,
     pub pdf_dirty: bool,
     /// A text selection should become a highlight as soon as its rectangles arrive.
     pub highlight_pending: bool,
@@ -36,8 +44,8 @@ impl Default for MarkupState {
             open: false,
             editor: Editor::default(),
             store: Rc::default(),
-            pdf_history: History::new(Layers::new()),
-            pdf_baseline: Layers::new(),
+            pdf_history: History::new(PdfState { file: Default::default(), layers: Layers::new() }),
+            pdf_baseline: PdfState { file: Default::default(), layers: Layers::new() },
             pdf_dirty: false,
             highlight_pending: false,
         }
@@ -221,8 +229,8 @@ impl App {
     /// The annotations changed for good: record an undo step.
     fn commit_markup(&mut self, _sender: &ComponentSender<App>) {
         if self.pdf.is_some() {
-            let layers = self.store_layers();
-            self.markup.pdf_history.commit(layers);
+            let state = PdfState { file: self.markup.pdf_history.present().file.clone(), layers: self.store_layers() };
+            self.markup.pdf_history.commit(state);
             self.markup.pdf_dirty = true;
         } else if let Some(session) = &mut self.edit {
             let layer = self.markup.store.borrow().pages.layers.get(&0).cloned().unwrap_or_default();
@@ -233,7 +241,7 @@ impl App {
     /// Put the store back in line with the history after an undo or redo.
     pub(super) fn sync_markup_from_history(&mut self) {
         let layers = if self.pdf.is_some() {
-            self.markup.pdf_history.present().clone()
+            self.markup.pdf_history.present().layers.clone()
         } else {
             let layer = self.edit.as_ref().and_then(|e| e.stack.current_layer());
             layer.map(|l| BTreeMap::from([(0, (*l).clone())])).unwrap_or_default()
@@ -242,27 +250,25 @@ impl App {
         self.canvas.queue_draw();
     }
 
-    pub(super) fn markup_undo(&mut self) -> bool {
-        if self.pdf.is_some() && self.markup.pdf_history.undo().is_some() {
-            self.sync_markup_from_history();
-            return true;
+    /// The PDF history moved: show the annotations, and the file, of its present state.
+    pub(super) fn pdf_history_changed(&mut self, sender: &ComponentSender<App>) {
+        self.sync_markup_from_history();
+        let file = self.markup.pdf_history.present().file.clone();
+        if let Some(pdf) = &self.pdf
+            && pdf.source.path != file
+        {
+            let page = pdf.page;
+            self.reload_pdf(file, page, sender);
         }
-        false
-    }
-
-    pub(super) fn markup_redo(&mut self) -> bool {
-        if self.pdf.is_some() && self.markup.pdf_history.redo().is_some() {
-            self.sync_markup_from_history();
-            return true;
-        }
-        false
     }
 
     /// Start from the PDF's own annotations (or none, for an image).
     pub(super) fn load_markup(&mut self, annotations: Option<Layers>) {
         let layers = annotations.unwrap_or_default();
-        self.markup.pdf_baseline = layers.clone();
-        self.markup.pdf_history = History::new(layers.clone());
+        let file = self.pdf.as_ref().map(|p| p.source.path.clone()).unwrap_or_default();
+        let state = PdfState { file, layers: layers.clone() };
+        self.markup.pdf_baseline = state.clone();
+        self.markup.pdf_history = History::new(state);
         self.markup.pdf_dirty = false;
         self.markup.highlight_pending = false;
         let mut store = self.markup.store.borrow_mut();
@@ -271,10 +277,12 @@ impl App {
         store.set_pages(layers);
     }
 
-    /// Go back to the annotations the file had (discarding edits).
+    /// Go back to how the PDF was when it was opened (discarding edits).
     pub(super) fn reset_markup(&mut self) {
         let baseline = self.markup.pdf_baseline.clone();
-        self.load_markup(self.pdf.is_some().then_some(baseline));
+        self.markup.pdf_history = History::new(baseline.clone());
+        self.markup.pdf_dirty = false;
+        self.markup.store.borrow_mut().set_pages(baseline.layers);
     }
 
     // --- geometry edits under annotations -----------------------------------------
