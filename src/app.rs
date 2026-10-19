@@ -167,6 +167,11 @@ pub struct App {
     after_save: Option<Pending>,
     saving: bool,
     markup: MarkupState,
+    fullscreen: bool,
+    /// Running while a slideshow is on.
+    slideshow: Option<glib::SourceId>,
+    /// Hides the pointer a little after it stops moving in fullscreen.
+    cursor_timer: Option<glib::SourceId>,
     /// Preferences and remembered state; shared with the window's close handler.
     store: Rc<RefCell<Store>>,
     /// A page to scroll to as soon as the canvas has a size (the one a PDF was left on).
@@ -281,6 +286,14 @@ pub enum AppMsg {
     SaveAs,
     SaveTo { dest: PathBuf, format: Format },
     Saved { dest: PathBuf, result: Result<(), String> },
+    ToggleFullscreen,
+    FullscreenChanged(bool),
+    ToggleSlideshow,
+    SlideshowTick,
+    PointerMoved,
+    HideCursor,
+    /// Escape while presenting: end the slideshow and leave fullscreen.
+    LeavePresentation,
     Preferences,
     SettingsChanged(Settings),
     About,
@@ -441,7 +454,7 @@ impl App {
     }
 
     fn sidebar_visible(&self) -> bool {
-        self.sidebar_open && (self.list.len() > 1 || self.pdf.is_some())
+        self.sidebar_open && !self.fullscreen && (self.list.len() > 1 || self.pdf.is_some())
     }
 
     /// The mode actually shown: the chosen one, unless the document cannot offer it.
@@ -627,6 +640,41 @@ impl App {
                 let result = open_logged(&path, None);
                 sender.input(AppMsg::Loaded { generation, result });
             });
+        }
+    }
+
+    fn can_slideshow(&self) -> bool {
+        !self.is_dirty()
+            && (self.list.len() > 1 || self.pdf.as_ref().is_some_and(|p| p.n_pages > 1))
+    }
+
+    fn stop_slideshow(&mut self) {
+        if let Some(timer) = self.slideshow.take() {
+            timer.remove();
+        }
+    }
+
+    fn start_slideshow_timer(&mut self, sender: &ComponentSender<Self>) {
+        self.stop_slideshow();
+        let seconds = self.store.borrow().settings.slideshow_seconds.max(1);
+        let sender = sender.clone();
+        self.slideshow = Some(glib::timeout_add_seconds_local(seconds, move || {
+            sender.input(AppMsg::SlideshowTick);
+            glib::ControlFlow::Continue
+        }));
+    }
+
+    /// Show the pointer and hide it again if it stays still.
+    fn restart_cursor_timer(&mut self, sender: &ComponentSender<Self>) {
+        if let Some(timer) = self.cursor_timer.take() {
+            timer.remove();
+        }
+        self.canvas.set_cursor_hidden(false);
+        if self.fullscreen {
+            let sender = sender.clone();
+            self.cursor_timer = Some(glib::timeout_add_local_once(std::time::Duration::from_secs(2), move || {
+                sender.input(AppMsg::HideCursor);
+            }));
         }
     }
 
@@ -868,6 +916,9 @@ impl SimpleComponent for App {
             set_default_size: (initial_size.0, initial_size.1),
             #[watch]
             set_title: Some(&model.title()),
+            connect_fullscreened_notify[sender] => move |window| {
+                sender.input(AppMsg::FullscreenChanged(window.is_fullscreen()));
+            },
             connect_close_request[sender, dirty, store] => move |window| {
                 // Remember how the window was left.
                 {
@@ -891,6 +942,10 @@ impl SimpleComponent for App {
 
             #[wrap(Some)]
             set_content = &adw::ToolbarView {
+                #[watch]
+                set_reveal_top_bars: !model.fullscreen,
+                #[watch]
+                set_reveal_bottom_bars: !model.fullscreen || model.edit_mode != EditMode::None,
                 add_top_bar = &adw::HeaderBar {
                     pack_start = &gtk::Button {
                         set_icon_name: "document-open-symbolic",
@@ -1329,7 +1384,7 @@ impl SimpleComponent for App {
 
                     append = &gtk::Box {
                         #[watch]
-                        set_visible: model.properties_open && model.image.is_some(),
+                        set_visible: model.properties_open && model.image.is_some() && !model.fullscreen,
 
                         gtk::Separator {},
 
@@ -1356,6 +1411,8 @@ impl SimpleComponent for App {
             ("save", model.can_save()),
             ("save-as", model.can_edit() || model.can_save()),
             ("markup", model.can_markup() || model.markup.open),
+            ("leave-presentation", model.fullscreen || model.slideshow.is_some()),
+            ("slideshow", model.slideshow.is_some() || model.can_slideshow()),
             ("delete-pages", model.can_pages()),
             ("insert-pages", model.can_pages()),
             ("export-pages", model.can_pages()),
@@ -1429,6 +1486,10 @@ impl SimpleComponent for App {
         pages_menu.append_section(None, &page_exports);
 
         let main_menu = gio::Menu::new();
+        let view_section = gio::Menu::new();
+        view_section.append(Some("Fullscreen"), Some("win.fullscreen"));
+        view_section.append(Some("Slideshow"), Some("win.slideshow"));
+        main_menu.append_section(None, &view_section);
         let prefs_section = gio::Menu::new();
         prefs_section.append(Some("Preferences"), Some("win.preferences"));
         main_menu.append_section(None, &prefs_section);
@@ -1521,6 +1582,9 @@ impl SimpleComponent for App {
             after_save: None,
             saving: false,
             markup: MarkupState::default(),
+            fullscreen: false,
+            slideshow: None,
+            cursor_timer: None,
             store: store.clone(),
             pending_goto: None,
             work: WorkDir::default(),
@@ -1649,6 +1713,9 @@ impl SimpleComponent for App {
             ("apply-tool", || AppMsg::Confirm, &[]),
             ("markup", || AppMsg::ToggleMarkup, &["<Control><Shift>a"]),
             ("preferences", || AppMsg::Preferences, &["<Control>comma"]),
+            ("fullscreen", || AppMsg::ToggleFullscreen, &["F11"]),
+            ("slideshow", || AppMsg::ToggleSlideshow, &["F5"]),
+            ("leave-presentation", || AppMsg::LeavePresentation, &["Escape"]),
             ("about", || AppMsg::About, &[]),
             ("delete-pages", || AppMsg::DeletePages, &[]),
             ("insert-pages", || AppMsg::InsertDialog, &[]),
@@ -1948,6 +2015,15 @@ impl SimpleComponent for App {
         let leave_sender = sender.clone();
         motion.connect_leave(move |_| leave_sender.input(AppMsg::Hover(false)));
         widgets.overlay.add_controller(motion);
+
+        // Any pointer movement brings the cursor back in fullscreen.
+        let pointer = gtk::EventControllerMotion::new();
+        pointer.set_propagation_phase(gtk::PropagationPhase::Capture);
+        pointer.connect_motion({
+            let sender = sender.clone();
+            move |_, _, _| sender.input(AppMsg::PointerMoved)
+        });
+        widgets.main_window.add_controller(pointer);
 
         let view_actions: [ViewAction; 4] = [
             ("zoom-in", LumenCanvas::zoom_in, &["<Control>plus", "<Control>equal"]),
@@ -2272,6 +2348,63 @@ impl App {
                     self.clear_selection();
                 }
             }
+            AppMsg::ToggleFullscreen => {
+                if let Some(window) = relm4::main_application().active_window() {
+                    if window.is_fullscreen() {
+                        window.unfullscreen();
+                    } else {
+                        window.fullscreen();
+                    }
+                }
+            }
+            AppMsg::FullscreenChanged(fullscreen) => {
+                self.fullscreen = fullscreen;
+                if !fullscreen {
+                    self.stop_slideshow();
+                }
+                self.restart_cursor_timer(&sender);
+            }
+            AppMsg::ToggleSlideshow => {
+                if self.slideshow.is_some() {
+                    self.stop_slideshow();
+                    if let Some(window) = relm4::main_application().active_window() {
+                        window.unfullscreen();
+                    }
+                } else if self.can_slideshow() {
+                    if let Some(window) = relm4::main_application().active_window() {
+                        window.fullscreen();
+                    }
+                    self.start_slideshow_timer(&sender);
+                }
+            }
+            AppMsg::SlideshowTick => {
+                if self.is_dirty() {
+                    self.stop_slideshow();
+                } else if let Some(pdf) = self.pdf.as_ref().filter(|p| p.page + 1 < p.n_pages) {
+                    sender.input(AppMsg::GotoPage(pdf.page + 1));
+                } else if self.index + 1 < self.list.len() {
+                    sender.input(AppMsg::Navigate(1));
+                } else {
+                    // The last picture has had its turn.
+                    self.stop_slideshow();
+                }
+            }
+            AppMsg::PointerMoved => {
+                if self.fullscreen {
+                    self.restart_cursor_timer(&sender);
+                }
+            }
+            AppMsg::HideCursor => {
+                if self.fullscreen {
+                    self.canvas.set_cursor_hidden(true);
+                }
+            }
+            AppMsg::LeavePresentation => {
+                self.stop_slideshow();
+                if let Some(window) = relm4::main_application().active_window() {
+                    window.unfullscreen();
+                }
+            }
             AppMsg::Preferences => {
                 let sender = sender.clone();
                 prefs::show_preferences(&self.store.borrow().settings, move |settings| {
@@ -2282,6 +2415,9 @@ impl App {
                 self.store.borrow_mut().settings = settings;
                 self.store.borrow().save_settings();
                 self.apply_settings();
+                if self.slideshow.is_some() {
+                    self.start_slideshow_timer(&sender);
+                }
             }
             AppMsg::About => prefs::show_about(),
             AppMsg::PageRequest(request) => self.page_request(request, &sender),

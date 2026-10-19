@@ -180,6 +180,8 @@ mod imp {
         pub zoom_animation: RefCell<Option<adw::TimedAnimation>>,
         /// Where a running zoom animation is heading, so quick repeats add up.
         pub zoom_target: Cell<f64>,
+        /// Hide the pointer over the canvas (fullscreen, when it has been still for a while).
+        pub cursor_hidden: Cell<bool>,
         pub markup_store: RefCell<Option<Rc<RefCell<Store>>>>,
         pub markup_mode: Cell<MarkupMode>,
         pub markup_callback: RefCell<Option<MarkupCallback>>,
@@ -220,6 +222,7 @@ mod imp {
                 smooth_zoom: Cell::new(true),
                 zoom_animation: RefCell::default(),
                 zoom_target: Cell::new(1.0),
+                cursor_hidden: Cell::new(false),
                 markup_store: RefCell::default(),
                 markup_mode: Cell::new(MarkupMode::Off),
                 markup_callback: RefCell::default(),
@@ -647,6 +650,9 @@ impl LumenCanvas {
     }
 
     fn update_hover_cursor(&self, x: f64, y: f64) {
+        if self.imp().cursor_hidden.get() {
+            return;
+        }
         if self.in_crop_mode() {
             if self.imp().crop.borrow().as_ref().is_some_and(|c| c.drag.is_none()) {
                 let name = self.crop_grab_at(x, y).map_or("default", Grab::cursor);
@@ -1358,7 +1364,17 @@ impl LumenCanvas {
         })
     }
 
+    pub fn set_cursor_hidden(&self, hidden: bool) {
+        if self.imp().cursor_hidden.replace(hidden) != hidden {
+            self.update_cursor();
+        }
+    }
+
     fn update_cursor(&self) {
+        if self.imp().cursor_hidden.get() {
+            self.set_cursor_from_name(Some("none"));
+            return;
+        }
         let name = if let MarkupMode::Draw(tool) = self.imp().markup_mode.get() {
             Some(markup_cursor(tool))
         } else if self.has_pages() {
