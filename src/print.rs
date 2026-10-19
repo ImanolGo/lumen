@@ -10,6 +10,7 @@ use anyhow::{Context, Result};
 use relm4::gtk::{self, cairo, prelude::*};
 
 use crate::{
+    i18n::tr,
     annotate::{AnnotationLayer, render as annot_render},
     image::ImageDocument,
     pdf::{PdfSource, PrintDocument},
@@ -95,7 +96,7 @@ pub fn print(job: Job, name: &str, parent: Option<&gtk::Window>, export_to: Opti
     op.set_unit(gtk::Unit::Points);
     op.set_allow_async(true);
     op.set_embed_page_setup(true);
-    op.set_custom_tab_label(Some("Scaling"));
+    op.set_custom_tab_label(Some(&tr("Scaling")));
     SESSION.with(|s| {
         let s = s.borrow();
         op.set_print_settings(Some(&s.settings));
@@ -121,10 +122,10 @@ pub fn print(job: Job, name: &str, parent: Option<&gtk::Window>, export_to: Opti
     op.connect_create_custom_widget({
         let choice = Rc::clone(&choice);
         move |_| {
-            let dropdown = gtk::DropDown::from_strings(&["Fit to page", "Actual size"]);
+            let dropdown = gtk::DropDown::from_strings(&[&tr("Fit to page"), &tr("Actual size")]);
             dropdown.set_selected(SESSION.with(|s| s.borrow().scaling == Scaling::ActualSize) as u32);
             let row = gtk::Box::builder().spacing(12).margin_top(12).margin_start(12).margin_end(12).build();
-            row.append(&gtk::Label::new(Some("Size on paper")));
+            row.append(&gtk::Label::new(Some(&tr("Size on paper"))));
             row.append(&dropdown);
             *choice.borrow_mut() = Some(dropdown);
             let container = gtk::Box::new(gtk::Orientation::Vertical, 0);

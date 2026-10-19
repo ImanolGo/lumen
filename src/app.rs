@@ -6,6 +6,7 @@ mod pages;
 mod prefs;
 mod shortcuts;
 
+use crate::i18n::{tr, tr_fmt};
 use std::{
     cell::{Cell, RefCell},
     collections::{BTreeMap, HashSet},
@@ -363,24 +364,31 @@ impl App {
 
     fn subtitle(&self) -> String {
         if self.loading {
-            return "Loading…".to_owned();
+            return tr("Loading…");
         }
         let summary = match (&self.pdf, &self.document) {
             (Some(pdf), _) => {
-                let edited = if self.markup.pdf_dirty { " · edited" } else { "" };
-                format!("Page {} of {}{edited}", pdf.page + 1, pdf.n_pages)
+                let edited = if self.markup.pdf_dirty { tr(" · edited") } else { String::new() };
+                let position = tr_fmt(
+                    "Page {page} of {total}",
+                    &[("page", &(pdf.page + 1).to_string()), ("total", &pdf.n_pages.to_string())],
+                );
+                format!("{position}{edited}")
             }
             // An edited image can have a different size from the file's.
             (None, Some(_)) if self.shown_image().is_some() => {
                 let (w, h) = self.shown_image().map_or((0, 0), |i| i.display_size());
-                let edited = if self.is_dirty() { " · edited" } else { "" };
-                format!("{w} × {h} px{edited}")
+                let edited = if self.is_dirty() { tr(" · edited") } else { String::new() };
+                format!("{}{edited}", tr_fmt("{width} × {height} px", &[("width", &w.to_string()), ("height", &h.to_string())]))
             }
             (None, Some(d)) => d.summary.clone(),
             (None, None) => String::new(),
         };
         if self.list.len() > 1 {
-            format!("{} of {} · {summary}", self.index + 1, self.list.len())
+            tr_fmt(
+                "{index} of {total} · {summary}",
+                &[("index", &(self.index + 1).to_string()), ("total", &self.list.len().to_string()), ("summary", &summary)],
+            )
         } else {
             summary
         }
@@ -528,8 +536,8 @@ impl App {
         let parent = relm4::main_application().active_window();
         if let Err(err) = print::print(job, &name, parent.as_ref(), export_to.as_deref()) {
             tracing::warn!("print failed: {err:#}");
-            let dialog = adw::AlertDialog::new(Some("Could Not Print"), Some(&format!("{err:#}")));
-            dialog.add_response("ok", "_OK");
+            let dialog = adw::AlertDialog::new(Some(&tr("Could Not Print")), Some(&format!("{err:#}")));
+            dialog.add_response("ok", &tr("_OK"));
             dialog.present(parent.as_ref());
         }
     }
@@ -595,9 +603,12 @@ impl App {
         let positions = self.hit_positions();
         let more = if self.searching { "…" } else { "" };
         match self.current_hit.and_then(|c| positions.iter().position(|&p| p == c)) {
-            Some(i) => format!("{} of {}{more}", i + 1, positions.len()),
-            None if self.searching => "Searching…".to_owned(),
-            None => "No results".to_owned(),
+            Some(i) => format!(
+                "{}{more}",
+                tr_fmt("{current} of {total}", &[("current", &(i + 1).to_string()), ("total", &positions.len().to_string())])
+            ),
+            None if self.searching => tr("Searching…"),
+            None => tr("No results"),
         }
     }
 
@@ -850,32 +861,31 @@ impl App {
 
     fn status_title(&self) -> String {
         match (&self.error, &self.document) {
-            (Some(_), _) => "Could Not Open File".to_owned(),
+            (Some(_), _) => tr("Could Not Open File"),
             (None, Some(d)) => d.file_name(),
-            (None, None) => "Open a Picture or PDF".to_owned(),
+            (None, None) => tr("Open a Picture or PDF"),
         }
     }
 
     fn status_description(&self) -> String {
         match (&self.error, &self.document) {
             (Some(err), _) => err.clone(),
-            // Placeholder until the real viewers land in Phases 1 and 2.
-            (None, Some(d)) => format!("{} — viewer coming in the next step", d.summary),
-            (None, None) => "Press Ctrl+O or pass a file on the command line".to_owned(),
+            (None, Some(d)) => d.summary.clone(),
+            (None, None) => tr("Press Ctrl+O or pass a file on the command line"),
         }
     }
 
     fn show_open_dialog(sender: ComponentSender<Self>) {
         let images = gtk::FileFilter::new();
-        images.set_name(Some("Images"));
+        images.set_name(Some(&tr("Images")));
         images.add_pixbuf_formats();
 
         let pdfs = gtk::FileFilter::new();
-        pdfs.set_name(Some("PDF Documents"));
+        pdfs.set_name(Some(&tr("PDF Documents")));
         pdfs.add_mime_type("application/pdf");
 
         let all = gtk::FileFilter::new();
-        all.set_name(Some("Images and PDFs"));
+        all.set_name(Some(&tr("Images and PDFs")));
         all.add_pixbuf_formats();
         all.add_mime_type("application/pdf");
 
@@ -885,7 +895,7 @@ impl App {
         filters.append(&pdfs);
 
         let dialog = gtk::FileDialog::builder()
-            .title("Open")
+            .title(tr("Open"))
             .modal(true)
             .filters(&filters)
             .default_filter(&all)
@@ -951,13 +961,13 @@ impl SimpleComponent for App {
                 add_top_bar = &adw::HeaderBar {
                     pack_start = &gtk::Button {
                         set_icon_name: "document-open-symbolic",
-                        set_tooltip_text: Some("Open… (Ctrl+O)"),
+                        set_tooltip_text: Some(&tr("Open… (Ctrl+O)")),
                         set_action_name: Some("win.open"),
                     },
 
                     pack_start = &gtk::MenuButton {
                         set_icon_name: "document-open-recent-symbolic",
-                        set_tooltip_text: Some("Recent Files"),
+                        set_tooltip_text: Some(&tr("Recent Files")),
                         set_menu_model: Some(&recent_menu),
                     },
 
@@ -972,7 +982,7 @@ impl SimpleComponent for App {
                             set_max_width_chars: 6,
                             gtk::prelude::EditableExt::set_alignment: 1.0,
                             set_valign: gtk::Align::Center,
-                            set_tooltip_text: Some("Go to page (Ctrl+G)"),
+                            set_tooltip_text: Some(&tr("Go to page (Ctrl+G)")),
                             #[watch]
                             set_text: &model.page_text(),
                             connect_activate[sender] => move |entry| {
@@ -989,14 +999,14 @@ impl SimpleComponent for App {
 
                     pack_end = &gtk::MenuButton {
                         set_icon_name: "open-menu-symbolic",
-                        set_tooltip_text: Some("Main Menu"),
+                        set_tooltip_text: Some(&tr("Main Menu")),
                         set_primary: true,
                         set_menu_model: Some(&main_menu),
                     },
 
                     pack_end = &gtk::MenuButton {
                         set_icon_name: "view-paged-symbolic",
-                        set_tooltip_text: Some("Pages"),
+                        set_tooltip_text: Some(&tr("Pages")),
                         set_menu_model: Some(&pages_menu),
                         #[watch]
                         set_visible: model.pdf.is_some(),
@@ -1004,7 +1014,7 @@ impl SimpleComponent for App {
 
                     pack_end = &gtk::ToggleButton {
                         set_icon_name: "document-edit-symbolic",
-                        set_tooltip_text: Some("Markup (Ctrl+Shift+A)"),
+                        set_tooltip_text: Some(&tr("Markup (Ctrl+Shift+A)")),
                         #[watch]
                         set_active: model.markup.open,
                         #[watch]
@@ -1014,7 +1024,7 @@ impl SimpleComponent for App {
 
                     pack_end = &gtk::MenuButton {
                         set_icon_name: "edit-symbolic",
-                        set_tooltip_text: Some("Edit"),
+                        set_tooltip_text: Some(&tr("Edit")),
                         set_menu_model: Some(&edit_menu),
                         #[watch]
                         set_visible: model.image.is_some(),
@@ -1022,7 +1032,7 @@ impl SimpleComponent for App {
 
                     pack_end = &gtk::MenuButton {
                         set_icon_name: "document-print-symbolic",
-                        set_tooltip_text: Some("Print (Ctrl+P)"),
+                        set_tooltip_text: Some(&tr("Print (Ctrl+P)")),
                         set_menu_model: Some(&print_menu),
                         #[watch]
                         set_visible: model.image.is_some() || model.pdf.is_some(),
@@ -1030,7 +1040,7 @@ impl SimpleComponent for App {
 
                     pack_end = &gtk::Button {
                         set_icon_name: "info-outline-symbolic",
-                        set_tooltip_text: Some("Properties (Alt+Enter)"),
+                        set_tooltip_text: Some(&tr("Properties (Alt+Enter)")),
                         set_action_name: Some("win.toggle-properties"),
                         #[watch]
                         set_visible: model.image.is_some(),
@@ -1038,7 +1048,7 @@ impl SimpleComponent for App {
 
                     pack_end = &gtk::Button {
                         set_icon_name: "sidebar-show-symbolic",
-                        set_tooltip_text: Some("Toggle Sidebar (F9)"),
+                        set_tooltip_text: Some(&tr("Toggle Sidebar (F9)")),
                         set_action_name: Some("win.toggle-sidebar"),
                         #[watch]
                         set_visible: model.list.len() > 1,
@@ -1068,7 +1078,7 @@ impl SimpleComponent for App {
                         gtk::SearchEntry {
                             set_hexpand: true,
                             set_max_width_chars: 40,
-                            set_placeholder_text: Some("Find in document"),
+                            set_placeholder_text: Some(&tr("Find in document")),
                             connect_search_changed[sender] => move |entry| {
                                 sender.input(AppMsg::SearchChanged(entry.text().to_string()));
                             },
@@ -1083,12 +1093,12 @@ impl SimpleComponent for App {
 
                         gtk::Button {
                             set_icon_name: "go-up-symbolic",
-                            set_tooltip_text: Some("Previous Match (Shift+Enter)"),
+                            set_tooltip_text: Some(&tr("Previous Match (Shift+Enter)")),
                             set_action_name: Some("win.find-prev"),
                         },
                         gtk::Button {
                             set_icon_name: "go-down-symbolic",
-                            set_tooltip_text: Some("Next Match (Enter)"),
+                            set_tooltip_text: Some(&tr("Next Match (Enter)")),
                             set_action_name: Some("win.find-next"),
                         },
                     },
@@ -1104,49 +1114,49 @@ impl SimpleComponent for App {
                     gtk::Box {
                         add_css_class: "linked",
                         gtk::ToggleButton {
-                            set_label: "Select",
+                            set_label: &tr("Select"),
                             #[watch]
                             set_active: model.markup_tool() == Tool::Select,
                             connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Select)),
                         },
                         gtk::ToggleButton {
-                            set_label: "Rectangle",
+                            set_label: &tr("Rectangle"),
                             #[watch]
                             set_active: model.markup_tool() == Tool::Rectangle,
                             connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Rectangle)),
                         },
                         gtk::ToggleButton {
-                            set_label: "Ellipse",
+                            set_label: &tr("Ellipse"),
                             #[watch]
                             set_active: model.markup_tool() == Tool::Ellipse,
                             connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Ellipse)),
                         },
                         gtk::ToggleButton {
-                            set_label: "Arrow",
+                            set_label: &tr("Arrow"),
                             #[watch]
                             set_active: model.markup_tool() == Tool::Arrow,
                             connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Arrow)),
                         },
                         gtk::ToggleButton {
-                            set_label: "Line",
+                            set_label: &tr("Line"),
                             #[watch]
                             set_active: model.markup_tool() == Tool::Line,
                             connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Line)),
                         },
                         gtk::ToggleButton {
-                            set_label: "Pen",
+                            set_label: &tr("Pen"),
                             #[watch]
                             set_active: model.markup_tool() == Tool::Pen,
                             connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Pen)),
                         },
                         gtk::ToggleButton {
-                            set_label: "Text",
+                            set_label: &tr("Text"),
                             #[watch]
                             set_active: model.markup_tool() == Tool::Text,
                             connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Text)),
                         },
                         gtk::ToggleButton {
-                            set_label: "Highlight",
+                            set_label: &tr("Highlight"),
                             #[watch]
                             set_active: model.markup_tool() == Tool::Highlight,
                             connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Highlight)),
@@ -1157,22 +1167,22 @@ impl SimpleComponent for App {
 
                     #[local_ref]
                     color_button -> gtk::ColorDialogButton {
-                        set_tooltip_text: Some("Colour"),
+                        set_tooltip_text: Some(&tr("Colour")),
                     },
 
-                    gtk::Label { set_label: "Width" },
+                    gtk::Label { set_label: &tr("Width") },
                     gtk::SpinButton {
                         set_adjustment: &gtk::Adjustment::new(3.0, 1.0, 40.0, 1.0, 5.0, 0.0),
-                        set_tooltip_text: Some("Line width"),
+                        set_tooltip_text: Some(&tr("Line width")),
                         #[watch]
                         set_value: model.markup.editor.style.width,
                         connect_value_changed[sender] => move |spin| sender.input(AppMsg::SetWidth(spin.value())),
                     },
 
-                    gtk::Label { set_label: "Text size" },
+                    gtk::Label { set_label: &tr("Text size") },
                     gtk::SpinButton {
                         set_adjustment: &gtk::Adjustment::new(18.0, 6.0, 200.0, 1.0, 6.0, 0.0),
-                        set_tooltip_text: Some("Text size"),
+                        set_tooltip_text: Some(&tr("Text size")),
                         #[watch]
                         set_value: model.markup.editor.style.font_size,
                         connect_value_changed[sender] => move |spin| sender.input(AppMsg::SetFontSize(spin.value())),
@@ -1182,7 +1192,7 @@ impl SimpleComponent for App {
 
                     gtk::Button {
                         set_icon_name: "edit-delete-symbolic",
-                        set_tooltip_text: Some("Delete the selected annotation (Delete)"),
+                        set_tooltip_text: Some(&tr("Delete the selected annotation (Delete)")),
                         connect_clicked[sender] => move |_| sender.input(AppMsg::MarkupDelete),
                     },
                 },
@@ -1199,8 +1209,8 @@ impl SimpleComponent for App {
                         #[watch]
                         set_visible: model.edit_mode == EditMode::Crop,
 
-                        gtk::Label { set_label: "Aspect ratio" },
-                        gtk::DropDown::from_strings(&["Free", "Original", "1:1", "4:3", "3:2", "16:9"]) {
+                        gtk::Label { set_label: &tr("Aspect ratio") },
+                        gtk::DropDown::from_strings(&[&tr("Free"), &tr("Original"), &tr("1:1"), &tr("4:3"), &tr("3:2"), &tr("16:9")]) {
                             #[watch]
                             set_selected: model.crop_choice as u32,
                             connect_selected_notify[sender] => move |dropdown| {
@@ -1216,7 +1226,7 @@ impl SimpleComponent for App {
                         #[watch]
                         set_visible: model.edit_mode == EditMode::Adjust,
 
-                        gtk::Label { set_label: "Exposure" },
+                        gtk::Label { set_label: &tr("Exposure") },
                         gtk::Scale {
                             set_range: (-2.0, 2.0),
                             set_hexpand: true,
@@ -1227,7 +1237,7 @@ impl SimpleComponent for App {
                                 sender.input(AppMsg::AdjustField(AdjustField::Exposure, scale.value() as f32));
                             },
                         },
-                        gtk::Label { set_label: "Contrast" },
+                        gtk::Label { set_label: &tr("Contrast") },
                         gtk::Scale {
                             set_range: (-1.0, 1.0),
                             set_hexpand: true,
@@ -1238,7 +1248,7 @@ impl SimpleComponent for App {
                                 sender.input(AppMsg::AdjustField(AdjustField::Contrast, scale.value() as f32));
                             },
                         },
-                        gtk::Label { set_label: "Saturation" },
+                        gtk::Label { set_label: &tr("Saturation") },
                         gtk::Scale {
                             set_range: (-1.0, 1.0),
                             set_hexpand: true,
@@ -1254,13 +1264,13 @@ impl SimpleComponent for App {
                     gtk::Box { set_hexpand: true },
 
                     gtk::Button {
-                        set_label: "Cancel",
-                        set_tooltip_text: Some("Cancel (Esc)"),
+                        set_label: &tr("Cancel"),
+                        set_tooltip_text: Some(&tr("Cancel (Esc)")),
                         connect_clicked[sender] => move |_| sender.input(AppMsg::Escape),
                     },
                     gtk::Button {
-                        set_label: "Apply",
-                        set_tooltip_text: Some("Apply (Enter)"),
+                        set_label: &tr("Apply"),
+                        set_tooltip_text: Some(&tr("Apply (Enter)")),
                         add_css_class: "suggested-action",
                         connect_clicked[sender] => move |_| sender.input(AppMsg::Confirm),
                     },
@@ -1283,7 +1293,7 @@ impl SimpleComponent for App {
                                 set_visible: model.sidebar_switchable(),
 
                                 gtk::ToggleButton {
-                                    set_label: "Files",
+                                    set_label: &tr("Files"),
                                     #[watch]
                                     set_visible: model.list.len() > 1,
                                     #[watch]
@@ -1291,13 +1301,13 @@ impl SimpleComponent for App {
                                     connect_clicked[sender] => move |_| sender.input(AppMsg::SidebarMode(SidebarMode::Files)),
                                 },
                                 gtk::ToggleButton {
-                                    set_label: "Pages",
+                                    set_label: &tr("Pages"),
                                     #[watch]
                                     set_active: model.mode() == SidebarMode::Pages,
                                     connect_clicked[sender] => move |_| sender.input(AppMsg::SidebarMode(SidebarMode::Pages)),
                                 },
                                 gtk::ToggleButton {
-                                    set_label: "Outline",
+                                    set_label: &tr("Outline"),
                                     #[watch]
                                     set_visible: model.has_outline(),
                                     #[watch]
@@ -1358,7 +1368,7 @@ impl SimpleComponent for App {
                             #[wrap(Some)]
                             set_child = &gtk::Button {
                                 set_icon_name: "go-previous-symbolic",
-                                set_tooltip_text: Some("Previous (Left)"),
+                                set_tooltip_text: Some(&tr("Previous (Left)")),
                                 set_action_name: Some("win.prev"),
                                 set_margin_all: 12,
                                 add_css_class: "osd",
@@ -1375,7 +1385,7 @@ impl SimpleComponent for App {
                             #[wrap(Some)]
                             set_child = &gtk::Button {
                                 set_icon_name: "go-next-symbolic",
-                                set_tooltip_text: Some("Next (Right)"),
+                                set_tooltip_text: Some(&tr("Next (Right)")),
                                 set_action_name: Some("win.next"),
                                 set_margin_all: 12,
                                 add_css_class: "osd",
@@ -1448,64 +1458,64 @@ impl SimpleComponent for App {
 
         let edit_menu = gio::Menu::new();
         let history = gio::Menu::new();
-        history.append(Some("Undo"), Some("win.undo"));
-        history.append(Some("Redo"), Some("win.redo"));
+        history.append(Some(&tr("Undo")), Some("win.undo"));
+        history.append(Some(&tr("Redo")), Some("win.redo"));
         edit_menu.append_section(None, &history);
         let geometry = gio::Menu::new();
-        geometry.append(Some("Rotate Right"), Some("win.rotate-right"));
-        geometry.append(Some("Rotate Left"), Some("win.rotate-left"));
-        geometry.append(Some("Flip Horizontally"), Some("win.flip-h"));
-        geometry.append(Some("Flip Vertically"), Some("win.flip-v"));
+        geometry.append(Some(&tr("Rotate Right")), Some("win.rotate-right"));
+        geometry.append(Some(&tr("Rotate Left")), Some("win.rotate-left"));
+        geometry.append(Some(&tr("Flip Horizontally")), Some("win.flip-h"));
+        geometry.append(Some(&tr("Flip Vertically")), Some("win.flip-v"));
         edit_menu.append_section(None, &geometry);
         let tools = gio::Menu::new();
-        tools.append(Some("Crop…"), Some("win.crop"));
-        tools.append(Some("Resize…"), Some("win.resize"));
-        tools.append(Some("Adjust Colour…"), Some("win.adjust"));
+        tools.append(Some(&tr("Crop…")), Some("win.crop"));
+        tools.append(Some(&tr("Resize…")), Some("win.resize"));
+        tools.append(Some(&tr("Adjust Colour…")), Some("win.adjust"));
         edit_menu.append_section(None, &tools);
         let export_section = gio::Menu::new();
-        export_section.append(Some("Export as PDF…"), Some("win.export-image-pdf"));
+        export_section.append(Some(&tr("Export as PDF…")), Some("win.export-image-pdf"));
         edit_menu.append_section(None, &export_section);
         let markup_section = gio::Menu::new();
-        markup_section.append(Some("Markup"), Some("win.markup"));
+        markup_section.append(Some(&tr("Markup")), Some("win.markup"));
         edit_menu.append_section(None, &markup_section);
         let saving = gio::Menu::new();
-        saving.append(Some("Save"), Some("win.save"));
-        saving.append(Some("Save As…"), Some("win.save-as"));
+        saving.append(Some(&tr("Save")), Some("win.save"));
+        saving.append(Some(&tr("Save As…")), Some("win.save-as"));
         edit_menu.append_section(None, &saving);
 
         let pages_menu = gio::Menu::new();
         let page_turns = gio::Menu::new();
-        page_turns.append(Some("Rotate Right"), Some("win.rotate-right"));
-        page_turns.append(Some("Rotate Left"), Some("win.rotate-left"));
+        page_turns.append(Some(&tr("Rotate Right")), Some("win.rotate-right"));
+        page_turns.append(Some(&tr("Rotate Left")), Some("win.rotate-left"));
         pages_menu.append_section(None, &page_turns);
         let page_edits = gio::Menu::new();
-        page_edits.append(Some("Delete Pages"), Some("win.delete-pages"));
-        page_edits.append(Some("Insert Pages from File…"), Some("win.insert-pages"));
+        page_edits.append(Some(&tr("Delete Pages")), Some("win.delete-pages"));
+        page_edits.append(Some(&tr("Insert Pages from File…")), Some("win.insert-pages"));
         pages_menu.append_section(None, &page_edits);
         let page_exports = gio::Menu::new();
-        page_exports.append(Some("Export Selected Pages…"), Some("win.export-pages"));
-        page_exports.append(Some("Export Page as PNG…"), Some("win.export-png"));
+        page_exports.append(Some(&tr("Export Selected Pages…")), Some("win.export-pages"));
+        page_exports.append(Some(&tr("Export Page as PNG…")), Some("win.export-png"));
         pages_menu.append_section(None, &page_exports);
 
         let main_menu = gio::Menu::new();
         let view_section = gio::Menu::new();
-        view_section.append(Some("Fullscreen"), Some("win.fullscreen"));
-        view_section.append(Some("Slideshow"), Some("win.slideshow"));
+        view_section.append(Some(&tr("Fullscreen")), Some("win.fullscreen"));
+        view_section.append(Some(&tr("Slideshow")), Some("win.slideshow"));
         main_menu.append_section(None, &view_section);
         let prefs_section = gio::Menu::new();
-        prefs_section.append(Some("Preferences"), Some("win.preferences"));
+        prefs_section.append(Some(&tr("Preferences")), Some("win.preferences"));
         main_menu.append_section(None, &prefs_section);
         let about_section = gio::Menu::new();
-        about_section.append(Some("Keyboard Shortcuts"), Some("win.shortcuts"));
-        about_section.append(Some("About Lumen"), Some("win.about"));
+        about_section.append(Some(&tr("Keyboard Shortcuts")), Some("win.shortcuts"));
+        about_section.append(Some(&tr("About Lumen")), Some("win.about"));
         main_menu.append_section(None, &about_section);
 
         let print_menu = gio::Menu::new();
-        print_menu.append(Some("Print…"), Some("win.print"));
+        print_menu.append(Some(&tr("Print…")), Some("win.print"));
         let size_section = gio::Menu::new();
-        size_section.append(Some("Fit to Page"), Some("win.print-scaling::fit"));
-        size_section.append(Some("Actual Size"), Some("win.print-scaling::actual"));
-        print_menu.append_section(Some("Size on Paper"), &size_section);
+        size_section.append(Some(&tr("Fit to Page")), Some("win.print-scaling::fit"));
+        size_section.append(Some(&tr("Actual Size")), Some("win.print-scaling::actual"));
+        print_menu.append_section(Some(&tr("Size on Paper")), &size_section);
 
         let recent_menu = gio::Menu::new();
         refresh_recent_menu(&recent_menu);
@@ -1621,10 +1631,10 @@ impl SimpleComponent for App {
         }
         label_icon_buttons(widgets.main_window.upcast_ref());
         for (entry, label) in [
-            (widgets.page_entry.upcast_ref::<gtk::Widget>(), "Page number"),
-            (widgets.search_entry.upcast_ref::<gtk::Widget>(), "Search in the document"),
+            (widgets.page_entry.upcast_ref::<gtk::Widget>(), tr("Page number")),
+            (widgets.search_entry.upcast_ref::<gtk::Widget>(), tr("Search in the document")),
         ] {
-            entry.update_property(&[gtk::accessible::Property::Label(label)]);
+            entry.update_property(&[gtk::accessible::Property::Label(&label)]);
         }
 
         // Window actions + keyboard shortcuts.
@@ -2561,12 +2571,12 @@ impl App {
 /// Ask for the password of an encrypted PDF; the answer comes back as a message.
 fn ask_password(name: &str, retry: bool, sender: ComponentSender<App>) {
     let body = if retry {
-        format!("The password for “{name}” was incorrect. Try again.")
+        tr_fmt("The password for “{name}” was incorrect. Try again.", &[("name", name)])
     } else {
-        format!("“{name}” is protected. Enter its password to open it.")
+        tr_fmt("“{name}” is protected. Enter its password to open it.", &[("name", name)])
     };
-    let dialog = adw::AlertDialog::new(Some("Password Required"), Some(&body));
-    dialog.add_responses(&[("cancel", "_Cancel"), ("open", "_Open")]);
+    let dialog = adw::AlertDialog::new(Some(&tr("Password Required")), Some(&body));
+    crate::i18n::add_responses(&dialog, &[("cancel", crate::i18n::n_("_Cancel")), ("open", crate::i18n::n_("_Open"))]);
     dialog.set_response_appearance("open", adw::ResponseAppearance::Suggested);
     dialog.set_default_response(Some("open"));
     dialog.set_close_response("cancel");
@@ -2624,7 +2634,7 @@ fn refresh_recent_menu(menu: &gio::Menu) {
 
     if menu.n_items() == 0 {
         // No such action, so the entry shows up disabled.
-        menu.append(Some("No Recent Files"), Some("win.none"));
+        menu.append(Some(&tr("No Recent Files")), Some("win.none"));
     }
 }
 

@@ -61,3 +61,17 @@ Keep test files in `samples/` (git-ignored). Useful ones to collect:
 - **Loupe** (GNOME image viewer, Rust + GTK4) — best reference for the canvas: <https://gitlab.gnome.org/GNOME/loupe>
 - **Papers** (GNOME document viewer) — reference for the PDF view: <https://gitlab.gnome.org/GNOME/papers>
 - GNOME HIG: <https://developer.gnome.org/hig/>
+
+## Translations
+
+Every text the user sees goes through `tr()` (or `tr_fmt()` for texts with `{name}` placeholders;
+`n_()` marks texts in compile-time tables). Translations live in `po/`.
+
+```sh
+./build-aux/update-pot.sh                    # after adding or changing texts: update po/lumen.pot and merge into po/*.po
+msginit -l de -i po/lumen.pot -o po/de.po    # start a new language (then translate the msgstr lines)
+./build-aux/compile-translations.sh          # compile into target/locale
+LANGUAGE=es LUMEN_LOCALEDIR=$PWD/target/locale cargo run   # try it
+```
+
+Add new source files that use `tr()` to `po/POTFILES.in`. Spanish (`es`) is complete.

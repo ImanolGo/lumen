@@ -1,5 +1,6 @@
 //! The preferences dialog and the About dialog.
 
+use crate::i18n::{n_, tr};
 use std::{cell::RefCell, rc::Rc};
 
 use relm4::{
@@ -13,19 +14,20 @@ use crate::{
 };
 
 const ZOOMS: [(&str, DefaultZoom); 2] = [
-    ("Fit to window", DefaultZoom::FitToWindow),
-    ("Actual size", DefaultZoom::ActualSize),
+    (n_("Fit to window"), DefaultZoom::FitToWindow),
+    (n_("Actual size"), DefaultZoom::ActualSize),
 ];
 
 const BACKGROUNDS: [(&str, Background); 4] = [
-    ("Follow the system", Background::System),
-    ("Dark", Background::Dark),
-    ("Light", Background::Light),
-    ("Checkerboard", Background::Checkerboard),
+    (n_("Follow the system"), Background::System),
+    (n_("Dark"), Background::Dark),
+    (n_("Light"), Background::Light),
+    (n_("Checkerboard"), Background::Checkerboard),
 ];
 
 fn combo<T: Copy + PartialEq + 'static>(title: &str, subtitle: &str, items: &'static [(&'static str, T)], current: T) -> adw::ComboRow {
-    let names: Vec<&str> = items.iter().map(|(name, _)| *name).collect();
+    let names: Vec<String> = items.iter().map(|(name, _)| tr(name)).collect();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
     let row = adw::ComboRow::builder()
         .title(title)
         .subtitle(subtitle)
@@ -50,8 +52,8 @@ pub fn show_preferences(current: &Settings, on_change: impl Fn(Settings) + 'stat
     };
     let update = Rc::new(update);
 
-    let viewing = adw::PreferencesGroup::builder().title("Viewing").build();
-    let zoom = combo("Default zoom", "How a new picture is first shown", &ZOOMS, current.default_zoom);
+    let viewing = adw::PreferencesGroup::builder().title(tr("Viewing")).build();
+    let zoom = combo(&tr("Default zoom"), &tr("How a new picture is first shown"), &ZOOMS, current.default_zoom);
     zoom.connect_selected_notify({
         let update = Rc::clone(&update);
         move |row| {
@@ -61,7 +63,7 @@ pub fn show_preferences(current: &Settings, on_change: impl Fn(Settings) + 'stat
     });
     viewing.add(&zoom);
 
-    let background = combo("Background", "Behind pictures and pages", &BACKGROUNDS, current.background);
+    let background = combo(&tr("Background"), &tr("Behind pictures and pages"), &BACKGROUNDS, current.background);
     background.connect_selected_notify({
         let update = Rc::clone(&update);
         move |row| {
@@ -72,8 +74,8 @@ pub fn show_preferences(current: &Settings, on_change: impl Fn(Settings) + 'stat
     viewing.add(&background);
 
     let smooth = adw::SwitchRow::builder()
-        .title("Smooth zoom")
-        .subtitle("Animate zoom changes")
+        .title(tr("Smooth zoom"))
+        .subtitle(tr("Animate zoom changes"))
         .active(current.smooth_zoom)
         .build();
     smooth.connect_active_notify({
@@ -85,10 +87,10 @@ pub fn show_preferences(current: &Settings, on_change: impl Fn(Settings) + 'stat
     });
     viewing.add(&smooth);
 
-    let slideshow = adw::PreferencesGroup::builder().title("Slideshow").build();
+    let slideshow = adw::PreferencesGroup::builder().title(tr("Slideshow")).build();
     let seconds = adw::SpinRow::builder()
-        .title("Time per picture")
-        .subtitle("Seconds before moving on")
+        .title(tr("Time per picture"))
+        .subtitle(tr("Seconds before moving on"))
         .adjustment(&gtk::Adjustment::new(current.slideshow_seconds as f64, 1.0, 120.0, 1.0, 5.0, 0.0))
         .build();
     seconds.connect_value_notify({
@@ -100,10 +102,10 @@ pub fn show_preferences(current: &Settings, on_change: impl Fn(Settings) + 'stat
     });
     slideshow.add(&seconds);
 
-    let general = adw::PreferencesGroup::builder().title("General").build();
+    let general = adw::PreferencesGroup::builder().title(tr("General")).build();
     let remember = adw::SwitchRow::builder()
-        .title("Remember window and place")
-        .subtitle("Window size, the sidebar and the page a PDF was left on")
+        .title(tr("Remember window and place"))
+        .subtitle(tr("Window size, the sidebar and the page a PDF was left on"))
         .active(current.remember_state)
         .build();
     remember.connect_active_notify({
@@ -120,7 +122,7 @@ pub fn show_preferences(current: &Settings, on_change: impl Fn(Settings) + 'stat
     page.add(&slideshow);
     page.add(&general);
     let dialog = adw::PreferencesDialog::new();
-    dialog.set_title("Preferences");
+    dialog.set_title(&tr("Preferences"));
     dialog.add(&page);
     dialog.present(relm4::main_application().active_window().as_ref());
 }
@@ -131,7 +133,7 @@ pub fn show_about() {
         .application_icon(APP_ID)
         .version(env!("CARGO_PKG_VERSION"))
         .developer_name("Imanol Gomez")
-        .comments("A fast image and PDF viewer with light editing and markup.")
+        .comments(tr("A fast image and PDF viewer with light editing and markup."))
         .website("https://github.com/ImanolGo/lumen")
         .issue_url("https://github.com/ImanolGo/lumen/issues")
         .license_type(gtk::License::Gpl30)

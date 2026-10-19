@@ -89,8 +89,8 @@ impl OpenError {
     /// Text for the error page.
     pub fn message(&self) -> String {
         match self {
-            Self::PasswordRequired { retry: true } => "The password is incorrect".to_owned(),
-            Self::PasswordRequired { retry: false } => "This PDF is password protected".to_owned(),
+            Self::PasswordRequired { retry: true } => crate::i18n::tr("The password is incorrect"),
+            Self::PasswordRequired { retry: false } => crate::i18n::tr("This PDF is password protected"),
             Self::Other(message) => message.clone(),
         }
     }

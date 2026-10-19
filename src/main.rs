@@ -3,6 +3,7 @@ mod app;
 mod document;
 mod edit;
 mod folder;
+mod i18n;
 mod image;
 mod pdf;
 mod print;
@@ -23,6 +24,7 @@ fn main() -> glib::ExitCode {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "lumen=info".into()))
         .init();
+    i18n::init();
 
     // HANDLES_OPEN makes GApplication parse file arguments itself, so the CLI,
     // "Open With…" and a second `lumen file` launch all end up in `open`.

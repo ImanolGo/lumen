@@ -5,6 +5,7 @@
 //! simply goes back to the previous file. Nothing touches the original until the
 //! user saves.
 
+use crate::i18n::tr;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -160,12 +161,12 @@ impl App {
             return;
         }
         let filter = gtk::FileFilter::new();
-        filter.set_name(Some("PDF documents and pictures"));
+        filter.set_name(Some(&tr("PDF documents and pictures")));
         filter.add_mime_type("application/pdf");
         filter.add_pixbuf_formats();
         let filters = gio::ListStore::new::<gtk::FileFilter>();
         filters.append(&filter);
-        let dialog = gtk::FileDialog::builder().title("Insert Pages").modal(true).filters(&filters).build();
+        let dialog = gtk::FileDialog::builder().title(tr("Insert Pages")).modal(true).filters(&filters).build();
         let sender = sender.clone();
         dialog.open_multiple(super::edit::main_window().as_ref(), gio::Cancellable::NONE, move |result| {
             let Ok(files) = result else { return };
@@ -224,7 +225,7 @@ impl App {
                 self.page_busy = false;
                 self.loading = false;
                 self.insert_queue.clear();
-                super::edit::show_error("Could Not Change the Pages", &message);
+                super::edit::show_error(&tr("Could Not Change the Pages"), &message);
             }
         }
     }
@@ -256,7 +257,7 @@ impl App {
         self.page_busy = false;
         self.loading = false;
         let (Some(old), Ok(opened)) = (&self.pdf, result) else {
-            super::edit::show_error("Could Not Reload the Document", "The edited document could not be opened.");
+            super::edit::show_error(&tr("Could Not Reload the Document"), "The edited document could not be opened.");
             return;
         };
         let Some(info) = opened.pdf else { return };
@@ -281,7 +282,7 @@ impl App {
         let stem = pdf.original.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
         let name = if pages.len() == 1 { format!("{stem}-page-{}.pdf", pages[0] + 1) } else { format!("{stem}-pages.pdf") };
         let sender = sender.clone();
-        choose_file("Export Pages", &name, "PDF documents", "application/pdf", &pdf.original, move |dest| {
+        choose_file(&tr("Export Pages"), &name, &tr("PDF documents"), "application/pdf", &pdf.original, move |dest| {
             sender.input(AppMsg::ExportPagesTo { dest, pages: pages.clone() });
         });
     }
@@ -302,7 +303,7 @@ impl App {
         let stem = pdf.original.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
         let name = format!("{stem}-page-{}.png", pdf.page + 1);
         let sender = sender.clone();
-        choose_file("Export Page as PNG", &name, "PNG images", "image/png", &pdf.original, move |dest| {
+        choose_file(&tr("Export Page as PNG"), &name, &tr("PNG images"), "image/png", &pdf.original, move |dest| {
             sender.input(AppMsg::ExportPngTo { dest });
         });
     }
@@ -323,7 +324,7 @@ impl App {
         let Some(session) = &self.edit else { return };
         let stem = session.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
         let sender = sender.clone();
-        choose_file("Export as PDF", &format!("{stem}.pdf"), "PDF documents", "application/pdf", &session.path, move |dest| {
+        choose_file(&tr("Export as PDF"), &format!("{stem}.pdf"), &tr("PDF documents"), "application/pdf", &session.path, move |dest| {
             sender.input(AppMsg::ExportImagePdfTo { dest });
         });
     }
@@ -359,7 +360,7 @@ impl App {
 
     pub(super) fn exported(&self, result: Result<(), String>) {
         if let Err(message) = result {
-            super::edit::show_error("Could Not Export", &message);
+            super::edit::show_error(&tr("Could Not Export"), &message);
         }
     }
 }

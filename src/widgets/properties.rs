@@ -1,5 +1,6 @@
 //! Side panel listing the file's properties and EXIF metadata.
 
+use crate::i18n::tr;
 use relm4::{
     adw::{self, prelude::*},
     gtk::{self, glib},
@@ -16,7 +17,7 @@ pub struct PropertiesPanel {
 impl PropertiesPanel {
     pub fn new() -> Self {
         let group = adw::PreferencesGroup::builder()
-            .title("Properties")
+            .title(tr("Properties"))
             .margin_top(12)
             .margin_bottom(12)
             .margin_start(12)
@@ -58,14 +59,14 @@ impl PropertiesPanel {
             .map(|n| n.to_string_lossy().into_owned());
 
         let entries = [
-            ("File", name),
-            ("Folder", folder),
-            ("Size on disk", meta.file_size.map(|b| glib::format_size(b).to_string())),
-            ("Dimensions", Some(format!("{w} × {h} px"))),
-            ("Camera", meta.camera.clone()),
-            ("Date taken", meta.date_taken.clone()),
-            ("Exposure", meta.exposure.clone()),
-            ("Location", meta.location.clone()),
+            (tr("File"), name),
+            (tr("Folder"), folder),
+            (tr("Size on disk"), meta.file_size.map(|b| glib::format_size(b).to_string())),
+            (tr("Dimensions"), Some(format!("{w} × {h} px"))),
+            (tr("Camera"), meta.camera.clone()),
+            (tr("Date taken"), meta.date_taken.clone()),
+            (tr("Exposure"), meta.exposure.clone()),
+            (tr("Location"), meta.location.clone()),
         ];
         for (title, value) in entries {
             let Some(value) = value else { continue };

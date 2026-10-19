@@ -1,6 +1,7 @@
 //! Editing in the main window: the edit stack, crop and adjust modes, saving,
 //! and the dialogs that guard unsaved work.
 
+use crate::i18n::{tr, tr_fmt};
 use std::{path::PathBuf, sync::Arc};
 
 use image::DynamicImage;
@@ -267,7 +268,7 @@ impl App {
                     self.edit_mode = EditMode::None;
                     self.canvas.end_crop();
                     self.refresh_after_failure();
-                    show_error("Could Not Edit Image", &message);
+                    show_error(&tr("Could Not Edit Image"), &message);
                 }
             }
         }
@@ -480,7 +481,7 @@ impl App {
             }
             Err(message) => {
                 self.after_save = None;
-                show_error("Could Not Save", &message);
+                show_error(&tr("Could Not Save"), &message);
             }
         }
     }
@@ -559,7 +560,7 @@ pub(super) fn main_window() -> Option<gtk::Window> {
 
 pub(super) fn show_error(heading: &str, message: &str) {
     let dialog = adw::AlertDialog::new(Some(heading), Some(message));
-    dialog.add_response("ok", "_OK");
+    dialog.add_response("ok", &tr("_OK"));
     dialog.present(main_window().as_ref());
 }
 
@@ -572,10 +573,10 @@ enum UnsavedChoice {
 
 fn ask_unsaved(name: &str, then: impl FnOnce(UnsavedChoice) + 'static) {
     let dialog = adw::AlertDialog::new(
-        Some("Save Changes?"),
-        Some(&format!("“{name}” has edits that have not been saved. They will be lost if you discard them.")),
+        Some(&tr("Save Changes?")),
+        Some(&tr_fmt("“{name}” has edits that have not been saved. They will be lost if you discard them.", &[("name", name)])),
     );
-    dialog.add_responses(&[("cancel", "_Cancel"), ("discard", "_Discard"), ("save", "_Save")]);
+    crate::i18n::add_responses(&dialog, &[("cancel", crate::i18n::n_("_Cancel")), ("discard", crate::i18n::n_("_Discard")), ("save", crate::i18n::n_("_Save"))]);
     dialog.set_response_appearance("discard", adw::ResponseAppearance::Destructive);
     dialog.set_response_appearance("save", adw::ResponseAppearance::Suggested);
     dialog.set_default_response(Some("save"));
@@ -598,10 +599,10 @@ enum OverwriteChoice {
 
 fn confirm_overwrite(name: &str, then: impl FnOnce(OverwriteChoice) + 'static) {
     let dialog = adw::AlertDialog::new(
-        Some("Replace the Original?"),
-        Some(&format!("Saving writes your edits to “{name}”. You can also keep the original and save a copy.")),
+        Some(&tr("Replace the Original?")),
+        Some(&tr_fmt("Saving writes your edits to “{name}”. You can also keep the original and save a copy.", &[("name", name)])),
     );
-    dialog.add_responses(&[("cancel", "_Cancel"), ("copy", "Save as _Copy…"), ("replace", "_Replace")]);
+    crate::i18n::add_responses(&dialog, &[("cancel", crate::i18n::n_("_Cancel")), ("copy", crate::i18n::n_("Save as _Copy…")), ("replace", crate::i18n::n_("_Replace"))]);
     dialog.set_response_appearance("replace", adw::ResponseAppearance::Destructive);
     dialog.set_default_response(Some("copy"));
     dialog.set_close_response("cancel");
@@ -635,13 +636,13 @@ fn write_pdf(
 
 fn choose_pdf_destination(source: &std::path::Path, then: impl FnOnce(Option<PathBuf>) + 'static) {
     let filter = gtk::FileFilter::new();
-    filter.set_name(Some("PDF Documents"));
+    filter.set_name(Some(&tr("PDF Documents")));
     filter.add_mime_type("application/pdf");
     let filters = gio::ListStore::new::<gtk::FileFilter>();
     filters.append(&filter);
     let stem = source.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     let dialog = gtk::FileDialog::builder()
-        .title("Save As")
+        .title(tr("Save As"))
         .modal(true)
         .filters(&filters)
         .initial_name(format!("{stem}-annotated.pdf"))
@@ -663,7 +664,7 @@ fn choose_destination(source: &std::path::Path, format: Format, then: impl FnOnc
         filters.append(&filter);
     }
     let dialog = gtk::FileDialog::builder()
-        .title("Save As")
+        .title(tr("Save As"))
         .modal(true)
         .filters(&filters)
         .initial_name(save::suggested_name(source, format))
@@ -677,8 +678,8 @@ fn choose_destination(source: &std::path::Path, format: Format, then: impl FnOnc
 }
 
 fn ask_quality(then: impl FnOnce(u8) + 'static) {
-    let dialog = adw::AlertDialog::new(Some("JPEG Quality"), Some("Higher quality makes a larger file."));
-    dialog.add_responses(&[("cancel", "_Cancel"), ("save", "_Save")]);
+    let dialog = adw::AlertDialog::new(Some(&tr("JPEG Quality")), Some(&tr("Higher quality makes a larger file.")));
+    crate::i18n::add_responses(&dialog, &[("cancel", crate::i18n::n_("_Cancel")), ("save", crate::i18n::n_("_Save"))]);
     dialog.set_response_appearance("save", adw::ResponseAppearance::Suggested);
     dialog.set_default_response(Some("save"));
     dialog.set_close_response("cancel");
@@ -695,8 +696,11 @@ fn ask_quality(then: impl FnOnce(u8) + 'static) {
 }
 
 fn resize_dialog(width: u32, height: u32, sender: ComponentSender<App>) {
-    let dialog = adw::AlertDialog::new(Some("Resize Image"), Some(&format!("Currently {width} × {height} px.")));
-    dialog.add_responses(&[("cancel", "_Cancel"), ("resize", "_Resize")]);
+    let dialog = adw::AlertDialog::new(
+        Some(&tr("Resize Image")),
+        Some(&tr_fmt("Currently {width} × {height} px.", &[("width", &width.to_string()), ("height", &height.to_string())])),
+    );
+    crate::i18n::add_responses(&dialog, &[("cancel", crate::i18n::n_("_Cancel")), ("resize", crate::i18n::n_("_Resize"))]);
     dialog.set_response_appearance("resize", adw::ResponseAppearance::Suggested);
     dialog.set_default_response(Some("resize"));
     dialog.set_close_response("cancel");
@@ -710,12 +714,12 @@ fn resize_dialog(width: u32, height: u32, sender: ComponentSender<App>) {
     let w = spin(width as f64, 30_000.0);
     let h = spin(height as f64, 30_000.0);
     let percent = spin(100.0, 1_000.0);
-    let keep = gtk::CheckButton::with_label("Keep aspect ratio");
+    let keep = gtk::CheckButton::with_label(&tr("Keep aspect ratio"));
     keep.set_active(true);
 
     let grid = gtk::Grid::builder().row_spacing(8).column_spacing(12).halign(gtk::Align::Center).build();
-    for (row, (label, widget)) in [("Width (px)", &w), ("Height (px)", &h), ("Scale (%)", &percent)].into_iter().enumerate() {
-        let label = gtk::Label::builder().label(label).xalign(1.0).build();
+    for (row, (label, widget)) in [(tr("Width (px)"), &w), (tr("Height (px)"), &h), (tr("Scale (%)"), &percent)].into_iter().enumerate() {
+        let label = gtk::Label::builder().label(&label).xalign(1.0).build();
         grid.attach(&label, 0, row as i32, 1, 1);
         grid.attach(widget, 1, row as i32, 1, 1);
     }

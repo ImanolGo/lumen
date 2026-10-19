@@ -1,0 +1,792 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR Imanol Gomez
+# This file is distributed under the same license as the lumen package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: lumen\n"
+"Report-Msgid-Bugs-To: https://github.com/ImanolGo/lumen/issues\n"
+"POT-Creation-Date: 2026-10-19 16:39+0200\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: src/app/edit.rs:271
+msgid "Could Not Edit Image"
+msgstr ""
+
+#: src/app/edit.rs:484
+msgid "Could Not Save"
+msgstr ""
+
+#: src/app/edit.rs:563 src/app.rs:540
+msgid "_OK"
+msgstr ""
+
+#: src/app/edit.rs:576
+msgid "Save Changes?"
+msgstr ""
+
+#: src/app/edit.rs:577
+#, rust-format
+msgid ""
+"“{name}” has edits that have not been saved. They will be lost if you "
+"discard them."
+msgstr ""
+
+#: src/app/edit.rs:579 src/app/edit.rs:605 src/app/edit.rs:682
+#: src/app/edit.rs:703 src/app.rs:2579
+msgid "_Cancel"
+msgstr ""
+
+#: src/app/edit.rs:579
+msgid "_Discard"
+msgstr ""
+
+#: src/app/edit.rs:579 src/app/edit.rs:682
+msgid "_Save"
+msgstr ""
+
+#: src/app/edit.rs:602
+msgid "Replace the Original?"
+msgstr ""
+
+#: src/app/edit.rs:603
+#, rust-format
+msgid ""
+"Saving writes your edits to “{name}”. You can also keep the original and "
+"save a copy."
+msgstr ""
+
+#: src/app/edit.rs:605
+msgid "Save as _Copy…"
+msgstr ""
+
+#: src/app/edit.rs:605
+msgid "_Replace"
+msgstr ""
+
+#: src/app/edit.rs:639 src/app.rs:884
+msgid "PDF Documents"
+msgstr ""
+
+#: src/app/edit.rs:645 src/app/edit.rs:667
+msgid "Save As"
+msgstr ""
+
+#: src/app/edit.rs:681
+msgid "JPEG Quality"
+msgstr ""
+
+#: src/app/edit.rs:681
+msgid "Higher quality makes a larger file."
+msgstr ""
+
+#: src/app/edit.rs:700
+msgid "Resize Image"
+msgstr ""
+
+#: src/app/edit.rs:701
+#, rust-format
+msgid "Currently {width} × {height} px."
+msgstr ""
+
+#: src/app/edit.rs:703
+msgid "_Resize"
+msgstr ""
+
+#: src/app/edit.rs:717
+msgid "Keep aspect ratio"
+msgstr ""
+
+#: src/app/edit.rs:721
+msgid "Width (px)"
+msgstr ""
+
+#: src/app/edit.rs:721
+msgid "Height (px)"
+msgstr ""
+
+#: src/app/edit.rs:721
+msgid "Scale (%)"
+msgstr ""
+
+#: src/app/pages.rs:164
+msgid "PDF documents and pictures"
+msgstr ""
+
+#: src/app/pages.rs:169
+msgid "Insert Pages"
+msgstr ""
+
+#: src/app/pages.rs:228
+msgid "Could Not Change the Pages"
+msgstr ""
+
+#: src/app/pages.rs:260
+msgid "Could Not Reload the Document"
+msgstr ""
+
+#: src/app/pages.rs:285
+msgid "Export Pages"
+msgstr ""
+
+#: src/app/pages.rs:285 src/app/pages.rs:327 src/app/shortcuts.rs:36
+msgid "PDF documents"
+msgstr ""
+
+#: src/app/pages.rs:306
+msgid "Export Page as PNG"
+msgstr ""
+
+#: src/app/pages.rs:306
+msgid "PNG images"
+msgstr ""
+
+#: src/app/pages.rs:327
+msgid "Export as PDF"
+msgstr ""
+
+#: src/app/pages.rs:363
+msgid "Could Not Export"
+msgstr ""
+
+#: src/app/prefs.rs:17 src/app/shortcuts.rs:31
+msgid "Fit to window"
+msgstr ""
+
+#: src/app/prefs.rs:18 src/app/shortcuts.rs:32 src/print.rs:125
+msgid "Actual size"
+msgstr ""
+
+#: src/app/prefs.rs:22
+msgid "Follow the system"
+msgstr ""
+
+#: src/app/prefs.rs:23
+msgid "Dark"
+msgstr ""
+
+#: src/app/prefs.rs:24
+msgid "Light"
+msgstr ""
+
+#: src/app/prefs.rs:25
+msgid "Checkerboard"
+msgstr ""
+
+#: src/app/prefs.rs:55
+msgid "Viewing"
+msgstr ""
+
+#: src/app/prefs.rs:56
+msgid "Default zoom"
+msgstr ""
+
+#: src/app/prefs.rs:56
+msgid "How a new picture is first shown"
+msgstr ""
+
+#: src/app/prefs.rs:66
+msgid "Background"
+msgstr ""
+
+#: src/app/prefs.rs:66
+msgid "Behind pictures and pages"
+msgstr ""
+
+#: src/app/prefs.rs:77
+msgid "Smooth zoom"
+msgstr ""
+
+#: src/app/prefs.rs:78
+msgid "Animate zoom changes"
+msgstr ""
+
+#: src/app/prefs.rs:90 src/app.rs:1503 src/app/shortcuts.rs:18
+msgid "Slideshow"
+msgstr ""
+
+#: src/app/prefs.rs:92
+msgid "Time per picture"
+msgstr ""
+
+#: src/app/prefs.rs:93
+msgid "Seconds before moving on"
+msgstr ""
+
+#: src/app/prefs.rs:105 src/app/shortcuts.rs:10
+msgid "General"
+msgstr ""
+
+#: src/app/prefs.rs:107
+msgid "Remember window and place"
+msgstr ""
+
+#: src/app/prefs.rs:108
+msgid "Window size, the sidebar and the page a PDF was left on"
+msgstr ""
+
+#: src/app/prefs.rs:125 src/app.rs:1506 src/app/shortcuts.rs:15
+msgid "Preferences"
+msgstr ""
+
+#: src/app/prefs.rs:136
+msgid "A fast image and PDF viewer with light editing and markup."
+msgstr ""
+
+#: src/app.rs:367
+msgid "Loading…"
+msgstr ""
+
+#: src/app.rs:371 src/app.rs:381
+msgid " · edited"
+msgstr ""
+
+#: src/app.rs:373
+#, rust-format
+msgid "Page {page} of {total}"
+msgstr ""
+
+#: src/app.rs:382
+#, rust-format
+msgid "{width} × {height} px"
+msgstr ""
+
+#: src/app.rs:389
+#, rust-format
+msgid "{index} of {total} · {summary}"
+msgstr ""
+
+#: src/app.rs:539
+msgid "Could Not Print"
+msgstr ""
+
+#: src/app.rs:608
+#, rust-format
+msgid "{current} of {total}"
+msgstr ""
+
+#: src/app.rs:610
+msgid "Searching…"
+msgstr ""
+
+#: src/app.rs:611
+msgid "No results"
+msgstr ""
+
+#: src/app.rs:864
+msgid "Could Not Open File"
+msgstr ""
+
+#: src/app.rs:866
+msgid "Open a Picture or PDF"
+msgstr ""
+
+#: src/app.rs:874
+msgid "Press Ctrl+O or pass a file on the command line"
+msgstr ""
+
+#: src/app.rs:880
+msgid "Images"
+msgstr ""
+
+#: src/app.rs:888
+msgid "Images and PDFs"
+msgstr ""
+
+#: src/app.rs:898 src/app/shortcuts.rs:12
+msgid "Open"
+msgstr ""
+
+#: src/app.rs:964
+msgid "Open… (Ctrl+O)"
+msgstr ""
+
+#: src/app.rs:970
+msgid "Recent Files"
+msgstr ""
+
+#: src/app.rs:985
+msgid "Go to page (Ctrl+G)"
+msgstr ""
+
+#: src/app.rs:1002
+msgid "Main Menu"
+msgstr ""
+
+#: src/app.rs:1009 src/app.rs:1304
+msgid "Pages"
+msgstr ""
+
+#: src/app.rs:1017
+msgid "Markup (Ctrl+Shift+A)"
+msgstr ""
+
+#: src/app.rs:1027
+msgid "Edit"
+msgstr ""
+
+#: src/app.rs:1035
+msgid "Print (Ctrl+P)"
+msgstr ""
+
+#: src/app.rs:1043
+msgid "Properties (Alt+Enter)"
+msgstr ""
+
+#: src/app.rs:1051
+msgid "Toggle Sidebar (F9)"
+msgstr ""
+
+#: src/app.rs:1081
+msgid "Find in document"
+msgstr ""
+
+#: src/app.rs:1096
+msgid "Previous Match (Shift+Enter)"
+msgstr ""
+
+#: src/app.rs:1101
+msgid "Next Match (Enter)"
+msgstr ""
+
+#: src/app.rs:1117
+msgid "Select"
+msgstr ""
+
+#: src/app.rs:1123
+msgid "Rectangle"
+msgstr ""
+
+#: src/app.rs:1129
+msgid "Ellipse"
+msgstr ""
+
+#: src/app.rs:1135
+msgid "Arrow"
+msgstr ""
+
+#: src/app.rs:1141
+msgid "Line"
+msgstr ""
+
+#: src/app.rs:1147
+msgid "Pen"
+msgstr ""
+
+#: src/app.rs:1153
+msgid "Text"
+msgstr ""
+
+#: src/app.rs:1159
+msgid "Highlight"
+msgstr ""
+
+#: src/app.rs:1170
+msgid "Colour"
+msgstr ""
+
+#: src/app.rs:1173
+msgid "Width"
+msgstr ""
+
+#: src/app.rs:1176
+msgid "Line width"
+msgstr ""
+
+#: src/app.rs:1182 src/app.rs:1185
+msgid "Text size"
+msgstr ""
+
+#: src/app.rs:1195
+msgid "Delete the selected annotation (Delete)"
+msgstr ""
+
+#: src/app.rs:1212
+msgid "Aspect ratio"
+msgstr ""
+
+#: src/app.rs:1213
+msgid "Free"
+msgstr ""
+
+#: src/app.rs:1213
+msgid "Original"
+msgstr ""
+
+#: src/app.rs:1213
+msgid "1:1"
+msgstr ""
+
+#: src/app.rs:1213
+msgid "4:3"
+msgstr ""
+
+#: src/app.rs:1213
+msgid "3:2"
+msgstr ""
+
+#: src/app.rs:1213
+msgid "16:9"
+msgstr ""
+
+#: src/app.rs:1229 src/widgets/properties.rs:68
+msgid "Exposure"
+msgstr ""
+
+#: src/app.rs:1240
+msgid "Contrast"
+msgstr ""
+
+#: src/app.rs:1251
+msgid "Saturation"
+msgstr ""
+
+#: src/app.rs:1267
+msgid "Cancel"
+msgstr ""
+
+#: src/app.rs:1268
+msgid "Cancel (Esc)"
+msgstr ""
+
+#: src/app.rs:1272
+msgid "Apply"
+msgstr ""
+
+#: src/app.rs:1273
+msgid "Apply (Enter)"
+msgstr ""
+
+#: src/app.rs:1296
+msgid "Files"
+msgstr ""
+
+#: src/app.rs:1310
+msgid "Outline"
+msgstr ""
+
+#: src/app.rs:1371
+msgid "Previous (Left)"
+msgstr ""
+
+#: src/app.rs:1388
+msgid "Next (Right)"
+msgstr ""
+
+#: src/app.rs:1461 src/app/shortcuts.rs:53
+msgid "Undo"
+msgstr ""
+
+#: src/app.rs:1462 src/app/shortcuts.rs:54
+msgid "Redo"
+msgstr ""
+
+#: src/app.rs:1465 src/app.rs:1488
+msgid "Rotate Right"
+msgstr ""
+
+#: src/app.rs:1466 src/app.rs:1489
+msgid "Rotate Left"
+msgstr ""
+
+#: src/app.rs:1467
+msgid "Flip Horizontally"
+msgstr ""
+
+#: src/app.rs:1468
+msgid "Flip Vertically"
+msgstr ""
+
+#: src/app.rs:1471
+msgid "Crop…"
+msgstr ""
+
+#: src/app.rs:1472
+msgid "Resize…"
+msgstr ""
+
+#: src/app.rs:1473
+msgid "Adjust Colour…"
+msgstr ""
+
+#: src/app.rs:1476
+msgid "Export as PDF…"
+msgstr ""
+
+#: src/app.rs:1479 src/app/shortcuts.rs:65
+msgid "Markup"
+msgstr ""
+
+#: src/app.rs:1482 src/app/shortcuts.rs:60
+msgid "Save"
+msgstr ""
+
+#: src/app.rs:1483
+msgid "Save As…"
+msgstr ""
+
+#: src/app.rs:1492
+msgid "Delete Pages"
+msgstr ""
+
+#: src/app.rs:1493
+msgid "Insert Pages from File…"
+msgstr ""
+
+#: src/app.rs:1496
+msgid "Export Selected Pages…"
+msgstr ""
+
+#: src/app.rs:1497
+msgid "Export Page as PNG…"
+msgstr ""
+
+#: src/app.rs:1502 src/app/shortcuts.rs:17
+msgid "Fullscreen"
+msgstr ""
+
+#: src/app.rs:1509
+msgid "Keyboard Shortcuts"
+msgstr ""
+
+#: src/app.rs:1510
+msgid "About Lumen"
+msgstr ""
+
+#: src/app.rs:1514
+msgid "Print…"
+msgstr ""
+
+#: src/app.rs:1516
+msgid "Fit to Page"
+msgstr ""
+
+#: src/app.rs:1517
+msgid "Actual Size"
+msgstr ""
+
+#: src/app.rs:1518
+msgid "Size on Paper"
+msgstr ""
+
+#: src/app.rs:1634
+msgid "Page number"
+msgstr ""
+
+#: src/app.rs:1635
+msgid "Search in the document"
+msgstr ""
+
+#: src/app.rs:2574
+#, rust-format
+msgid "The password for “{name}” was incorrect. Try again."
+msgstr ""
+
+#: src/app.rs:2576
+#, rust-format
+msgid "“{name}” is protected. Enter its password to open it."
+msgstr ""
+
+#: src/app.rs:2578
+msgid "Password Required"
+msgstr ""
+
+#: src/app.rs:2579
+msgid "_Open"
+msgstr ""
+
+#: src/app.rs:2637
+msgid "No Recent Files"
+msgstr ""
+
+#: src/app/shortcuts.rs:13
+msgid "Print"
+msgstr ""
+
+#: src/app/shortcuts.rs:14
+msgid "Toggle markup toolbar"
+msgstr ""
+
+#: src/app/shortcuts.rs:16
+msgid "Keyboard shortcuts"
+msgstr ""
+
+#: src/app/shortcuts.rs:19
+msgid "Toggle sidebar"
+msgstr ""
+
+#: src/app/shortcuts.rs:20 src/widgets/properties.rs:20
+msgid "Properties"
+msgstr ""
+
+#: src/app/shortcuts.rs:21
+msgid "Close window"
+msgstr ""
+
+#: src/app/shortcuts.rs:25
+msgid "Pictures and zoom"
+msgstr ""
+
+#: src/app/shortcuts.rs:27
+msgid "Next file"
+msgstr ""
+
+#: src/app/shortcuts.rs:28
+msgid "Previous file"
+msgstr ""
+
+#: src/app/shortcuts.rs:29
+msgid "Zoom in"
+msgstr ""
+
+#: src/app/shortcuts.rs:30
+msgid "Zoom out"
+msgstr ""
+
+#: src/app/shortcuts.rs:38
+msgid "Next page"
+msgstr ""
+
+#: src/app/shortcuts.rs:39
+msgid "Previous page"
+msgstr ""
+
+#: src/app/shortcuts.rs:40
+msgid "First page"
+msgstr ""
+
+#: src/app/shortcuts.rs:41
+msgid "Last page"
+msgstr ""
+
+#: src/app/shortcuts.rs:42
+msgid "Go to page"
+msgstr ""
+
+#: src/app/shortcuts.rs:43
+msgid "Find"
+msgstr ""
+
+#: src/app/shortcuts.rs:44
+msgid "Next match"
+msgstr ""
+
+#: src/app/shortcuts.rs:45
+msgid "Previous match"
+msgstr ""
+
+#: src/app/shortcuts.rs:46
+msgid "Copy selected text"
+msgstr ""
+
+#: src/app/shortcuts.rs:47
+msgid "Delete selected pages (in the sidebar)"
+msgstr ""
+
+#: src/app/shortcuts.rs:51
+msgid "Editing"
+msgstr ""
+
+#: src/app/shortcuts.rs:55
+msgid "Rotate right"
+msgstr ""
+
+#: src/app/shortcuts.rs:56
+msgid "Rotate left"
+msgstr ""
+
+#: src/app/shortcuts.rs:57
+msgid "Crop"
+msgstr ""
+
+#: src/app/shortcuts.rs:58
+msgid "Resize"
+msgstr ""
+
+#: src/app/shortcuts.rs:59
+msgid "Adjust colour"
+msgstr ""
+
+#: src/app/shortcuts.rs:61
+msgid "Save as"
+msgstr ""
+
+#: src/app/shortcuts.rs:67
+msgid "Delete the selected annotation"
+msgstr ""
+
+#: src/app/shortcuts.rs:68
+msgid "Move the selected annotation"
+msgstr ""
+
+#: src/app/shortcuts.rs:69
+msgid "Move in bigger steps"
+msgstr ""
+
+#: src/app/shortcuts.rs:70
+msgid "Finish editing text"
+msgstr ""
+
+#: src/app/shortcuts.rs:71
+msgid "Apply the open tool"
+msgstr ""
+
+#: src/app/shortcuts.rs:72
+msgid "Cancel the open tool"
+msgstr ""
+
+#: src/document.rs:92
+msgid "The password is incorrect"
+msgstr ""
+
+#: src/document.rs:93
+msgid "This PDF is password protected"
+msgstr ""
+
+#: src/print.rs:99
+msgid "Scaling"
+msgstr ""
+
+#: src/print.rs:125
+msgid "Fit to page"
+msgstr ""
+
+#: src/print.rs:128
+msgid "Size on paper"
+msgstr ""
+
+#: src/widgets/properties.rs:62
+msgid "File"
+msgstr ""
+
+#: src/widgets/properties.rs:63
+msgid "Folder"
+msgstr ""
+
+#: src/widgets/properties.rs:64
+msgid "Size on disk"
+msgstr ""
+
+#: src/widgets/properties.rs:65
+msgid "Dimensions"
+msgstr ""
+
+#: src/widgets/properties.rs:66
+msgid "Camera"
+msgstr ""
+
+#: src/widgets/properties.rs:67
+msgid "Date taken"
+msgstr ""
+
+#: src/widgets/properties.rs:69
+msgid "Location"
+msgstr ""

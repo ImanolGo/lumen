@@ -1,0 +1,9 @@
+src/app/edit.rs
+src/app/pages.rs
+src/app/prefs.rs
+src/app.rs
+src/app/shortcuts.rs
+src/document.rs
+src/main.rs
+src/print.rs
+src/widgets/properties.rs
