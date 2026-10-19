@@ -17,10 +17,14 @@ use std::time::Duration;
 use relm4::{RelmApp, adw, gtk::{gio, glib, prelude::*}};
 use tracing_subscriber::EnvFilter;
 
+/// When the program started, for the timings in the log.
+pub static STARTED: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
 pub const APP_ID: &str = "io.github.imanolgo.Lumen";
 pub const APP_NAME: &str = "Lumen";
 
 fn main() -> glib::ExitCode {
+    STARTED.get_or_init(std::time::Instant::now);
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "lumen=info".into()))
         .init();

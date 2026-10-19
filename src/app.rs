@@ -112,6 +112,9 @@ pub fn open_files(files: &[gio::File]) {
     if paths.is_empty() {
         return;
     }
+    if let Some(started) = crate::STARTED.get() {
+        tracing::info!(ms = started.elapsed().as_millis() as u64, "open requested");
+    }
     INPUT.with(|input| {
         if let Some(sender) = input.borrow().as_ref() {
             sender.emit(AppMsg::Open(paths));
@@ -169,6 +172,10 @@ pub struct App {
     after_save: Option<Pending>,
     saving: bool,
     markup: MarkupState,
+    /// When the load being waited for began, to report how long it took.
+    load_started: Option<std::time::Instant>,
+    /// Whether the time to the first picture on screen has been reported.
+    first_view_logged: bool,
     fullscreen: bool,
     /// Running while a slideshow is on.
     slideshow: Option<glib::SourceId>,
@@ -222,6 +229,8 @@ pub enum AppMsg {
         result: Result<Opened, OpenError>,
     },
     Thumbnail(PathBuf, ThumbData),
+    /// Rows appeared or disappeared in the file sidebar.
+    FileStripChanged,
     /// The canvas zoom or the visible pages changed.
     ViewChanged(ViewInfo),
     /// The delay for render request `ticket` has passed.
@@ -647,6 +656,7 @@ impl App {
             self.awaiting = Some(path);
         } else {
             self.loading = true;
+            self.load_started = Some(std::time::Instant::now());
             let generation = self.generation;
             let sender = sender.clone();
             relm4::spawn_blocking(move || {
@@ -742,7 +752,8 @@ impl App {
     /// Make a decoded file the current document.
     fn apply(&mut self, opened: Opened, sender: &ComponentSender<Self>) {
         let info = opened.info;
-        tracing::info!(path = %info.path.display(), kind = ?info.kind, "opened");
+        let took = self.load_started.take().map(|t| t.elapsed().as_millis());
+        tracing::info!(path = %info.path.display(), kind = ?info.kind, load_ms = ?took, "opened");
         gtk::RecentManager::default().add_item(&gio::File::for_path(&info.path).uri());
         refresh_recent_menu(&self.recent_menu);
         self.loading = false;
@@ -833,17 +844,10 @@ impl App {
         self.sync_canvas();
     }
 
-    /// Rebuild the sidebar and queue thumbnails, nearest to the current file first.
+    /// Rebuild the file sidebar. Thumbnails are made for the rows that are on screen,
+    /// as they appear (`FileStripChanged`).
     fn refresh_strip(&self) {
         self.strip.set_files(&self.list, self.index);
-        let mut order: Vec<usize> = (0..self.list.len()).collect();
-        order.sort_by_key(|&i| i.abs_diff(self.index));
-        self.thumbnails.request(
-            order
-                .into_iter()
-                .map(|i| self.list[i].clone())
-                .filter(|p| !is_pdf(p)),
-        );
     }
 
     fn page(&self) -> &'static str {
@@ -1519,10 +1523,16 @@ impl SimpleComponent for App {
 
         let recent_menu = gio::Menu::new();
         refresh_recent_menu(&recent_menu);
-        let strip = FileStrip::new({
-            let sender = sender.clone();
-            move |index| sender.input(AppMsg::GoTo(index))
-        });
+        let strip = FileStrip::new(
+            {
+                let sender = sender.clone();
+                move |index| sender.input(AppMsg::GoTo(index))
+            },
+            {
+                let sender = sender.input_sender().clone();
+                move || sender.emit(AppMsg::FileStripChanged)
+            },
+        );
         let thumbnails = ThumbnailLoader::new({
             let sender = sender.input_sender().clone();
             move |path, data| sender.emit(AppMsg::Thumbnail(path, data))
@@ -1595,6 +1605,8 @@ impl SimpleComponent for App {
             after_save: None,
             saving: false,
             markup: MarkupState::default(),
+            load_started: None,
+            first_view_logged: false,
             fullscreen: false,
             slideshow: None,
             cursor_timer: None,
@@ -1628,6 +1640,9 @@ impl SimpleComponent for App {
         let widgets = view_output!();
         if store.borrow().settings.remember_state && store.borrow().state.maximized {
             widgets.main_window.maximize();
+        }
+        if let Some(started) = crate::STARTED.get() {
+            tracing::info!(ms = started.elapsed().as_millis() as u64, "window built");
         }
         label_icon_buttons(widgets.main_window.upcast_ref());
         for (entry, label) in [
@@ -2130,9 +2145,11 @@ impl App {
             AppMsg::FolderListed { anchor, files } => {
                 // Ignore stale answers if the user already opened something else.
                 if self.list.len() == 1 && self.list[0] == anchor {
+                    let started = std::time::Instant::now();
                     self.index = files.iter().position(|f| *f == anchor).unwrap_or(0);
                     self.list = files;
                     self.refresh_strip();
+                    tracing::info!(files = self.list.len(), ms = started.elapsed().as_millis() as u64, "file list shown");
                     self.preload_neighbours(&sender);
                 }
             }
@@ -2194,11 +2211,21 @@ impl App {
             AppMsg::Thumbnail(path, data) => {
                 self.strip.set_thumbnail(&path, &data.into_texture());
             }
+            AppMsg::FileStripChanged => {
+                // Rows came into view: thumbnail them, replacing whatever was still waiting.
+                self.thumbnails.request(self.strip.wanted());
+            }
             AppMsg::ViewChanged(info) => {
                 let zoom_changed =
                     (info.zoom - self.zoom).abs() > 1e-4 || info.scale_factor != self.scale_factor;
                 self.zoom = info.zoom;
                 self.scale_factor = info.scale_factor;
+                if !self.first_view_logged && (self.image.is_some() || self.pdf.is_some()) {
+                    self.first_view_logged = true;
+                    if let Some(started) = crate::STARTED.get() {
+                        tracing::info!(ms = started.elapsed().as_millis() as u64, "first view on screen");
+                    }
+                }
                 if let Some(page) = self.pending_goto.take() {
                     self.canvas.scroll_to_page(page);
                 }
@@ -2605,10 +2632,6 @@ fn open_logged(path: &std::path::Path, password: Option<&str>) -> Result<Opened,
             tracing::warn!(path = %path.display(), "open failed: {message}");
         }
     })
-}
-
-fn is_pdf(path: &std::path::Path) -> bool {
-    path.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
 }
 
 /// Rebuild the "Recent Files" menu from the desktop-wide recent list.
