@@ -11,10 +11,12 @@ use relm4::{
 use crate::{
     APP_NAME,
     document::{self, DocumentInfo, DocumentKind},
+    image::ImageDocument,
 };
 
 pub struct App {
     document: Option<DocumentInfo>,
+    image: Option<ImageDocument>,
     error: Option<String>,
 }
 
@@ -39,6 +41,10 @@ impl App {
             .as_ref()
             .map(|d| d.summary.clone())
             .unwrap_or_default()
+    }
+
+    fn page(&self) -> &'static str {
+        if self.image.is_some() { "image" } else { "empty" }
     }
 
     fn status_icon(&self) -> &'static str {
@@ -134,13 +140,24 @@ impl SimpleComponent for App {
                 },
 
                 #[wrap(Some)]
-                set_content = &adw::StatusPage {
+                set_content = &gtk::Stack {
+                    add_named[Some("empty")] = &adw::StatusPage {
+                        #[watch]
+                        set_icon_name: Some(model.status_icon()),
+                        #[watch]
+                        set_title: &model.status_title(),
+                        #[watch]
+                        set_description: Some(&model.status_description()),
+                    },
+
+                    add_named[Some("image")] = &gtk::Picture {
+                        set_content_fit: gtk::ContentFit::Contain,
+                        #[watch]
+                        set_paintable: model.image.as_ref().map(|i| &i.texture),
+                    },
+
                     #[watch]
-                    set_icon_name: Some(model.status_icon()),
-                    #[watch]
-                    set_title: &model.status_title(),
-                    #[watch]
-                    set_description: Some(&model.status_description()),
+                    set_visible_child_name: model.page(),
                 },
             },
         }
@@ -153,6 +170,7 @@ impl SimpleComponent for App {
     ) -> ComponentParts<Self> {
         let model = App {
             document: None,
+            image: None,
             error: None,
         };
         let widgets = view_output!();
@@ -180,12 +198,20 @@ impl SimpleComponent for App {
             AppMsg::Open(path) => match document::probe(&path) {
                 Ok(info) => {
                     tracing::info!(path = %info.path.display(), kind = ?info.kind, "opened");
-                    self.document = Some(info);
                     self.error = None;
+                    self.image = None;
+                    if info.kind == DocumentKind::Image {
+                        match ImageDocument::load(&info.path) {
+                            Ok(image) => self.image = Some(image),
+                            Err(err) => self.error = Some(format!("{err:#}")),
+                        }
+                    }
+                    self.document = Some(info);
                 }
                 Err(err) => {
                     tracing::warn!(path = %path.display(), "open failed: {err:#}");
                     self.document = None;
+                    self.image = None;
                     self.error = Some(format!("{err:#}"));
                 }
             },
