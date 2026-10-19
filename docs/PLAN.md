@@ -56,7 +56,7 @@ Goal of the phase: Lumen replaces your current image viewer for everyday use.
   Loupe's `src/widgets/image/` is the best reference implementation anywhere.
 - **Done when:** you can zoom smoothly to 800 % and back; the point under the cursor does not jump.
 
-### 1.3 Pan and scroll 🟡 🧠 `gtk::Scrollable`
+### 1.3 ✅ Pan and scroll 🟡 🧠 `gtk::Scrollable`
 **Goal:** move around a zoomed image.
 - Tasks
   - Implement `gtk::Scrollable` on the canvas (h/v adjustments) and put it in a `gtk::ScrolledWindow`.

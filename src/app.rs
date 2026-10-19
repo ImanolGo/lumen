@@ -154,10 +154,13 @@ impl SimpleComponent for App {
                         set_description: Some(&model.status_description()),
                     },
 
-                    #[name = "canvas"]
-                    add_named[Some("image")] = &LumenCanvas::default() {
-                        #[watch]
-                        set_texture: model.image.as_ref().map(|i| &i.texture),
+                    add_named[Some("image")] = &gtk::ScrolledWindow {
+                        #[name = "canvas"]
+                        #[wrap(Some)]
+                        set_child = &LumenCanvas::default() {
+                            #[watch]
+                            set_texture: model.image.as_ref().map(|i| &i.texture),
+                        },
                     },
 
                     #[watch]
