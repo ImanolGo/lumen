@@ -4,6 +4,7 @@ mod edit;
 mod markup;
 mod pages;
 mod prefs;
+mod shortcuts;
 
 use std::{
     cell::{Cell, RefCell},
@@ -297,6 +298,7 @@ pub enum AppMsg {
     Preferences,
     SettingsChanged(Settings),
     About,
+    Shortcuts,
     /// A page operation on the open PDF.
     PageRequest(PageRequest),
     PageOpDone {
@@ -1494,6 +1496,7 @@ impl SimpleComponent for App {
         prefs_section.append(Some("Preferences"), Some("win.preferences"));
         main_menu.append_section(None, &prefs_section);
         let about_section = gio::Menu::new();
+        about_section.append(Some("Keyboard Shortcuts"), Some("win.shortcuts"));
         about_section.append(Some("About Lumen"), Some("win.about"));
         main_menu.append_section(None, &about_section);
 
@@ -1616,6 +1619,13 @@ impl SimpleComponent for App {
         if store.borrow().settings.remember_state && store.borrow().state.maximized {
             widgets.main_window.maximize();
         }
+        label_icon_buttons(widgets.main_window.upcast_ref());
+        for (entry, label) in [
+            (widgets.page_entry.upcast_ref::<gtk::Widget>(), "Page number"),
+            (widgets.search_entry.upcast_ref::<gtk::Widget>(), "Search in the document"),
+        ] {
+            entry.update_property(&[gtk::accessible::Property::Label(label)]);
+        }
 
         // Window actions + keyboard shortcuts.
         let open_action = gio::SimpleAction::new("open", None);
@@ -1717,6 +1727,7 @@ impl SimpleComponent for App {
             ("slideshow", || AppMsg::ToggleSlideshow, &["F5"]),
             ("leave-presentation", || AppMsg::LeavePresentation, &["Escape"]),
             ("about", || AppMsg::About, &[]),
+            ("shortcuts", || AppMsg::Shortcuts, &["<Control>question", "<Control>slash"]),
             ("delete-pages", || AppMsg::DeletePages, &[]),
             ("insert-pages", || AppMsg::InsertDialog, &[]),
             ("export-pages", || AppMsg::ExportPagesDialog, &[]),
@@ -2420,6 +2431,7 @@ impl App {
                 }
             }
             AppMsg::About => prefs::show_about(),
+            AppMsg::Shortcuts => shortcuts::show(),
             AppMsg::PageRequest(request) => self.page_request(request, &sender),
             AppMsg::PageOpDone { out, goto, result } => self.page_op_done(out, goto, result, &sender),
             AppMsg::PdfReloaded { generation, goto, path, result } => {
@@ -2613,5 +2625,23 @@ fn refresh_recent_menu(menu: &gio::Menu) {
     if menu.n_items() == 0 {
         // No such action, so the entry shows up disabled.
         menu.append(Some("No Recent Files"), Some("win.none"));
+    }
+}
+
+/// Give buttons that show only an icon an accessible name, taken from their tooltip, so
+/// screen readers announce "Print" instead of nothing. Called once on the finished window.
+fn label_icon_buttons(widget: &gtk::Widget) {
+    let icon_only = widget
+        .downcast_ref::<gtk::Button>()
+        .is_some_and(|b| b.label().is_none())
+        || widget.is::<gtk::MenuButton>()
+        || widget.is::<gtk::ColorDialogButton>();
+    if let (true, Some(tooltip)) = (icon_only, widget.tooltip_text()) {
+        widget.update_property(&[gtk::accessible::Property::Label(&tooltip)]);
+    }
+    let mut child = widget.first_child();
+    while let Some(current) = child {
+        label_icon_buttons(&current);
+        child = current.next_sibling();
     }
 }

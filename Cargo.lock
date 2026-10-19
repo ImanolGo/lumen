@@ -992,6 +992,7 @@ dependencies = [
  "cairo-rs",
  "image",
  "kamadak-exif",
+ "libadwaita",
  "little_exif",
  "lopdf",
  "natord",

@@ -62,6 +62,8 @@ cargo run -- path/to/file.pdf   # open a file directly
 | `Delete`, arrow keys | Delete / nudge the selected annotation (double-click text to edit it) |
 | `Ctrl+R` / `Ctrl+Shift+R` on a PDF | Rotate the selected pages (or the page in view) |
 | `Delete` in the page sidebar | Delete the selected pages |
+| `F11` / `F5` | Fullscreen / slideshow (`Esc` leaves) |
+| `Ctrl+,` / `Ctrl+?` | Preferences / keyboard shortcuts |
 | `Ctrl+P` | Print (the print button's menu also sets Fit to Page / Actual Size) |
 | `Ctrl+C` | Copy the selected PDF text (drag, double-click or triple-click to select) |
 | `Ctrl+F` | Find in PDF; `Enter` / `Shift+Enter` or `F3` / `Shift+F3` for next / previous match |

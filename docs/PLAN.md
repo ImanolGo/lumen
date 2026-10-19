@@ -247,7 +247,7 @@ This is the heart of "Preview-like". **Design the model first, UI second.**
 - [x] **7.1 Preferences** — `adw::PreferencesDialog`: default zoom, background (system, dark, light, checkerboard), smooth zoom, slideshow time, remembering. Stored as TOML in `~/.config/lumen/settings.toml` rather than GSettings, so it works from `cargo run`, in tests and in a Flatpak without installing a schema.
 - [x] **7.2 Remember state** — window size and maximised state, sidebar visibility, last page per PDF (in `~/.local/share/lumen/state.toml`).
 - [x] **7.3 Fullscreen and slideshow** — `F11`, auto-advance timer, hide the cursor.
-- [ ] **7.4 Accessibility and keyboard** — `gtk::ShortcutsWindow` (`Ctrl+?`), accessible labels, a full keyboard pass.
+- [x] **7.4 Accessibility and keyboard** — `adw::ShortcutsDialog` (`Ctrl+?`, searchable), accessible names for icon-only buttons and entries (taken from their tooltips), the main menu opens with `F10`, and every menu action has a shortcut or a menu entry.
 - [ ] **7.5 i18n** — `gettext-rs`, `po/` directory.
 - [ ] **7.6 Icon and metainfo** — app icon (SVG), `metainfo.xml`, screenshots.
 - [ ] **7.7 Flatpak** — manifest in `build-aux/`, `flatpak-cargo-generator` for offline builds, test via GNOME Builder. This is also the place for the optional step 1.8 (glycin sandboxed decoding), which was skipped earlier.
