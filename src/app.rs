@@ -1,6 +1,6 @@
 //! Root Relm4 component: the main window.
 
-use std::{cell::RefCell, collections::HashSet, path::PathBuf};
+use std::{cell::RefCell, collections::HashSet, path::PathBuf, rc::Rc};
 
 use relm4::{
     ComponentParts, ComponentSender, RelmWidgetExt, SimpleComponent,
@@ -12,9 +12,9 @@ use crate::{
     APP_NAME,
     document::{self, DocumentInfo, DocumentKind, Opened},
     folder,
-    pdf::{self, PdfInfo, RenderedPage},
+    pdf::{self, PageCache, PageLayout, PageRenderer, RenderJob, RenderedPage},
     thumbnails::{ThumbData, ThumbnailLoader},
-    widgets::{CanvasContent, FileStrip, LumenCanvas, PropertiesPanel},
+    widgets::{CanvasContent, FileStrip, LumenCanvas, PropertiesPanel, ViewInfo},
 };
 
 /// Action name, canvas handler and keyboard accelerators.
@@ -23,17 +23,26 @@ type ViewAction<'a> = (&'a str, fn(&LumenCanvas), &'a [&'a str]);
 const RECENT_LIMIT: usize = 10;
 /// How many neighbours on each side of the current file stay decoded.
 const PRELOAD_RADIUS: usize = 1;
-/// Wait this long after the zoom stops changing before re-rendering a page.
+/// Wait this long after the zoom stops changing before re-rendering pages.
 const RERENDER_DELAY_MS: u64 = 150;
+/// Scrolling needs no such patience, just a moment to coalesce events.
+const SCROLL_RENDER_DELAY_MS: u64 = 20;
+/// Memory the rendered pages may use (4 bytes per pixel).
+const PAGE_CACHE_BYTES: usize = 160 * 1024 * 1024;
+/// Pages beyond the visible ones that are rendered ahead of time.
+const RENDER_AHEAD: usize = 1;
 
-/// The PDF being shown, one page at a time.
+/// The PDF being shown as a continuous column of pages.
 struct PdfView {
-    path: PathBuf,
-    info: PdfInfo,
+    n_pages: usize,
+    layout: Rc<PageLayout>,
+    /// Page filling most of the viewport.
     page: usize,
-    /// Identifies this page to the canvas (changes with the page or document).
-    key: u64,
-    texture: Option<gdk::Texture>,
+    /// Identifies this document, so late renders of an older one are dropped.
+    doc_key: u64,
+    visible: (usize, usize),
+    cache: PageCache,
+    renderer: PageRenderer,
 }
 
 thread_local! {
@@ -75,6 +84,7 @@ pub struct App {
     awaiting: Option<PathBuf>,
     document: Option<DocumentInfo>,
     image: Option<crate::image::ImageDocument>,
+    canvas: LumenCanvas,
     pdf: Option<PdfView>,
     next_key: u64,
     /// Zoom and scale factor last reported by the canvas.
@@ -82,7 +92,6 @@ pub struct App {
     scale_factor: i32,
     /// Bumped on every render request; only the latest one is acted on.
     render_ticket: u64,
-    applied_ticket: u64,
     error: Option<String>,
 }
 
@@ -109,13 +118,13 @@ pub enum AppMsg {
         result: Result<Opened, String>,
     },
     Thumbnail(PathBuf, ThumbData),
-    /// The canvas zoom changed (or new content appeared).
-    ZoomChanged { zoom: f64, scale_factor: i32 },
-    /// The re-render delay for `ticket` has passed.
-    RenderPage { ticket: u64 },
+    /// The canvas zoom or the visible pages changed.
+    ViewChanged(ViewInfo),
+    /// The delay for render request `ticket` has passed.
+    RenderPages { ticket: u64 },
     PageRendered {
-        ticket: u64,
-        key: u64,
+        doc_key: u64,
+        job: RenderJob,
         result: Result<RenderedPage, String>,
     },
     /// Move by this many pages in the open PDF.
@@ -142,7 +151,7 @@ impl App {
             return "Loading…".to_owned();
         }
         let summary = match (&self.pdf, &self.document) {
-            (Some(pdf), _) => format!("Page {} of {}", pdf.page + 1, pdf.info.n_pages),
+            (Some(pdf), _) => format!("Page {} of {}", pdf.page + 1, pdf.n_pages),
             (None, Some(d)) => d.summary.clone(),
             (None, None) => String::new(),
         };
@@ -153,18 +162,17 @@ impl App {
         }
     }
 
-    fn canvas_content(&self) -> CanvasContent<'_> {
-        if let Some(pdf) = &self.pdf {
-            CanvasContent::Page {
-                key: pdf.key,
-                size: pdf.info.page_sizes.get(pdf.page).copied().unwrap_or((612.0, 792.0)),
-                texture: pdf.texture.as_ref(),
-            }
-        } else if let Some(image) = &self.image {
-            CanvasContent::Image(image)
-        } else {
-            CanvasContent::None
-        }
+    /// Show the current document in the canvas (a no-op if nothing changed).
+    fn sync_canvas(&self) {
+        let content = match (&self.pdf, &self.image) {
+            (Some(pdf), _) => CanvasContent::Pages {
+                key: pdf.doc_key,
+                layout: &pdf.layout,
+            },
+            (None, Some(image)) => CanvasContent::Image(image),
+            (None, None) => CanvasContent::None,
+        };
+        self.canvas.set_content(content);
     }
 
     fn page_text(&self) -> String {
@@ -172,30 +180,54 @@ impl App {
     }
 
     fn page_total(&self) -> String {
-        self.pdf.as_ref().map(|p| format!("/ {}", p.info.n_pages)).unwrap_or_default()
+        self.pdf.as_ref().map(|p| format!("/ {}", p.n_pages)).unwrap_or_default()
     }
 
-    /// Re-render the current page once `delay_ms` has passed without a newer request.
+    fn goto_page(&mut self, page: usize) {
+        let Some(pdf) = &mut self.pdf else { return };
+        pdf.page = page.min(pdf.n_pages.saturating_sub(1));
+        self.canvas.scroll_to_page(pdf.page);
+    }
+
+    /// Ask the renderer for the pages that are on screen (and next to it) and
+    /// not yet drawn at the current zoom.
+    fn render_visible(&mut self) {
+        let Some(pdf) = &mut self.pdf else { return };
+        if self.zoom <= 0.0 {
+            return;
+        }
+        let wanted_scale = self.zoom * self.scale_factor as f64;
+        let (first, last) = pdf.visible;
+        let lo = first.saturating_sub(RENDER_AHEAD);
+        let hi = (last + RENDER_AHEAD).min(pdf.n_pages - 1);
+
+        // Pages in view first, nearest to the current one first; read-ahead after.
+        let mut pages: Vec<usize> = (lo..=hi).collect();
+        pages.sort_by_key(|&p| {
+            let in_view = (first..=last).contains(&p);
+            (!in_view, p.abs_diff(pdf.page))
+        });
+
+        let mut jobs = Vec::new();
+        for page in pages {
+            pdf.cache.touch(page);
+            let scale = pdf::effective_scale(pdf.layout.rects[page].size(), wanted_scale);
+            let up_to_date = pdf.cache.scale(page).is_some_and(|s| (s / scale - 1.0).abs() < 0.02);
+            if !up_to_date {
+                jobs.push(RenderJob { page, scale });
+            }
+        }
+        pdf.renderer.request(jobs);
+    }
+
+    /// Re-run `render_visible` once `delay_ms` has passed without a newer request.
     fn schedule_render(&mut self, delay_ms: u64, sender: &ComponentSender<Self>) {
         self.render_ticket += 1;
         let ticket = self.render_ticket;
         let sender = sender.clone();
         glib::timeout_add_local_once(std::time::Duration::from_millis(delay_ms), move || {
-            sender.input(AppMsg::RenderPage { ticket });
+            sender.input(AppMsg::RenderPages { ticket });
         });
-    }
-
-    fn goto_page(&mut self, page: usize, sender: &ComponentSender<Self>) {
-        let Some(pdf) = &mut self.pdf else { return };
-        let page = page.min(pdf.info.n_pages.saturating_sub(1));
-        if page == pdf.page {
-            return;
-        }
-        pdf.page = page;
-        pdf.texture = None;
-        self.next_key += 1;
-        pdf.key = self.next_key;
-        self.schedule_render(0, sender);
     }
 
     fn sidebar_visible(&self) -> bool {
@@ -249,15 +281,23 @@ impl App {
         self.properties.set_image(self.image.as_ref());
         self.pdf = opened.pdf.map(|pdf_info| {
             self.next_key += 1;
+            let doc_key = self.next_key;
+            let layout = Rc::new(PageLayout::new(&pdf_info.page_sizes));
+            let input = sender.input_sender().clone();
             PdfView {
-                path: info.path.clone(),
-                info: pdf_info,
+                n_pages: pdf_info.n_pages,
+                layout,
                 page: 0,
-                key: self.next_key,
-                texture: None,
+                doc_key,
+                visible: (0, 0),
+                cache: PageCache::new(PAGE_CACHE_BYTES),
+                renderer: PageRenderer::new(&info.path, move |job, result| {
+                    input.emit(AppMsg::PageRendered { doc_key, job, result });
+                }),
             }
         });
         self.document = Some(info);
+        self.sync_canvas();
         self.preload_neighbours(sender);
     }
 
@@ -292,6 +332,7 @@ impl App {
         self.pdf = None;
         self.properties.set_image(None);
         self.error = Some(err);
+        self.sync_canvas();
     }
 
     /// Rebuild the sidebar and queue thumbnails, nearest to the current file first.
@@ -483,14 +524,8 @@ impl SimpleComponent for App {
                                 set_description: Some(&model.status_description()),
                             },
 
-                            add_named[Some("image")] = &gtk::ScrolledWindow {
-                                #[name = "canvas"]
-                                #[wrap(Some)]
-                                set_child = &LumenCanvas::default() {
-                                    #[watch]
-                                    set_content: model.canvas_content(),
-                                },
-                            },
+                            #[name = "scroller"]
+                            add_named[Some("image")] = &gtk::ScrolledWindow {},
 
                             #[watch]
                             set_visible_child_name: model.page(),
@@ -588,16 +623,17 @@ impl SimpleComponent for App {
             cache: Vec::new(),
             preloading: HashSet::new(),
             awaiting: None,
+            canvas: LumenCanvas::default(),
             pdf: None,
             next_key: 0,
             zoom: 0.0,
             scale_factor: 1,
             render_ticket: 0,
-            applied_ticket: 0,
             document: None,
             image: None,
             error: None,
         };
+        let model_canvas = model.canvas.clone();
         let strip_root = model.strip.root().clone();
         let properties_root = model.properties.root().clone();
         let widgets = view_output!();
@@ -608,9 +644,11 @@ impl SimpleComponent for App {
         open_action.connect_activate(move |_, _| open_sender.input(AppMsg::OpenDialog));
         widgets.main_window.add_action(&open_action);
 
-        widgets.canvas.connect_zoom_changed({
+        let canvas = model_canvas;
+        widgets.scroller.set_child(Some(&canvas));
+        canvas.connect_view_changed({
             let sender = sender.clone();
-            move |zoom, scale_factor| sender.input(AppMsg::ZoomChanged { zoom, scale_factor })
+            move |info| sender.input(AppMsg::ViewChanged(info))
         });
 
         let goto_action = gio::SimpleAction::new("goto-page", None);
@@ -656,7 +694,6 @@ impl SimpleComponent for App {
         motion.connect_leave(move |_| leave_sender.input(AppMsg::Hover(false)));
         widgets.overlay.add_controller(motion);
 
-        let canvas = &widgets.canvas;
         let view_actions: [ViewAction; 4] = [
             ("zoom-in", LumenCanvas::zoom_in, &["<Control>plus", "<Control>equal"]),
             ("zoom-out", LumenCanvas::zoom_out, &["<Control>minus"]),
@@ -781,47 +818,50 @@ impl SimpleComponent for App {
             AppMsg::Thumbnail(path, data) => {
                 self.strip.set_thumbnail(&path, &data.into_texture());
             }
-            AppMsg::ZoomChanged { zoom, scale_factor } => {
-                self.zoom = zoom;
-                self.scale_factor = scale_factor;
-                if self.pdf.is_some() {
-                    self.schedule_render(RERENDER_DELAY_MS, &sender);
+            AppMsg::ViewChanged(info) => {
+                let zoom_changed =
+                    (info.zoom - self.zoom).abs() > 1e-4 || info.scale_factor != self.scale_factor;
+                self.zoom = info.zoom;
+                self.scale_factor = info.scale_factor;
+                if let Some(pdf) = &mut self.pdf {
+                    pdf.page = info.current_page;
+                    pdf.visible = (info.first_visible, info.last_visible);
+                    let delay = if zoom_changed { RERENDER_DELAY_MS } else { SCROLL_RENDER_DELAY_MS };
+                    self.schedule_render(delay, &sender);
                 }
             }
-            AppMsg::RenderPage { ticket } => {
-                if ticket != self.render_ticket || self.zoom <= 0.0 {
-                    return;
+            AppMsg::RenderPages { ticket } => {
+                if ticket == self.render_ticket {
+                    self.render_visible();
                 }
-                let Some(pdf) = &self.pdf else { return };
-                let (path, page, key) = (pdf.path.clone(), pdf.page, pdf.key);
-                let scale = self.zoom * self.scale_factor as f64;
-                relm4::spawn_blocking(move || {
-                    let result = pdf::render(&path, page, scale).map_err(|err| format!("{err:#}"));
-                    sender.input(AppMsg::PageRendered { ticket, key, result });
-                });
             }
-            AppMsg::PageRendered { ticket, key, result } => {
+            AppMsg::PageRendered { doc_key, job, result } => {
                 let Some(pdf) = &mut self.pdf else { return };
-                if key != pdf.key || ticket < self.applied_ticket {
+                if doc_key != pdf.doc_key {
                     return;
                 }
                 match result {
-                    Ok(page) => {
-                        self.applied_ticket = ticket;
-                        pdf.texture = Some(page.into_texture());
+                    Ok(rendered) => {
+                        let texture = rendered.into_texture();
+                        let (first, last) = pdf.visible;
+                        let protect = first.saturating_sub(RENDER_AHEAD)..=last + RENDER_AHEAD;
+                        for evicted in pdf.cache.insert(job.page, &texture, job.scale, protect) {
+                            self.canvas.set_page_texture(evicted, None);
+                        }
+                        self.canvas.set_page_texture(job.page, Some(texture));
                     }
-                    Err(err) => tracing::warn!("render failed: {err}"),
+                    Err(err) => tracing::warn!(page = job.page, "render failed: {err}"),
                 }
             }
             AppMsg::PageBy(delta) => {
                 if let Some(pdf) = &self.pdf {
-                    self.goto_page(pdf.page.saturating_add_signed(delta), &sender);
+                    self.goto_page(pdf.page.saturating_add_signed(delta));
                 }
             }
-            AppMsg::GotoPage(page) => self.goto_page(page, &sender),
+            AppMsg::GotoPage(page) => self.goto_page(page),
             AppMsg::GotoPageText(text) => {
                 if let Ok(page) = text.trim().parse::<usize>() {
-                    self.goto_page(page.saturating_sub(1), &sender);
+                    self.goto_page(page.saturating_sub(1));
                 }
             }
             AppMsg::ToggleSidebar => self.sidebar_open = !self.sidebar_open,

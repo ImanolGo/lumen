@@ -12,7 +12,12 @@
 
 use relm4::gtk::{self, gdk, glib, graphene, gsk, prelude::*, subclass::prelude::*};
 
-use crate::image::{ImageDocument, Orientation};
+use std::{collections::HashMap, rc::Rc};
+
+use crate::{
+    image::{ImageDocument, Orientation},
+    pdf::PageLayout,
+};
 
 const MIN_ZOOM: f64 = 0.02;
 const MAX_ZOOM: f64 = 32.0;
@@ -22,20 +27,48 @@ const NEAREST_ABOVE: f64 = 2.0;
 pub enum CanvasContent<'a> {
     None,
     Image(&'a ImageDocument),
-    /// One PDF page. `key` identifies the page: the same key with a new
-    /// texture keeps the view; a new key starts at best fit. `size` is in points.
-    Page {
+    /// All pages of a PDF stacked vertically. `key` identifies the document;
+    /// textures arrive later through `set_page_texture`.
+    Pages {
         key: u64,
-        size: (f64, f64),
-        texture: Option<&'a gdk::Texture>,
+        layout: &'a Rc<PageLayout>,
     },
 }
+
+/// What is on screen, reported to the owner so it can render what is needed.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ViewInfo {
+    pub zoom: f64,
+    pub scale_factor: i32,
+    /// Pages touching the viewport (always 0 for images).
+    pub first_visible: usize,
+    pub last_visible: usize,
+    /// The page filling most of the viewport.
+    pub current_page: usize,
+}
+
+impl ViewInfo {
+    fn same_as(&self, other: &Self) -> bool {
+        (self.zoom - other.zoom).abs() < 1e-4
+            && self.scale_factor == other.scale_factor
+            && self.first_visible == other.first_visible
+            && self.last_visible == other.last_visible
+            && self.current_page == other.current_page
+    }
+}
+
+/// Fit-to-width never zooms a document past this.
+const MAX_PAGES_FIT_ZOOM: f64 = 3.0;
 
 const KEY_ZOOM_STEP: f64 = 1.25;
 const WHEEL_ZOOM_STEP: f64 = 0.1;
 
-/// Called with `(zoom, scale_factor)`.
-type ZoomCallback = Box<dyn Fn(f64, i32)>;
+type ViewCallback = Box<dyn Fn(ViewInfo)>;
+
+pub struct PagesState {
+    layout: Rc<PageLayout>,
+    textures: HashMap<usize, gdk::Texture>,
+}
 
 mod imp {
     use std::cell::{Cell, RefCell};
@@ -52,8 +85,9 @@ mod imp {
         /// Draw pixels as hard squares when zoomed in (images, not PDF pages).
         pub crisp: Cell<bool>,
         pub content_key: Cell<u64>,
-        pub notified_zoom: Cell<f64>,
-        pub zoom_callback: RefCell<Option<ZoomCallback>>,
+        pub pages: RefCell<Option<PagesState>>,
+        pub last_view: Cell<Option<ViewInfo>>,
+        pub view_callback: RefCell<Option<ViewCallback>>,
         pub zoom: Cell<f64>,
         pub fit: Cell<bool>,
         pub pointer: Cell<Option<(f64, f64)>>,
@@ -77,8 +111,9 @@ mod imp {
                 logical: Cell::new(None),
                 crisp: Cell::new(true),
                 content_key: Cell::new(0),
-                notified_zoom: Cell::new(0.0),
-                zoom_callback: RefCell::default(),
+                pages: RefCell::default(),
+                last_view: Cell::new(None),
+                view_callback: RefCell::default(),
                 zoom: Cell::new(1.0),
                 fit: Cell::new(true),
                 pointer: Cell::new(None),
@@ -112,7 +147,10 @@ mod imp {
                 adj.connect_value_changed(glib::clone!(
                     #[weak]
                     canvas,
-                    move |_| canvas.queue_draw()
+                    move |_| {
+                        canvas.queue_draw();
+                        canvas.notify_view();
+                    }
                 ));
             }
             *slot.borrow_mut() = adjustment;
@@ -247,6 +285,10 @@ mod imp {
             };
             let zoom = canvas.effective_zoom();
             let (x, y) = canvas.origin();
+            if let Some(pages) = self.pages.borrow().as_ref() {
+                canvas.snapshot_pages(snapshot, pages, zoom, (x, y));
+                return;
+            }
             // Draw the stored pixels centred on the origin, then rotate/flip
             // them into place inside the (oriented) bounds.
             let (w, h) = (logical_w * zoom, logical_h * zoom);
@@ -296,6 +338,7 @@ impl LumenCanvas {
         match content {
             CanvasContent::None => {
                 if imp.logical.get().is_some() {
+                    *imp.pages.borrow_mut() = None;
                     *imp.texture.borrow_mut() = None;
                     imp.logical.set(None);
                     self.best_fit();
@@ -307,6 +350,7 @@ impl LumenCanvas {
                     && imp.texture.borrow().as_ref() == Some(&image.texture)
                     && imp.orientation.get() == image.orientation;
                 if !unchanged {
+                    *imp.pages.borrow_mut() = None;
                     *imp.texture.borrow_mut() = Some(image.texture.clone());
                     imp.orientation.set(image.orientation);
                     imp.logical
@@ -315,35 +359,90 @@ impl LumenCanvas {
                     self.new_content();
                 }
             }
-            CanvasContent::Page { key, size, texture } => {
-                let same_page = !imp.crisp.get() && imp.logical.get().is_some() && imp.content_key.get() == key;
-                if same_page {
-                    if imp.texture.borrow().as_ref() != texture {
-                        *imp.texture.borrow_mut() = texture.cloned();
-                        self.queue_draw();
-                    }
-                } else {
-                    *imp.texture.borrow_mut() = texture.cloned();
+            CanvasContent::Pages { key, layout } => {
+                let same = imp.pages.borrow().is_some() && imp.content_key.get() == key;
+                if !same {
+                    *imp.texture.borrow_mut() = None;
                     imp.orientation.set(Orientation::NORMAL);
-                    imp.logical.set(Some(size));
+                    imp.logical.set(Some(layout.size));
                     imp.crisp.set(false);
                     imp.content_key.set(key);
+                    *imp.pages.borrow_mut() = Some(PagesState {
+                        layout: Rc::clone(layout),
+                        textures: HashMap::new(),
+                    });
                     self.new_content();
                 }
             }
         }
     }
 
+    /// Show `texture` for page `index` (or blank paper for `None`).
+    pub fn set_page_texture(&self, index: usize, texture: Option<gdk::Texture>) {
+        if let Some(pages) = self.imp().pages.borrow_mut().as_mut() {
+            match texture {
+                Some(t) => pages.textures.insert(index, t),
+                None => pages.textures.remove(&index),
+            };
+            self.queue_draw();
+        }
+    }
+
+    /// Scroll so that page `index` starts at the top of the viewport.
+    pub fn scroll_to_page(&self, index: usize) {
+        let top = {
+            let pages = self.imp().pages.borrow();
+            pages
+                .as_ref()
+                .and_then(|p| p.layout.rects.get(index.min(p.layout.rects.len().saturating_sub(1))))
+                .map(|r| r.y)
+        };
+        if let Some(top) = top {
+            // Leave a sliver of the gap above the page visible.
+            let y = (top - crate::pdf::layout::PAGE_GAP / 2.0) * self.effective_zoom();
+            self.set_adjustment_value(gtk::Orientation::Vertical, y);
+        }
+    }
+
+    fn snapshot_pages(
+        &self,
+        snapshot: &gtk::Snapshot,
+        pages: &PagesState,
+        zoom: f64,
+        (ox, oy): (f64, f64),
+    ) {
+        let (top, bottom) = (-oy / zoom, (self.height() as f64 - oy) / zoom);
+        let Some((first, last)) = pages.layout.visible(top, bottom) else {
+            return;
+        };
+        for index in first..=last {
+            let r = pages.layout.rects[index];
+            let bounds = graphene::Rect::new(
+                (ox + r.x * zoom) as f32,
+                (oy + r.y * zoom) as f32,
+                (r.w * zoom) as f32,
+                (r.h * zoom) as f32,
+            );
+            match pages.textures.get(&index) {
+                Some(texture) => {
+                    snapshot.append_scaled_texture(texture, gsk::ScalingFilter::Trilinear, &bounds)
+                }
+                None => snapshot.append_color(&gdk::RGBA::WHITE, &bounds),
+            }
+        }
+    }
+
     fn new_content(&self) {
-        // Force a zoom notification even if the fit zoom happens to be unchanged.
-        self.imp().notified_zoom.set(0.0);
+        // Report the view again even if the zoom happens to be unchanged.
+        let imp = self.imp();
+        imp.last_view.set(None);
         self.best_fit();
     }
 
-    /// Called with `(zoom, scale_factor)` whenever the effective zoom changes
-    /// or new content is shown, so the owner can re-render at the right resolution.
-    pub fn connect_zoom_changed(&self, callback: impl Fn(f64, i32) + 'static) {
-        *self.imp().zoom_callback.borrow_mut() = Some(Box::new(callback));
+    /// Called whenever the zoom, the visible pages or the scale factor change,
+    /// and when new content appears.
+    pub fn connect_view_changed(&self, callback: impl Fn(ViewInfo) + 'static) {
+        *self.imp().view_callback.borrow_mut() = Some(Box::new(callback));
     }
 
     /// The zoom actually used for drawing (the fit zoom while in fit mode).
@@ -354,6 +453,10 @@ impl LumenCanvas {
     fn effective_zoom_for(&self, width: f64, height: f64) -> f64 {
         let imp = self.imp();
         match (imp.fit.get(), imp.logical.get()) {
+            (true, Some((lw, _))) if imp.pages.borrow().is_some() => {
+                // Documents fit to width; the height scrolls.
+                (width / lw).min(MAX_PAGES_FIT_ZOOM)
+            }
             (true, Some(_)) => {
                 let (iw, ih) = self.texture_size().unwrap_or((1.0, 1.0));
                 // Never upscale small images past 100 % just to fill the window.
@@ -486,18 +589,47 @@ impl LumenCanvas {
         }
         self.update_cursor();
         self.queue_draw();
-        self.notify_zoom(zoom, width, height);
+        self.notify_view();
     }
 
-    fn notify_zoom(&self, zoom: f64, width: f64, height: f64) {
+    /// Report the current view to the owner if it changed since last time.
+    fn notify_view(&self) {
         let imp = self.imp();
-        let has_content = imp.logical.get().is_some();
-        if !has_content || width < 1.0 || height < 1.0 || (zoom - imp.notified_zoom.get()).abs() < 1e-4 {
+        let (width, height) = (self.width() as f64, self.height() as f64);
+        if imp.logical.get().is_none() || width < 1.0 || height < 1.0 {
             return;
         }
-        imp.notified_zoom.set(zoom);
-        if let Some(callback) = imp.zoom_callback.borrow().as_ref() {
-            callback(zoom, self.scale_factor());
+        let zoom = self.effective_zoom();
+        let (first_visible, last_visible, current_page) = match imp.pages.borrow().as_ref() {
+            Some(pages) => {
+                let top = self.adjustment_value(gtk::Orientation::Vertical) / zoom;
+                let bottom = top + height / zoom;
+                let (first, last) = pages.layout.visible(top, bottom).unwrap_or((0, 0));
+                let current = match self.adjustment(gtk::Orientation::Vertical) {
+                    // Exactly at an end the first/last page is current, however short.
+                    Some(adj) if adj.value() <= 0.5 => first,
+                    Some(adj) if adj.value() >= adj.upper() - adj.page_size() - 0.5 => {
+                        pages.layout.rects.len().saturating_sub(1)
+                    }
+                    _ => pages.layout.current(top, bottom).unwrap_or(0),
+                };
+                (first, last, current)
+            }
+            None => (0, 0, 0),
+        };
+        let info = ViewInfo {
+            zoom,
+            scale_factor: self.scale_factor(),
+            first_visible,
+            last_visible,
+            current_page,
+        };
+        if imp.last_view.get().is_some_and(|last| last.same_as(&info)) {
+            return;
+        }
+        imp.last_view.set(Some(info));
+        if let Some(callback) = imp.view_callback.borrow().as_ref() {
+            callback(info);
         }
     }
 }

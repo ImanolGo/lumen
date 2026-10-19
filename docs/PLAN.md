@@ -115,7 +115,7 @@ Install `glycin` + `glycin-loaders` and use `glycin::Loader`. This gives sandbox
 - Tasks: page Up/Down, Home/End, a "Page N of M" entry in the header bar, `Ctrl+G` "go to page".
 - **Done when:** you can jump to any page of a 300-page PDF.
 
-### 2.3 Continuous scroll with lazy rendering 🟠 🧠 virtualised lists, caching
+### 2.3 ✅ Continuous scroll with lazy rendering 🟠 🧠 virtualised lists, caching
 **Goal:** scroll through the whole document like a real reader.
 - Tasks
   - Lay out all pages vertically (sizes are known without rendering: `page.size()`).
