@@ -15,11 +15,11 @@ use relm4::{
 
 use crate::{
     APP_NAME,
-    document::{self, DocumentInfo, DocumentKind, Opened},
+    document::{self, DocumentInfo, DocumentKind, OpenError, Opened},
     folder,
     pdf::{
         self, HitRect, OutlineTarget, PageCache, PageLayout, PageRenderer, RenderJob, RenderedPage,
-        SearchEvent, SearchWorker, Granularity, PagePoint, SelectRequest, SelectionResult, SelectionWorker,
+        LinkTarget, LinkWorker, LinksLoaded, NamedAction, PdfSource, SearchEvent, SearchWorker, Granularity, PagePoint, SelectRequest, SelectionResult, SelectionWorker,
     },
     thumbnails::{ThumbData, ThumbnailLoader},
     widgets::{
@@ -78,6 +78,9 @@ struct PdfView {
     thumb_renderer: PageRenderer,
     search: SearchWorker,
     selector: SelectionWorker,
+    links: LinkWorker,
+    /// Pages whose links have been read.
+    links_loaded: HashSet<usize>,
 }
 
 thread_local! {
@@ -160,12 +163,12 @@ pub enum AppMsg {
     /// A background load finished.
     Loaded {
         generation: u64,
-        result: Result<Opened, String>,
+        result: Result<Opened, OpenError>,
     },
     /// A neighbour finished decoding in the background.
     Preloaded {
         path: PathBuf,
-        result: Result<Opened, String>,
+        result: Result<Opened, OpenError>,
     },
     Thumbnail(PathBuf, ThumbData),
     /// The canvas zoom or the visible pages changed.
@@ -199,6 +202,8 @@ pub enum AppMsg {
         doc_key: u64,
         result: SelectionResult,
     },
+    /// The links of a page were read.
+    LinksLoaded { doc_key: u64, loaded: LinksLoaded },
     /// Put the selected text on the clipboard.
     Copy,
     ClearSelection,
@@ -212,6 +217,10 @@ pub enum AppMsg {
     SearchStep(isize),
     /// The search bar was opened or closed.
     SearchOpened(bool),
+    /// Open the current encrypted file with the password the user typed.
+    OpenWithPassword(String),
+    /// The password dialog was dismissed.
+    PasswordCancelled,
     ToggleSidebar,
     ToggleProperties,
     Hover(bool),
@@ -331,6 +340,39 @@ impl App {
         }
     }
 
+    /// Read the links of the pages in and next to the view, once per page.
+    fn request_links(&mut self) {
+        let Some(pdf) = &self.pdf else { return };
+        let (first, last) = pdf.visible;
+        let wanted = first.saturating_sub(RENDER_AHEAD)..=(last + RENDER_AHEAD).min(pdf.n_pages - 1);
+        pdf.links.request(wanted.filter(|p| !pdf.links_loaded.contains(p)));
+    }
+
+    fn follow_link(&mut self, target: LinkTarget) {
+        match target {
+            LinkTarget::Page { page, y } => self.canvas.scroll_to_point(page, y),
+            LinkTarget::Named(action) => {
+                let Some(pdf) = &self.pdf else { return };
+                let page = match action {
+                    NamedAction::Next => pdf.page.saturating_add(1),
+                    NamedAction::Prev => pdf.page.saturating_sub(1),
+                    NamedAction::First => 0,
+                    NamedAction::Last => usize::MAX,
+                };
+                self.goto_page(page);
+            }
+            LinkTarget::Uri(uri) if pdf::is_safe_uri(&uri) => {
+                let parent = relm4::main_application().active_window();
+                gtk::UriLauncher::new(&uri).launch(parent.as_ref(), gio::Cancellable::NONE, move |result| {
+                    if let Err(err) = result {
+                        tracing::warn!(uri, "could not open link: {err}");
+                    }
+                });
+            }
+            LinkTarget::Uri(uri) => tracing::warn!(uri, "ignored link with an unsupported scheme"),
+        }
+    }
+
     fn clear_selection(&mut self) {
         self.selection = None;
         self.selection_id += 1;
@@ -436,7 +478,7 @@ impl App {
             let generation = self.generation;
             let sender = sender.clone();
             relm4::spawn_blocking(move || {
-                let result = open_logged(&path);
+                let result = open_logged(&path, None);
                 sender.input(AppMsg::Loaded { generation, result });
             });
         }
@@ -458,6 +500,7 @@ impl App {
             let doc_key = self.next_key;
             let layout = Rc::new(PageLayout::new(&pdf_info.page_sizes));
             let input = sender.input_sender().clone();
+            let source = PdfSource::new(&info.path, pdf_info.password.as_deref());
             PdfView {
                 n_pages: pdf_info.n_pages,
                 has_outline: !pdf_info.outline.is_empty(),
@@ -466,21 +509,26 @@ impl App {
                 doc_key,
                 visible: (0, 0),
                 cache: PageCache::new(PAGE_CACHE_BYTES),
-                renderer: PageRenderer::new(&info.path, {
+                renderer: PageRenderer::new(&source, {
                     let input = input.clone();
                     move |job, result| input.emit(AppMsg::PageRendered { doc_key, job, result })
                 }),
-                thumb_renderer: PageRenderer::new(&info.path, {
+                thumb_renderer: PageRenderer::new(&source, {
                     let input = input.clone();
                     move |job, result| input.emit(AppMsg::ThumbRendered { doc_key, job, result })
                 }),
-                search: SearchWorker::new(&info.path, {
+                search: SearchWorker::new(&source, {
                     let input = input.clone();
                     move |event| input.emit(AppMsg::Search { doc_key, event })
                 }),
-                selector: SelectionWorker::new(&info.path, move |result| {
-                    input.emit(AppMsg::SelectionResult { doc_key, result })
+                selector: SelectionWorker::new(&source, {
+                    let input = input.clone();
+                    move |result| input.emit(AppMsg::SelectionResult { doc_key, result })
                 }),
+                links: LinkWorker::new(&source, pdf_info.page_sizes.clone(), move |loaded| {
+                    input.emit(AppMsg::LinksLoaded { doc_key, loaded })
+                }),
+                links_loaded: HashSet::new(),
             }
         });
         match &self.pdf {
@@ -517,9 +565,26 @@ impl App {
             self.preloading.insert(path.clone());
             let sender = sender.clone();
             relm4::spawn_blocking(move || {
-                let result = open_logged(&path);
+                let result = open_logged(&path, None);
                 sender.input(AppMsg::Preloaded { path, result });
             });
+        }
+    }
+
+    /// Show the error page, or ask for the password if that is what is missing.
+    fn open_failed(&mut self, err: OpenError, sender: &ComponentSender<Self>) {
+        match err {
+            OpenError::PasswordRequired { retry } => {
+                self.loading = false;
+                let name = self
+                    .list
+                    .get(self.index)
+                    .and_then(|p| p.file_name())
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                ask_password(&name, retry, sender.clone());
+            }
+            other => self.fail(other.message()),
         }
     }
 
@@ -1062,6 +1127,18 @@ impl SimpleComponent for App {
         }
         widgets.main_window.add_action(&select_action);
 
+        // `win.password` answers the password dialog without typing (for scripts and tests).
+        let password_action = gio::SimpleAction::new("password", Some(glib::VariantTy::STRING));
+        {
+            let sender = sender.clone();
+            password_action.connect_activate(move |_, text| {
+                if let Some(text) = text.and_then(|t| t.str()) {
+                    sender.input(AppMsg::OpenWithPassword(text.to_owned()));
+                }
+            });
+        }
+        widgets.main_window.add_action(&password_action);
+
         // `win.search` takes the text to look for: opens the bar and fills it in.
         let search_action = gio::SimpleAction::new("search", Some(glib::VariantTy::STRING));
         {
@@ -1193,7 +1270,7 @@ impl SimpleComponent for App {
                 }
                 match result {
                     Ok(opened) => self.apply(opened, &sender),
-                    Err(err) => self.fail(err),
+                    Err(err) => self.open_failed(err, &sender),
                 }
             }
             AppMsg::Preloaded { path, result } => {
@@ -1216,7 +1293,7 @@ impl SimpleComponent for App {
                     }
                     Err(err) if wanted => {
                         self.awaiting = None;
-                        self.fail(err);
+                        self.open_failed(err, &sender);
                     }
                     Err(_) => {}
                 }
@@ -1237,6 +1314,7 @@ impl SimpleComponent for App {
                     self.schedule_render(delay, &sender);
                     // Rectangles are only computed near the view, so refresh them when it moves.
                     self.request_selection(false);
+                    self.request_links();
                 }
             }
             AppMsg::RenderPages { ticket } => {
@@ -1314,6 +1392,10 @@ impl SimpleComponent for App {
                             self.request_selection(false);
                         }
                     }
+                    SelectGesture::OpenLink(target) => {
+                        self.clear_selection();
+                        self.follow_link(target);
+                    }
                     SelectGesture::End { moved } => {
                         // A plain single click just deselects; double and triple clicks keep their word or line.
                         if !moved && self.selection.is_some_and(|s| s.granularity == Granularity::Glyph) {
@@ -1334,6 +1416,13 @@ impl SimpleComponent for App {
                     (result.text.filter(|t| !t.is_empty()), gdk::Display::default())
                 {
                     display.clipboard().set_text(&text);
+                }
+            }
+            AppMsg::LinksLoaded { doc_key, loaded } => {
+                let Some(pdf) = &mut self.pdf else { return };
+                if doc_key == pdf.doc_key {
+                    pdf.links_loaded.insert(loaded.page);
+                    self.canvas.set_links(loaded.page, loaded.links);
                 }
             }
             AppMsg::Copy => self.request_selection(true),
@@ -1377,6 +1466,17 @@ impl SimpleComponent for App {
                 };
                 self.select_hit(positions[next]);
             }
+            AppMsg::OpenWithPassword(password) => {
+                let Some(path) = self.list.get(self.index).cloned() else { return };
+                self.generation += 1;
+                self.loading = true;
+                let generation = self.generation;
+                relm4::spawn_blocking(move || {
+                    let result = open_logged(&path, Some(&password));
+                    sender.input(AppMsg::Loaded { generation, result });
+                });
+            }
+            AppMsg::PasswordCancelled => self.fail(OpenError::PasswordRequired { retry: false }.message()),
             AppMsg::ToggleSidebar => self.sidebar_open = !self.sidebar_open,
             AppMsg::ToggleProperties => self.properties_open = !self.properties_open,
             AppMsg::Hover(hover) => self.hover = hover,
@@ -1384,10 +1484,42 @@ impl SimpleComponent for App {
     }
 }
 
-fn open_logged(path: &std::path::Path) -> Result<Opened, String> {
-    document::open(path).map_err(|err| {
-        tracing::warn!(path = %path.display(), "open failed: {err:#}");
-        format!("{err:#}")
+/// Ask for the password of an encrypted PDF; the answer comes back as a message.
+fn ask_password(name: &str, retry: bool, sender: ComponentSender<App>) {
+    let body = if retry {
+        format!("The password for “{name}” was incorrect. Try again.")
+    } else {
+        format!("“{name}” is protected. Enter its password to open it.")
+    };
+    let dialog = adw::AlertDialog::new(Some("Password Required"), Some(&body));
+    dialog.add_responses(&[("cancel", "_Cancel"), ("open", "_Open")]);
+    dialog.set_response_appearance("open", adw::ResponseAppearance::Suggested);
+    dialog.set_default_response(Some("open"));
+    dialog.set_close_response("cancel");
+
+    let entry = gtk::PasswordEntry::builder()
+        .show_peek_icon(true)
+        .activates_default(true)
+        .build();
+    dialog.set_extra_child(Some(&entry));
+
+    let parent = relm4::main_application().active_window();
+    entry.grab_focus();
+    dialog.choose(parent.as_ref(), gio::Cancellable::NONE, move |response| {
+        if response == "open" {
+            sender.input(AppMsg::OpenWithPassword(entry.text().to_string()));
+        } else {
+            sender.input(AppMsg::PasswordCancelled);
+        }
+    });
+}
+
+fn open_logged(path: &std::path::Path, password: Option<&str>) -> Result<Opened, OpenError> {
+    document::open(path, password).inspect_err(|err| {
+        // Needing a password is expected, not a failure worth logging.
+        if let OpenError::Other(message) = err {
+            tracing::warn!(path = %path.display(), "open failed: {message}");
+        }
     })
 }
 

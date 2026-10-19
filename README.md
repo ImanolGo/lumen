@@ -19,7 +19,7 @@ A fast, Preview-like image and PDF viewer for Linux, written in Rust with GTK 4 
 |---|---|---|
 | ✅ | Open dialog, CLI argument, image/PDF detection | 0 |
 | ✅ | Image viewing: zoom, pan, folder browsing, EXIF orientation | 1 |
-| ⬜ | PDF viewing: continuous scroll, thumbnails, outline, search, text selection | 2 |
+| ✅ | PDF viewing: continuous scroll, thumbnails, outline, search, text selection, links, passwords | 2 |
 | ⬜ | Printing | 3 |
 | ⬜ | Rotate / flip / crop / resize, undo, save & export | 4 |
 | ⬜ | Annotations on images and PDFs | 5 |

@@ -99,7 +99,7 @@ fn read_action(
 /// Turn a destination into a page and position, looking named ones up.
 ///
 /// SAFETY: `dest` must be NULL or point to a live `PopplerDest`.
-unsafe fn resolve(
+pub(super) unsafe fn resolve(
     dest: *mut ffi::PopplerDest,
     doc: &Document,
     page_sizes: &[(f64, f64)],

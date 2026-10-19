@@ -6,14 +6,13 @@
 
 use std::{
     collections::HashMap,
-    path::{Path, PathBuf},
     sync::{Arc, Condvar, Mutex},
     thread,
 };
 
 use poppler::{Rectangle, SelectionStyle};
 
-use super::{HitRect, open_document, poppler_lock};
+use super::{PdfSource, HitRect, open_document, poppler_lock};
 
 /// A point on a page, in points from the page's top-left corner.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -150,14 +149,14 @@ pub struct SelectionWorker {
 
 impl SelectionWorker {
     /// `on_result` is called on the worker thread.
-    pub fn new(path: &Path, on_result: impl Fn(SelectionResult) + Send + 'static) -> Self {
+    pub fn new(source: &PdfSource, on_result: impl Fn(SelectionResult) + Send + 'static) -> Self {
         let shared = Shared::default();
         let worker = Arc::clone(&shared);
-        let path: PathBuf = path.to_owned();
+        let source = source.clone();
         thread::spawn(move || {
             let doc = {
                 let _poppler = poppler_lock();
-                open_document(&path)
+                open_document(&source)
             };
             let Ok(doc) = doc else { return };
             let mut pages: HashMap<usize, poppler::Page> = HashMap::new();
@@ -313,8 +312,9 @@ mod poppler_tests {
 
     /// Page 1 has three lines with baselines at 100, 130 and 160 points from the
     /// top, starting at x = 72; page 2 has one line.
-    fn fixture() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/selection.pdf")
+    fn fixture() -> PdfSource {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/selection.pdf");
+        PdfSource::new(&path, None)
     }
 
     fn select(anchor: PagePoint, head: PagePoint, granularity: Granularity) -> SelectionResult {

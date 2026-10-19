@@ -100,7 +100,7 @@ Install `glycin` + `glycin-loaders` and use `glycin::Loader`. This gives sandbox
 
 ---
 
-## Phase 2 — PDF viewer
+## Phase 2 — PDF viewer ✅
 
 ### 2.1 ✅ Render one page 🟢 🧠 Cairo surfaces
 **Goal:** show page 1 of a PDF.
@@ -139,7 +139,7 @@ Install `glycin` + `glycin-loaders` and use `glycin::Loader`. This gives sandbox
 - Tasks: map widget coordinates to page coordinates (write and unit-test this transform!), `page.selected_region` / `page.selected_text`, draw the selection, `Ctrl+C` to the clipboard.
 - **Done when:** you can select a paragraph and paste it elsewhere.
 
-### 2.8 Links and passwords 🟢
+### 2.8 ✅ Links and passwords 🟢
 - Tasks: clickable internal and external links (`page.link_mapping`), a password dialog for encrypted PDFs.
 
 ---

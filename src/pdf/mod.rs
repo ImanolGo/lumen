@@ -5,18 +5,20 @@
 
 mod cache;
 pub mod layout;
+mod links;
 mod outline;
 mod search;
 mod selection;
 mod renderer;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use relm4::gtk::{cairo, gdk, gio, glib, prelude::*};
 
 pub use cache::PageCache;
 pub use layout::PageLayout;
+pub use links::{Link, LinkTarget, LinkWorker, LinksLoaded, NamedAction, is_safe_uri};
 pub use outline::{OutlineItem, OutlineTarget};
 pub use search::{HitRect, SearchEvent, SearchWorker};
 pub use selection::{Granularity, PagePoint, SelectRequest, SelectionResult, SelectionWorker};
@@ -34,6 +36,8 @@ pub struct PdfInfo {
     pub page_sizes: Vec<(f64, f64)>,
     /// Table of contents; empty if the document has none.
     pub outline: Vec<std::sync::Arc<OutlineItem>>,
+    /// The password that opened it, so workers can open it too.
+    pub password: Option<String>,
 }
 
 /// A rendered page: premultiplied BGRA pixels, safe to move between threads.
@@ -68,17 +72,63 @@ fn poppler_lock() -> std::sync::MutexGuard<'static, ()> {
     LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-fn open_document(path: &Path) -> Result<poppler::Document> {
-    let uri = gio::File::for_path(path).uri();
-    poppler::Document::from_file(&uri, None).context("failed to open PDF")
+/// A PDF file and the password that unlocks it, if it has one.
+#[derive(Debug, Clone)]
+pub struct PdfSource {
+    pub path: PathBuf,
+    pub password: Option<String>,
+}
+
+impl PdfSource {
+    pub fn new(path: &Path, password: Option<&str>) -> Self {
+        Self {
+            path: path.to_owned(),
+            password: password.map(str::to_owned),
+        }
+    }
+}
+
+/// Why a PDF could not be loaded.
+#[derive(Debug)]
+pub enum PdfError {
+    /// Encrypted, and the password is missing or wrong.
+    PasswordRequired,
+    Other(anyhow::Error),
+}
+
+impl From<anyhow::Error> for PdfError {
+    fn from(err: anyhow::Error) -> Self {
+        Self::Other(err)
+    }
+}
+
+fn open_pdf(source: &PdfSource) -> Result<poppler::Document, PdfError> {
+    let uri = gio::File::for_path(&source.path).uri();
+    poppler::Document::from_file(&uri, source.password.as_deref()).map_err(|err| {
+        if err.matches(poppler::Error::Encrypted) {
+            PdfError::PasswordRequired
+        } else {
+            PdfError::Other(anyhow::Error::new(err).context("failed to open PDF"))
+        }
+    })
+}
+
+/// For worker threads, which only care that opening failed.
+fn open_document(source: &PdfSource) -> Result<poppler::Document> {
+    open_pdf(source).map_err(|err| match err {
+        PdfError::PasswordRequired => anyhow::anyhow!("the PDF is password protected"),
+        PdfError::Other(err) => err,
+    })
 }
 
 /// Blocking: call it off the main thread.
-pub fn load_info(path: &Path) -> Result<PdfInfo> {
+pub fn load_info(source: &PdfSource) -> Result<PdfInfo, PdfError> {
     let _poppler = poppler_lock();
-    let doc = open_document(path)?;
+    let doc = open_pdf(source)?;
     let n_pages = doc.n_pages().max(0) as usize;
-    anyhow::ensure!(n_pages > 0, "the PDF has no pages");
+    if n_pages == 0 {
+        return Err(anyhow::anyhow!("the PDF has no pages").into());
+    }
     let page_sizes: Vec<(f64, f64)> = (0..n_pages)
         .map(|i| {
             doc.page(i as i32)
@@ -90,6 +140,7 @@ pub fn load_info(path: &Path) -> Result<PdfInfo> {
         n_pages,
         page_sizes,
         outline,
+        password: source.password.clone(),
     })
 }
 

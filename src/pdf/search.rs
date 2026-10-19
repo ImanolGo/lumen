@@ -5,14 +5,13 @@
 //! running. Starting a new search abandons the old one between pages.
 
 use std::{
-    path::{Path, PathBuf},
     sync::{Arc, Condvar, Mutex},
     thread,
 };
 
 use poppler::FindFlags;
 
-use super::{open_document, poppler_lock};
+use super::{PdfSource, open_document, poppler_lock};
 
 /// A match, in points from the top-left corner of its page.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -53,15 +52,15 @@ pub struct SearchWorker {
 
 impl SearchWorker {
     /// `on_event` is called on the worker thread.
-    pub fn new(path: &Path, on_event: impl Fn(SearchEvent) + Send + 'static) -> Self {
+    pub fn new(source: &PdfSource, on_event: impl Fn(SearchEvent) + Send + 'static) -> Self {
         let shared = Shared::default();
         let worker = Arc::clone(&shared);
-        let path: PathBuf = path.to_owned();
+        let source = source.clone();
         thread::spawn(move || {
             // Poppler documents are not `Send`, so the thread opens its own.
             let doc = {
                 let _poppler = poppler_lock();
-                open_document(&path)
+                open_document(&source)
             };
             let Ok(doc) = doc else { return };
             let n_pages = doc.n_pages().max(0) as usize;

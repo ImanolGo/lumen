@@ -16,7 +16,7 @@ use std::{cell::Cell, collections::HashMap, rc::Rc};
 
 use crate::{
     image::{ImageDocument, Orientation},
-    pdf::{HitRect, PageLayout, PagePoint},
+    pdf::{HitRect, Link, LinkTarget, PageLayout, PagePoint},
 };
 
 const MIN_ZOOM: f64 = 0.02;
@@ -36,7 +36,7 @@ pub enum CanvasContent<'a> {
 }
 
 /// What the user is doing with the pointer on a PDF page.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum SelectGesture {
     /// Pressed on a page; `clicks` is 1 for a single click, 2 for a double click, 3 for a triple.
     Start { point: PagePoint, clicks: u32 },
@@ -44,6 +44,8 @@ pub enum SelectGesture {
     Extend(PagePoint),
     /// Released; `moved` is false for a plain click.
     End { moved: bool },
+    /// A plain click on a link.
+    OpenLink(LinkTarget),
 }
 
 /// What is on screen, reported to the owner so it can render what is needed.
@@ -90,6 +92,8 @@ pub struct PagesState {
     current_hit: Option<(usize, usize)>,
     /// Selected text rectangles per page.
     selection: HashMap<usize, Vec<HitRect>>,
+    /// Clickable links per page.
+    links: HashMap<usize, Vec<Link>>,
 }
 
 mod imp {
@@ -111,6 +115,8 @@ mod imp {
         pub last_view: Cell<Option<ViewInfo>>,
         pub view_callback: RefCell<Option<ViewCallback>>,
         pub select_callback: RefCell<Option<SelectCallback>>,
+        /// A pan drag is in progress (the hover cursor must not override "grabbing").
+        pub dragging: Cell<bool>,
         /// Time (ms), position and count of the last press, to detect double and triple clicks.
         pub last_press: Cell<Option<(u32, f64, f64, u32)>>,
         pub zoom: Cell<f64>,
@@ -140,6 +146,7 @@ mod imp {
                 last_view: Cell::new(None),
                 view_callback: RefCell::default(),
                 select_callback: RefCell::default(),
+                dragging: Cell::new(false),
                 last_press: Cell::new(None),
                 zoom: Cell::new(1.0),
                 fit: Cell::new(true),
@@ -206,7 +213,10 @@ mod imp {
             motion.connect_motion(glib::clone!(
                 #[weak]
                 canvas,
-                move |_, x, y| canvas.imp().pointer.set(Some((x, y)))
+                move |_, x, y| {
+                    canvas.imp().pointer.set(Some((x, y)));
+                    canvas.update_hover_cursor(x, y);
+                }
             ));
             motion.connect_leave(glib::clone!(
                 #[weak]
@@ -370,6 +380,7 @@ impl LumenCanvas {
                         highlights: HashMap::new(),
                         current_hit: None,
                         selection: HashMap::new(),
+                        links: HashMap::new(),
                     });
                     self.new_content();
                 }
@@ -428,6 +439,7 @@ impl LumenCanvas {
                     canvas.adjustment_value(gtk::Orientation::Horizontal),
                     canvas.adjustment_value(gtk::Orientation::Vertical),
                 ));
+                canvas.imp().dragging.set(true);
                 if canvas.can_pan() {
                     canvas.set_cursor_from_name(Some("grabbing"));
                 }
@@ -447,7 +459,10 @@ impl LumenCanvas {
         drag.connect_drag_end(glib::clone!(
             #[weak(rename_to = canvas)]
             self,
-            move |_, _, _| canvas.update_cursor()
+            move |_, _, _| {
+                canvas.imp().dragging.set(false);
+                canvas.update_cursor();
+            }
         ));
         self.add_controller(drag);
     }
@@ -489,8 +504,16 @@ impl LumenCanvas {
         drag.connect_drag_end(glib::clone!(
             #[weak(rename_to = canvas)]
             self,
+            #[strong]
+            origin,
             move |_, dx, dy| {
-                canvas.emit_select(SelectGesture::End { moved: dx.hypot(dy) > 3.0 });
+                let moved = dx.hypot(dy) > 3.0;
+                let single_click = canvas.imp().last_press.get().is_some_and(|(_, _, _, n)| n == 1);
+                let (x, y) = origin.get();
+                match canvas.link_at(x, y).filter(|_| !moved && single_click) {
+                    Some(target) => canvas.emit_select(SelectGesture::OpenLink(target)),
+                    None => canvas.emit_select(SelectGesture::End { moved }),
+                }
             }
         ));
         self.add_controller(drag);
@@ -521,6 +544,28 @@ impl LumenCanvas {
         let pages = self.imp().pages.borrow();
         let (page, px, py) = pages.as_ref()?.layout.locate((x - ox) / zoom, (y - oy) / zoom)?;
         Some(PagePoint { page, x: px, y: py })
+    }
+
+    /// Links found on `page`, for hit testing.
+    pub fn set_links(&self, page: usize, links: Vec<Link>) {
+        if let Some(pages) = self.imp().pages.borrow_mut().as_mut() {
+            pages.links.insert(page, links);
+        }
+    }
+
+    /// The link under widget coordinates (`x`, `y`), if any.
+    fn link_at(&self, x: f64, y: f64) -> Option<LinkTarget> {
+        let point = self.page_point_at(x, y)?;
+        let pages = self.imp().pages.borrow();
+        let links = pages.as_ref()?.links.get(&point.page)?;
+        links.iter().find(|l| l.contains(point.x, point.y)).map(|l| l.target.clone())
+    }
+
+    fn update_hover_cursor(&self, x: f64, y: f64) {
+        if self.has_pages() && !self.imp().dragging.get() {
+            let name = if self.link_at(x, y).is_some() { "pointer" } else { "text" };
+            self.set_cursor_from_name(Some(name));
+        }
     }
 
     pub fn connect_select(&self, callback: impl Fn(SelectGesture) + 'static) {

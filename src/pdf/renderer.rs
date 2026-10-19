@@ -2,14 +2,13 @@
 
 use std::{
     collections::VecDeque,
-    path::{Path, PathBuf},
     sync::{Arc, Condvar, Mutex},
     thread,
 };
 
 use anyhow::Result;
 
-use super::{RenderedPage, open_document, poppler_lock, render_page};
+use super::{PdfSource, RenderedPage, open_document, poppler_lock, render_page};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RenderJob {
@@ -33,17 +32,17 @@ pub struct PageRenderer {
 impl PageRenderer {
     /// `on_done` is called on the worker thread after every job.
     pub fn new(
-        path: &Path,
+        source: &PdfSource,
         on_done: impl Fn(RenderJob, Result<RenderedPage, String>) + Send + 'static,
     ) -> Self {
         let shared = Shared::default();
         let worker = Arc::clone(&shared);
-        let path: PathBuf = path.to_owned();
+        let source = source.clone();
         thread::spawn(move || {
             // Poppler documents are not `Send`, so the thread opens its own.
             let doc = {
                 let _poppler = poppler_lock();
-                open_document(&path).map_err(|err| format!("{err:#}"))
+                open_document(&source).map_err(|err| format!("{err:#}"))
             };
             loop {
                 let job = {

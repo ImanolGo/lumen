@@ -7,7 +7,10 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use relm4::gtk::{gio, prelude::*};
 
-use crate::{image::ImageDocument, pdf::{self, PdfInfo}};
+use crate::{
+    image::ImageDocument,
+    pdf::{self, PdfError, PdfInfo, PdfSource},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DocumentKind {
@@ -70,17 +73,43 @@ pub struct Opened {
     pub pdf: Option<PdfInfo>,
 }
 
+/// Why a file could not be opened.
+#[derive(Debug)]
+pub enum OpenError {
+    /// An encrypted PDF; `retry` is set when a password was given and was wrong.
+    PasswordRequired { retry: bool },
+    Other(String),
+}
+
+impl OpenError {
+    fn other(err: anyhow::Error) -> Self {
+        Self::Other(format!("{err:#}"))
+    }
+
+    /// Text for the error page.
+    pub fn message(&self) -> String {
+        match self {
+            Self::PasswordRequired { retry: true } => "The password is incorrect".to_owned(),
+            Self::PasswordRequired { retry: false } => "This PDF is password protected".to_owned(),
+            Self::Other(message) => message.clone(),
+        }
+    }
+}
+
 /// Detect, decode and summarize `path`. Blocking: call it off the main thread.
-pub fn open(path: &Path) -> Result<Opened> {
-    let kind = detect_kind(path)?;
+pub fn open(path: &Path, password: Option<&str>) -> Result<Opened, OpenError> {
+    let kind = detect_kind(path).map_err(OpenError::other)?;
     let (summary, image, pdf) = match kind {
         DocumentKind::Image => {
-            let image = ImageDocument::load(path)?;
+            let image = ImageDocument::load(path).map_err(OpenError::other)?;
             let (w, h) = image.display_size();
             (format!("{w} × {h} px"), Some(image), None)
         }
         DocumentKind::Pdf => {
-            let info = pdf::load_info(path)?;
+            let info = pdf::load_info(&PdfSource::new(path, password)).map_err(|err| match err {
+                PdfError::PasswordRequired => OpenError::PasswordRequired { retry: password.is_some() },
+                PdfError::Other(err) => OpenError::other(err),
+            })?;
             let summary = match info.n_pages {
                 1 => "1 page".to_owned(),
                 n => format!("{n} pages"),
@@ -119,5 +148,27 @@ mod tests {
             Some(DocumentKind::Image)
         );
         assert_eq!(DocumentKind::from_mime("text/plain"), None);
+    }
+
+    fn fixture(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)
+    }
+
+    /// `tests/fixtures/encrypted.pdf` has the user password "secret".
+    #[test]
+    fn encrypted_pdf_asks_for_the_password() {
+        let path = fixture("encrypted.pdf");
+        assert!(matches!(open(&path, None), Err(OpenError::PasswordRequired { retry: false })));
+        assert!(matches!(open(&path, Some("wrong")), Err(OpenError::PasswordRequired { retry: true })));
+        let opened = open(&path, Some("secret")).expect("the right password opens it");
+        let pdf = opened.pdf.expect("is a PDF");
+        assert_eq!(pdf.n_pages, 2);
+        assert_eq!(pdf.password.as_deref(), Some("secret"));
+    }
+
+    #[test]
+    fn plain_pdf_needs_no_password() {
+        let opened = open(&fixture("selection.pdf"), None).expect("opens");
+        assert_eq!(opened.pdf.expect("is a PDF").password, None);
     }
 }
