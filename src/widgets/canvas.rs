@@ -10,7 +10,10 @@
 //! for the current zoom; it is simply stretched over the logical rectangle, so
 //! an outdated texture still shows (blurry) until the fresh one arrives.
 
-use relm4::gtk::{self, gdk, glib, graphene, gsk, prelude::*, subclass::prelude::*};
+use relm4::{
+    adw::{self, prelude::*},
+    gtk::{self, gdk, glib, graphene, gsk, subclass::prelude::*},
+};
 
 use std::{
     cell::{Cell, RefCell},
@@ -26,6 +29,7 @@ use crate::{
     },
     image::{ImageDocument, Orientation},
     pdf::{HitRect, Link, LinkTarget, PageLayout, PagePoint},
+    settings::Background,
 };
 
 const MIN_ZOOM: f64 = 0.02;
@@ -116,6 +120,7 @@ const HIT_CURRENT: gdk::RGBA = gdk::RGBA::new(1.0, 0.45, 0.0, 0.6);
 /// Fit-to-width never zooms a document past this.
 const MAX_PAGES_FIT_ZOOM: f64 = 3.0;
 
+const ZOOM_ANIMATION_MS: u32 = 130;
 const KEY_ZOOM_STEP: f64 = 1.25;
 const WHEEL_ZOOM_STEP: f64 = 0.1;
 
@@ -168,6 +173,13 @@ mod imp {
         pub view_callback: RefCell<Option<ViewCallback>>,
         pub select_callback: RefCell<Option<SelectCallback>>,
         pub crop: RefCell<Option<CropState>>,
+        pub background: Cell<Background>,
+        /// Show new images at 100 % instead of fitted to the window.
+        pub start_actual: Cell<bool>,
+        pub smooth_zoom: Cell<bool>,
+        pub zoom_animation: RefCell<Option<adw::TimedAnimation>>,
+        /// Where a running zoom animation is heading, so quick repeats add up.
+        pub zoom_target: Cell<f64>,
         pub markup_store: RefCell<Option<Rc<RefCell<Store>>>>,
         pub markup_mode: Cell<MarkupMode>,
         pub markup_callback: RefCell<Option<MarkupCallback>>,
@@ -203,6 +215,11 @@ mod imp {
                 view_callback: RefCell::default(),
                 select_callback: RefCell::default(),
                 crop: RefCell::default(),
+                background: Cell::new(Background::System),
+                start_actual: Cell::new(false),
+                smooth_zoom: Cell::new(true),
+                zoom_animation: RefCell::default(),
+                zoom_target: Cell::new(1.0),
                 markup_store: RefCell::default(),
                 markup_mode: Cell::new(MarkupMode::Off),
                 markup_callback: RefCell::default(),
@@ -352,6 +369,7 @@ mod imp {
             let Some((logical_w, logical_h)) = self.logical.get() else {
                 return;
             };
+            canvas.snapshot_background(snapshot);
             let zoom = canvas.effective_zoom();
             let (x, y) = canvas.origin();
             if let Some(pages) = self.pages.borrow().as_ref() {
@@ -364,6 +382,9 @@ mod imp {
             let (shown_w, shown_h) = if self.orientation.get().swaps_axes() { (h, w) } else { (w, h) };
             let bounds = graphene::Rect::new((-w / 2.0) as f32, (-h / 2.0) as f32, w as f32, h as f32);
 
+            if self.background.get() == Background::Checkerboard {
+                canvas.snapshot_checkerboard(snapshot, &graphene::Rect::new(x as f32, y as f32, shown_w as f32, shown_h as f32));
+            }
             snapshot.save();
             snapshot.translate(&graphene::Point::new(
                 (x + shown_w / 2.0) as f32,
@@ -640,6 +661,58 @@ impl LumenCanvas {
         if self.has_pages() && !self.imp().dragging.get() {
             let name = if self.link_at(x, y).is_some() { "pointer" } else { "text" };
             self.set_cursor_from_name(Some(name));
+        }
+    }
+
+    // --- appearance ---------------------------------------------------------------
+
+    pub fn set_background(&self, background: Background) {
+        self.imp().background.set(background);
+        self.queue_draw();
+    }
+
+    pub fn set_start_actual_size(&self, actual: bool) {
+        self.imp().start_actual.set(actual);
+    }
+
+    pub fn set_smooth_zoom(&self, smooth: bool) {
+        self.imp().smooth_zoom.set(smooth);
+    }
+
+    /// Fill the widget behind the content, for the backgrounds that are not the theme's.
+    fn snapshot_background(&self, snapshot: &gtk::Snapshot) {
+        let color = match self.imp().background.get() {
+            Background::Dark => gdk::RGBA::new(0.12, 0.12, 0.12, 1.0),
+            Background::Light => gdk::RGBA::new(0.96, 0.96, 0.95, 1.0),
+            Background::System | Background::Checkerboard => return,
+        };
+        snapshot.append_color(&color, &graphene::Rect::new(0.0, 0.0, self.width() as f32, self.height() as f32));
+    }
+
+    /// Grey squares behind a (possibly transparent) image, over `area` in widget coordinates.
+    fn snapshot_checkerboard(&self, snapshot: &gtk::Snapshot, area: &graphene::Rect) {
+        const TILE: f32 = 14.0;
+        let light = gdk::RGBA::new(0.80, 0.80, 0.80, 1.0);
+        let dark = gdk::RGBA::new(0.62, 0.62, 0.62, 1.0);
+        // Only the part of the image that is on screen needs squares.
+        let screen = graphene::Rect::new(0.0, 0.0, self.width() as f32, self.height() as f32);
+        let Some(visible) = area.intersection(&screen) else { return };
+        snapshot.append_color(&light, &visible);
+
+        let first_col = ((visible.x() - area.x()) / TILE).floor() as i32;
+        let first_row = ((visible.y() - area.y()) / TILE).floor() as i32;
+        let last_col = ((visible.x() + visible.width() - area.x()) / TILE).ceil() as i32;
+        let last_row = ((visible.y() + visible.height() - area.y()) / TILE).ceil() as i32;
+        for row in first_row..last_row {
+            for col in first_col..last_col {
+                if (row + col) % 2 != 0 {
+                    continue;
+                }
+                let square = graphene::Rect::new(area.x() + col as f32 * TILE, area.y() + row as f32 * TILE, TILE, TILE);
+                if let Some(clipped) = square.intersection(&visible) {
+                    snapshot.append_color(&dark, &clipped);
+                }
+            }
         }
     }
 
@@ -1121,6 +1194,9 @@ impl LumenCanvas {
         imp.last_view.set(None);
         *imp.crop.borrow_mut() = None;
         self.best_fit();
+        if imp.start_actual.get() && imp.pages.borrow().is_none() {
+            self.set_zoom(1.0, None);
+        }
     }
 
     /// Called whenever the zoom, the visible pages or the scale factor change,
@@ -1183,7 +1259,40 @@ impl LumenCanvas {
     }
 
     pub fn zoom_by(&self, factor: f64, anchor: Option<(f64, f64)>) {
-        self.set_zoom(self.effective_zoom() * factor, anchor);
+        let imp = self.imp();
+        if !imp.smooth_zoom.get() || self.texture_size().is_none() {
+            self.set_zoom(self.effective_zoom() * factor, anchor);
+            return;
+        }
+        // Quick repeats (a spinning wheel) build on where the last animation was going.
+        let running = imp
+            .zoom_animation
+            .borrow()
+            .as_ref()
+            .is_some_and(|a| a.state() == adw::AnimationState::Playing);
+        let base = if running { imp.zoom_target.get() } else { self.effective_zoom() };
+        let target = (base * factor).clamp(MIN_ZOOM, MAX_ZOOM);
+        imp.zoom_target.set(target);
+        // The old animation must stop, or the two would fight over the zoom.
+        if let Some(old) = imp.zoom_animation.borrow_mut().take() {
+            old.pause();
+        }
+
+        let canvas = self.downgrade();
+        let animation = adw::TimedAnimation::new(
+            self,
+            self.effective_zoom(),
+            target,
+            ZOOM_ANIMATION_MS,
+            adw::CallbackAnimationTarget::new(move |zoom| {
+                if let Some(canvas) = canvas.upgrade() {
+                    canvas.set_zoom(zoom, anchor);
+                }
+            }),
+        );
+        animation.set_easing(adw::Easing::EaseOutCubic);
+        animation.play();
+        *imp.zoom_animation.borrow_mut() = Some(animation);
     }
 
     pub fn zoom_in(&self) {

@@ -244,8 +244,8 @@ This is the heart of "Preview-like". **Design the model first, UI second.**
 
 ## Phase 7 — Polish and distribution
 
-- [ ] **7.1 Preferences** — `adw::PreferencesDialog` + `gio::Settings` (GSchema in `data/`): default zoom, background colour, smooth zoom.
-- [ ] **7.2 Remember state** — window size, sidebar visibility, last page per PDF.
+- [x] **7.1 Preferences** — `adw::PreferencesDialog`: default zoom, background (system, dark, light, checkerboard), smooth zoom, slideshow time, remembering. Stored as TOML in `~/.config/lumen/settings.toml` rather than GSettings, so it works from `cargo run`, in tests and in a Flatpak without installing a schema.
+- [x] **7.2 Remember state** — window size and maximised state, sidebar visibility, last page per PDF (in `~/.local/share/lumen/state.toml`).
 - [ ] **7.3 Fullscreen and slideshow** — `F11`, auto-advance timer, hide the cursor.
 - [ ] **7.4 Accessibility and keyboard** — `gtk::ShortcutsWindow` (`Ctrl+?`), accessible labels, a full keyboard pass.
 - [ ] **7.5 i18n** — `gettext-rs`, `po/` directory.

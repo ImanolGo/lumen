@@ -3,6 +3,7 @@
 mod edit;
 mod markup;
 mod pages;
+mod prefs;
 
 use std::{
     cell::{Cell, RefCell},
@@ -24,6 +25,7 @@ use crate::{
     edit::{Adjustments, EditOp},
     folder, print,
     save::Format,
+    settings::{self, DefaultZoom, Settings, Store},
     pdf::{
         self, HitRect, OutlineTarget, PageCache, PageLayout, PageRenderer, RenderJob, RenderedPage,
         LinkTarget, LinkWorker, LinksLoaded, NamedAction, PdfSource, SearchEvent, SearchWorker, Granularity, PagePoint, SelectRequest, SelectionResult, SelectionWorker,
@@ -165,6 +167,10 @@ pub struct App {
     after_save: Option<Pending>,
     saving: bool,
     markup: MarkupState,
+    /// Preferences and remembered state; shared with the window's close handler.
+    store: Rc<RefCell<Store>>,
+    /// A page to scroll to as soon as the canvas has a size (the one a PDF was left on).
+    pending_goto: Option<usize>,
     /// Working copies of the PDF being rearranged (they are the undo history of page changes).
     work: WorkDir,
     reload_generation: u64,
@@ -275,6 +281,9 @@ pub enum AppMsg {
     SaveAs,
     SaveTo { dest: PathBuf, format: Format },
     Saved { dest: PathBuf, result: Result<(), String> },
+    Preferences,
+    SettingsChanged(Settings),
+    About,
     /// A page operation on the open PDF.
     PageRequest(PageRequest),
     PageOpDone {
@@ -621,6 +630,14 @@ impl App {
         }
     }
 
+    /// Put the preferences into effect.
+    fn apply_settings(&self) {
+        let store = self.store.borrow();
+        self.canvas.set_background(store.settings.background);
+        self.canvas.set_smooth_zoom(store.settings.smooth_zoom);
+        self.canvas.set_start_actual_size(store.settings.default_zoom == DefaultZoom::ActualSize);
+    }
+
     /// The viewer state for a PDF shown from `path` (a working copy of `original`).
     fn make_pdf_view(&mut self, path: &std::path::Path, original: PathBuf, pdf_info: &pdf::PdfInfo, sender: &ComponentSender<Self>) -> PdfView {
         self.next_key += 1;
@@ -688,6 +705,12 @@ impl App {
         }
         self.sidebar_mode = if self.pdf.is_some() { SidebarMode::Pages } else { SidebarMode::Files };
         self.load_markup(opened_annotations);
+        self.pending_goto = None;
+        if self.store.borrow().settings.remember_state && let Some(pdf) = &self.pdf {
+            let saved = self.store.borrow().state.last_page(&pdf.original);
+            self.pending_goto = saved.filter(|&p| p < pdf.n_pages);
+        }
+        self.store.borrow().save_state();
         self.document = Some(info);
         self.sync_canvas();
         self.clear_selection();
@@ -842,10 +865,21 @@ impl SimpleComponent for App {
 
     view! {
         main_window = adw::ApplicationWindow {
-            set_default_size: (1000, 720),
+            set_default_size: (initial_size.0, initial_size.1),
             #[watch]
             set_title: Some(&model.title()),
-            connect_close_request[sender, dirty] => move |_| {
+            connect_close_request[sender, dirty, store] => move |window| {
+                // Remember how the window was left.
+                {
+                    let mut store = store.borrow_mut();
+                    let (width, height) = (window.width(), window.height());
+                    store.state.maximized = window.is_maximized();
+                    if !window.is_maximized() && width > 0 && height > 0 {
+                        store.state.window_width = width;
+                        store.state.window_height = height;
+                    }
+                    store.save_state();
+                }
                 // Unsaved edits: ask first, and close only once they are dealt with.
                 if dirty.get() {
                     sender.input(AppMsg::CloseRequested);
@@ -894,6 +928,13 @@ impl SimpleComponent for App {
                             #[watch]
                             set_label: &model.page_total(),
                         },
+                    },
+
+                    pack_end = &gtk::MenuButton {
+                        set_icon_name: "open-menu-symbolic",
+                        set_tooltip_text: Some("Main Menu"),
+                        set_primary: true,
+                        set_menu_model: Some(&main_menu),
                     },
 
                     pack_end = &gtk::MenuButton {
@@ -1336,6 +1377,15 @@ impl SimpleComponent for App {
         INPUT.with(|input| *input.borrow_mut() = Some(sender.input_sender().clone()));
 
         let dirty = Rc::new(Cell::new(false));
+        let store = Rc::new(RefCell::new(Store::load(settings::Paths::user())));
+        let initial_size = {
+            let store = store.borrow();
+            if store.settings.remember_state {
+                (store.state.window_width.max(400), store.state.window_height.max(300))
+            } else {
+                (1000, 720)
+            }
+        };
 
         let edit_menu = gio::Menu::new();
         let history = gio::Menu::new();
@@ -1377,6 +1427,14 @@ impl SimpleComponent for App {
         page_exports.append(Some("Export Selected Pages…"), Some("win.export-pages"));
         page_exports.append(Some("Export Page as PNG…"), Some("win.export-png"));
         pages_menu.append_section(None, &page_exports);
+
+        let main_menu = gio::Menu::new();
+        let prefs_section = gio::Menu::new();
+        prefs_section.append(Some("Preferences"), Some("win.preferences"));
+        main_menu.append_section(None, &prefs_section);
+        let about_section = gio::Menu::new();
+        about_section.append(Some("About Lumen"), Some("win.about"));
+        main_menu.append_section(None, &about_section);
 
         let print_menu = gio::Menu::new();
         print_menu.append(Some("Print…"), Some("win.print"));
@@ -1441,7 +1499,7 @@ impl SimpleComponent for App {
             index: 0,
             generation: 0,
             loading: false,
-            sidebar_open: true,
+            sidebar_open: store.borrow().settings.remember_state && store.borrow().state.sidebar_open || !store.borrow().settings.remember_state,
             hover: false,
             cache: Vec::new(),
             preloading: HashSet::new(),
@@ -1463,6 +1521,8 @@ impl SimpleComponent for App {
             after_save: None,
             saving: false,
             markup: MarkupState::default(),
+            store: store.clone(),
+            pending_goto: None,
             work: WorkDir::default(),
             reload_generation: 0,
             page_busy: false,
@@ -1471,6 +1531,7 @@ impl SimpleComponent for App {
             crop_choice: 0,
             error: None,
         };
+        model.apply_settings();
         let model_canvas = model.canvas.clone();
         let model_markup_store = model.markup.store.clone();
         let color_button = gtk::ColorDialogButton::new(Some(gtk::ColorDialog::new()));
@@ -1488,6 +1549,9 @@ impl SimpleComponent for App {
         sidebar_stack.add_named(model.outline.root(), Some("outline"));
         let properties_root = model.properties.root().clone();
         let widgets = view_output!();
+        if store.borrow().settings.remember_state && store.borrow().state.maximized {
+            widgets.main_window.maximize();
+        }
 
         // Window actions + keyboard shortcuts.
         let open_action = gio::SimpleAction::new("open", None);
@@ -1584,6 +1648,8 @@ impl SimpleComponent for App {
             ("save-as", || AppMsg::SaveAs, &["<Control><Shift>s"]),
             ("apply-tool", || AppMsg::Confirm, &[]),
             ("markup", || AppMsg::ToggleMarkup, &["<Control><Shift>a"]),
+            ("preferences", || AppMsg::Preferences, &["<Control>comma"]),
+            ("about", || AppMsg::About, &[]),
             ("delete-pages", || AppMsg::DeletePages, &[]),
             ("insert-pages", || AppMsg::InsertDialog, &[]),
             ("export-pages", || AppMsg::ExportPagesDialog, &[]),
@@ -2036,7 +2102,16 @@ impl App {
                     (info.zoom - self.zoom).abs() > 1e-4 || info.scale_factor != self.scale_factor;
                 self.zoom = info.zoom;
                 self.scale_factor = info.scale_factor;
+                if let Some(page) = self.pending_goto.take() {
+                    self.canvas.scroll_to_page(page);
+                }
                 if let Some(pdf) = &mut self.pdf {
+                    // `goto_page` has already moved `pdf.page`, so compare with what was remembered.
+                    let mut store = self.store.borrow_mut();
+                    if store.state.last_page(&pdf.original).unwrap_or(0) != info.current_page {
+                        store.state.set_last_page(&pdf.original, info.current_page);
+                    }
+                    drop(store);
                     pdf.page = info.current_page;
                     self.page_strip.set_current(info.current_page);
                     pdf.visible = (info.first_visible, info.last_visible);
@@ -2197,6 +2272,18 @@ impl App {
                     self.clear_selection();
                 }
             }
+            AppMsg::Preferences => {
+                let sender = sender.clone();
+                prefs::show_preferences(&self.store.borrow().settings, move |settings| {
+                    sender.input(AppMsg::SettingsChanged(settings));
+                });
+            }
+            AppMsg::SettingsChanged(settings) => {
+                self.store.borrow_mut().settings = settings;
+                self.store.borrow().save_settings();
+                self.apply_settings();
+            }
+            AppMsg::About => prefs::show_about(),
             AppMsg::PageRequest(request) => self.page_request(request, &sender),
             AppMsg::PageOpDone { out, goto, result } => self.page_op_done(out, goto, result, &sender),
             AppMsg::PdfReloaded { generation, goto, path, result } => {
@@ -2313,7 +2400,10 @@ impl App {
             }
             AppMsg::PasswordCancelled => self.fail(OpenError::PasswordRequired { retry: false }.message()),
             AppMsg::Print(export_to) => self.print(export_to),
-            AppMsg::ToggleSidebar => self.sidebar_open = !self.sidebar_open,
+            AppMsg::ToggleSidebar => {
+                self.sidebar_open = !self.sidebar_open;
+                self.store.borrow_mut().state.sidebar_open = self.sidebar_open;
+            }
             AppMsg::ToggleProperties => self.properties_open = !self.properties_open,
             AppMsg::Hover(hover) => self.hover = hover,
         }

@@ -7,6 +7,7 @@ mod image;
 mod pdf;
 mod print;
 mod save;
+mod settings;
 mod thumbnails;
 mod widgets;
 
