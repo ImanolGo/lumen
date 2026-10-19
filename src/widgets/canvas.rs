@@ -7,6 +7,8 @@
 
 use relm4::gtk::{self, gdk, glib, graphene, gsk, prelude::*, subclass::prelude::*};
 
+use crate::image::{ImageDocument, Orientation};
+
 const MIN_ZOOM: f64 = 0.02;
 const MAX_ZOOM: f64 = 32.0;
 /// Above this zoom, pixels are drawn as crisp squares instead of smoothed.
@@ -23,6 +25,7 @@ mod imp {
     #[properties(wrapper_type = super::LumenCanvas)]
     pub struct LumenCanvas {
         pub texture: RefCell<Option<gdk::Texture>>,
+        pub orientation: Cell<Orientation>,
         pub zoom: Cell<f64>,
         pub fit: Cell<bool>,
         pub pointer: Cell<Option<(f64, f64)>>,
@@ -42,6 +45,7 @@ mod imp {
         fn default() -> Self {
             Self {
                 texture: RefCell::default(),
+                orientation: Cell::new(Orientation::NORMAL),
                 zoom: Cell::new(1.0),
                 fit: Cell::new(true),
                 pointer: Cell::new(None),
@@ -210,18 +214,24 @@ mod imp {
             };
             let zoom = canvas.effective_zoom();
             let (x, y) = canvas.origin();
-            let bounds = graphene::Rect::new(
-                x as f32,
-                y as f32,
-                (texture.width() as f64 * zoom) as f32,
-                (texture.height() as f64 * zoom) as f32,
-            );
+            // Draw the stored pixels centred on the origin, then rotate/flip
+            // them into place inside the (oriented) bounds.
+            let (w, h) = (texture.width() as f64 * zoom, texture.height() as f64 * zoom);
+            let (shown_w, shown_h) = if self.orientation.get().swaps_axes() { (h, w) } else { (w, h) };
+            let bounds = graphene::Rect::new((-w / 2.0) as f32, (-h / 2.0) as f32, w as f32, h as f32);
             let filter = if zoom > NEAREST_ABOVE {
                 gsk::ScalingFilter::Nearest
             } else {
                 gsk::ScalingFilter::Trilinear
             };
+            snapshot.save();
+            snapshot.translate(&graphene::Point::new(
+                (x + shown_w / 2.0) as f32,
+                (y + shown_h / 2.0) as f32,
+            ));
+            snapshot.transform(Some(&self.orientation.get().transform()));
             snapshot.append_scaled_texture(&texture, filter, &bounds);
+            snapshot.restore();
         }
     }
 
@@ -241,11 +251,13 @@ impl Default for LumenCanvas {
 }
 
 impl LumenCanvas {
-    pub fn set_texture(&self, texture: Option<&gdk::Texture>) {
+    pub fn set_image(&self, image: Option<&ImageDocument>) {
         let imp = self.imp();
-        let changed = imp.texture.borrow().as_ref() != texture;
-        if changed {
+        let texture = image.map(|i| &i.texture);
+        let orientation = image.map_or(Orientation::NORMAL, |i| i.orientation);
+        if imp.texture.borrow().as_ref() != texture || imp.orientation.get() != orientation {
             *imp.texture.borrow_mut() = texture.cloned();
+            imp.orientation.set(orientation);
             self.best_fit();
         }
     }
@@ -258,11 +270,10 @@ impl LumenCanvas {
     fn effective_zoom_for(&self, width: f64, height: f64) -> f64 {
         let imp = self.imp();
         match (imp.fit.get(), imp.texture.borrow().as_ref()) {
-            (true, Some(t)) => {
+            (true, Some(_)) => {
+                let (iw, ih) = self.texture_size().unwrap_or((1.0, 1.0));
                 // Never upscale small images past 100 % just to fill the window.
-                (width / t.width() as f64)
-                    .min(height / t.height() as f64)
-                    .min(1.0)
+                (width / iw).min(height / ih).min(1.0)
             }
             _ => imp.zoom.get(),
         }
@@ -317,11 +328,11 @@ impl LumenCanvas {
     }
 
     fn texture_size(&self) -> Option<(f64, f64)> {
-        self.imp()
-            .texture
-            .borrow()
-            .as_ref()
-            .map(|t| (t.width() as f64, t.height() as f64))
+        let imp = self.imp();
+        imp.texture.borrow().as_ref().map(|t| {
+            let (w, h) = (t.width() as f64, t.height() as f64);
+            if imp.orientation.get().swaps_axes() { (h, w) } else { (w, h) }
+        })
     }
 
     fn adjustment(&self, orientation: gtk::Orientation) -> Option<gtk::Adjustment> {

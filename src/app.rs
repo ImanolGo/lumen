@@ -13,7 +13,7 @@ use crate::{
     document::{self, DocumentInfo, DocumentKind, Opened},
     folder,
     thumbnails::{ThumbData, ThumbnailLoader},
-    widgets::{FileStrip, LumenCanvas},
+    widgets::{FileStrip, LumenCanvas, PropertiesPanel},
 };
 
 /// Action name, canvas handler and keyboard accelerators.
@@ -44,6 +44,8 @@ pub fn open_files(files: &[gio::File]) {
 pub struct App {
     recent_menu: gio::Menu,
     strip: FileStrip,
+    properties: PropertiesPanel,
+    properties_open: bool,
     thumbnails: ThumbnailLoader,
     /// Files being browsed (a whole folder, or the files picked together).
     list: Vec<PathBuf>,
@@ -87,6 +89,7 @@ pub enum AppMsg {
     },
     Thumbnail(PathBuf, ThumbData),
     ToggleSidebar,
+    ToggleProperties,
     Hover(bool),
 }
 
@@ -162,6 +165,7 @@ impl App {
         self.loading = false;
         self.error = None;
         self.image = opened.image;
+        self.properties.set_image(self.image.as_ref());
         self.document = Some(info);
         self.preload_neighbours(sender);
     }
@@ -194,6 +198,7 @@ impl App {
         self.loading = false;
         self.document = None;
         self.image = None;
+        self.properties.set_image(None);
         self.error = Some(err);
     }
 
@@ -310,6 +315,14 @@ impl SimpleComponent for App {
                     },
 
                     pack_end = &gtk::Button {
+                        set_icon_name: "info-outline-symbolic",
+                        set_tooltip_text: Some("Properties (Alt+Enter)"),
+                        set_action_name: Some("win.toggle-properties"),
+                        #[watch]
+                        set_visible: model.image.is_some(),
+                    },
+
+                    pack_end = &gtk::Button {
                         set_icon_name: "sidebar-show-symbolic",
                         set_tooltip_text: Some("Toggle Sidebar (F9)"),
                         set_action_name: Some("win.toggle-sidebar"),
@@ -357,7 +370,7 @@ impl SimpleComponent for App {
                                 #[wrap(Some)]
                                 set_child = &LumenCanvas::default() {
                                     #[watch]
-                                    set_texture: model.image.as_ref().map(|i| &i.texture),
+                                    set_image: model.image.as_ref(),
                                 },
                             },
 
@@ -410,6 +423,16 @@ impl SimpleComponent for App {
                             },
                         },
                     },
+
+                    append = &gtk::Box {
+                        #[watch]
+                        set_visible: model.properties_open && model.image.is_some(),
+
+                        gtk::Separator {},
+
+                        #[local_ref]
+                        properties_root -> gtk::ScrolledWindow {},
+                    },
                 },
             },
         }
@@ -435,6 +458,8 @@ impl SimpleComponent for App {
         let model = App {
             recent_menu: recent_menu.clone(),
             strip,
+            properties: PropertiesPanel::new(),
+            properties_open: false,
             thumbnails,
             list: Vec::new(),
             index: 0,
@@ -450,6 +475,7 @@ impl SimpleComponent for App {
             error: None,
         };
         let strip_root = model.strip.root().clone();
+        let properties_root = model.properties.root().clone();
         let widgets = view_output!();
 
         // Window actions + keyboard shortcuts.
@@ -458,10 +484,11 @@ impl SimpleComponent for App {
         open_action.connect_activate(move |_, _| open_sender.input(AppMsg::OpenDialog));
         widgets.main_window.add_action(&open_action);
 
-        let nav_actions: [(&str, AppMsg, &[&str]); 3] = [
+        let nav_actions: [(&str, AppMsg, &[&str]); 4] = [
             ("next", AppMsg::Navigate(1), &["Right", "space"]),
             ("prev", AppMsg::Navigate(-1), &["Left", "BackSpace"]),
             ("toggle-sidebar", AppMsg::ToggleSidebar, &["F9"]),
+            ("toggle-properties", AppMsg::ToggleProperties, &["<Alt>Return"]),
         ];
         let app = relm4::main_application();
         for (name, msg, accels) in nav_actions {
@@ -470,6 +497,7 @@ impl SimpleComponent for App {
             action.connect_activate(move |_, _| {
                 sender.input(match msg {
                     AppMsg::Navigate(delta) => AppMsg::Navigate(delta),
+                    AppMsg::ToggleProperties => AppMsg::ToggleProperties,
                     _ => AppMsg::ToggleSidebar,
                 })
             });
@@ -610,6 +638,7 @@ impl SimpleComponent for App {
                 self.strip.set_thumbnail(&path, &data.into_texture());
             }
             AppMsg::ToggleSidebar => self.sidebar_open = !self.sidebar_open,
+            AppMsg::ToggleProperties => self.properties_open = !self.properties_open,
             AppMsg::Hover(hover) => self.hover = hover,
         }
     }

@@ -75,7 +75,8 @@ pub fn open(path: &Path) -> Result<Opened> {
     let (summary, image) = match kind {
         DocumentKind::Image => {
             let image = ImageDocument::load(path)?;
-            let summary = format!("{} × {} px", image.texture.width(), image.texture.height());
+            let (w, h) = image.display_size();
+            let summary = format!("{w} × {h} px");
             (summary, Some(image))
         }
         DocumentKind::Pdf => {

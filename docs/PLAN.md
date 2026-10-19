@@ -89,7 +89,7 @@ Goal of the phase: Lumen replaces your current image viewer for everyday use.
   - Preload the neighbours for instant switching.
 - **Done when:** holding → flips through 200 photos without stutter.
 
-### 1.7 Correct orientation and metadata 🟢
+### 1.7 ✅ Correct orientation and metadata 🟢
 - Tasks
   - Read EXIF orientation (`kamadak-exif` crate) and apply it at display time.
   - Properties side panel (`adw::OverlaySplitView`): dimensions, file size, camera, date, GPS.
