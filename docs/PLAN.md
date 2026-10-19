@@ -124,7 +124,7 @@ Install `glycin` + `glycin-loaders` and use `glycin::Loader`. This gives sandbox
   - While zooming, show a scaled low-res texture, then re-render at the final zoom.
 - **Done when:** scrolling a 500-page PDF is smooth and memory stays flat.
 
-### 2.4 Thumbnails sidebar 🟡
+### 2.4 ✅ Thumbnails sidebar 🟡
 - Tasks: `adw::OverlaySplitView` + `gtk::ListView` (virtualised) with small renders; click to jump; highlight the current page.
 - **Done when:** `F9` toggles the sidebar and thumbnails appear lazily.
 

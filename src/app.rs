@@ -14,7 +14,7 @@ use crate::{
     folder,
     pdf::{self, PageCache, PageLayout, PageRenderer, RenderJob, RenderedPage},
     thumbnails::{ThumbData, ThumbnailLoader},
-    widgets::{CanvasContent, FileStrip, LumenCanvas, PropertiesPanel, ViewInfo},
+    widgets::{CanvasContent, FileStrip, LumenCanvas, PageStrip, PropertiesPanel, THUMB_WIDTH, ViewInfo},
 };
 
 /// Action name, canvas handler and keyboard accelerators.
@@ -43,6 +43,8 @@ struct PdfView {
     visible: (usize, usize),
     cache: PageCache,
     renderer: PageRenderer,
+    /// Renders the sidebar thumbnails; separate so it never delays the pages.
+    thumb_renderer: PageRenderer,
 }
 
 thread_local! {
@@ -66,6 +68,10 @@ pub fn open_files(files: &[gio::File]) {
 pub struct App {
     recent_menu: gio::Menu,
     strip: FileStrip,
+    page_strip: PageStrip,
+    sidebar_stack: gtk::Stack,
+    /// Show page thumbnails instead of the file list while a PDF is open.
+    sidebar_pages: bool,
     properties: PropertiesPanel,
     properties_open: bool,
     thumbnails: ThumbnailLoader,
@@ -133,6 +139,15 @@ pub enum AppMsg {
     GotoPage(usize),
     /// Text typed into the page entry (1-based).
     GotoPageText(String),
+    /// Switch the sidebar between the file list (false) and page thumbnails (true).
+    SidebarPages(bool),
+    /// Rows appeared or disappeared in the thumbnail sidebar.
+    PageStripChanged,
+    ThumbRendered {
+        doc_key: u64,
+        job: RenderJob,
+        result: Result<RenderedPage, String>,
+    },
     ToggleSidebar,
     ToggleProperties,
     Hover(bool),
@@ -231,7 +246,20 @@ impl App {
     }
 
     fn sidebar_visible(&self) -> bool {
-        self.sidebar_open && self.list.len() > 1
+        self.sidebar_open && (self.list.len() > 1 || self.pdf.is_some())
+    }
+
+    fn show_pages(&self) -> bool {
+        self.pdf.is_some() && self.sidebar_pages
+    }
+
+    fn sidebar_page_name(&self) -> &'static str {
+        if self.show_pages() { "pages" } else { "files" }
+    }
+
+    /// Whether both the file list and page thumbnails are available.
+    fn sidebar_switchable(&self) -> bool {
+        self.pdf.is_some() && self.list.len() > 1
     }
 
     fn can_go_prev(&self) -> bool {
@@ -291,11 +319,20 @@ impl App {
                 doc_key,
                 visible: (0, 0),
                 cache: PageCache::new(PAGE_CACHE_BYTES),
-                renderer: PageRenderer::new(&info.path, move |job, result| {
-                    input.emit(AppMsg::PageRendered { doc_key, job, result });
+                renderer: PageRenderer::new(&info.path, {
+                    let input = input.clone();
+                    move |job, result| input.emit(AppMsg::PageRendered { doc_key, job, result })
+                }),
+                thumb_renderer: PageRenderer::new(&info.path, move |job, result| {
+                    input.emit(AppMsg::ThumbRendered { doc_key, job, result })
                 }),
             }
         });
+        match &self.pdf {
+            Some(pdf) => self.page_strip.set_document(&pdf.layout.rects.iter().map(|r| r.size()).collect::<Vec<_>>()),
+            None => self.page_strip.clear(),
+        }
+        self.sidebar_pages = self.pdf.is_some();
         self.document = Some(info);
         self.sync_canvas();
         self.preload_neighbours(sender);
@@ -330,6 +367,7 @@ impl App {
         self.document = None;
         self.image = None;
         self.pdf = None;
+        self.page_strip.clear();
         self.properties.set_image(None);
         self.error = Some(err);
         self.sync_canvas();
@@ -504,8 +542,37 @@ impl SimpleComponent for App {
                         #[watch]
                         set_visible: model.sidebar_visible(),
 
-                        #[local_ref]
-                        strip_root -> gtk::ScrolledWindow {},
+                        gtk::Box {
+                            set_orientation: gtk::Orientation::Vertical,
+
+                            gtk::Box {
+                                add_css_class: "linked",
+                                set_margin_all: 6,
+                                set_homogeneous: true,
+                                #[watch]
+                                set_visible: model.sidebar_switchable(),
+
+                                gtk::ToggleButton {
+                                    set_label: "Files",
+                                    #[watch]
+                                    set_active: !model.show_pages(),
+                                    connect_clicked[sender] => move |_| sender.input(AppMsg::SidebarPages(false)),
+                                },
+                                gtk::ToggleButton {
+                                    set_label: "Pages",
+                                    #[watch]
+                                    set_active: model.show_pages(),
+                                    connect_clicked[sender] => move |_| sender.input(AppMsg::SidebarPages(true)),
+                                },
+                            },
+
+                            #[local_ref]
+                            sidebar_stack -> gtk::Stack {
+                                set_vexpand: true,
+                                #[watch]
+                                set_visible_child_name: model.sidebar_page_name(),
+                            },
+                        },
 
                         gtk::Separator {},
                     },
@@ -611,6 +678,18 @@ impl SimpleComponent for App {
         let model = App {
             recent_menu: recent_menu.clone(),
             strip,
+            page_strip: PageStrip::new(
+                {
+                    let sender = sender.clone();
+                    move |page| sender.input(AppMsg::GotoPage(page))
+                },
+                {
+                    let sender = sender.input_sender().clone();
+                    move || sender.emit(AppMsg::PageStripChanged)
+                },
+            ),
+            sidebar_stack: gtk::Stack::new(),
+            sidebar_pages: false,
             properties: PropertiesPanel::new(),
             properties_open: false,
             thumbnails,
@@ -634,7 +713,9 @@ impl SimpleComponent for App {
             error: None,
         };
         let model_canvas = model.canvas.clone();
-        let strip_root = model.strip.root().clone();
+        let sidebar_stack = model.sidebar_stack.clone();
+        sidebar_stack.add_named(model.strip.root(), Some("files"));
+        sidebar_stack.add_named(model.page_strip.root(), Some("pages"));
         let properties_root = model.properties.root().clone();
         let widgets = view_output!();
 
@@ -825,6 +906,7 @@ impl SimpleComponent for App {
                 self.scale_factor = info.scale_factor;
                 if let Some(pdf) = &mut self.pdf {
                     pdf.page = info.current_page;
+                    self.page_strip.set_current(info.current_page);
                     pdf.visible = (info.first_visible, info.last_visible);
                     let delay = if zoom_changed { RERENDER_DELAY_MS } else { SCROLL_RENDER_DELAY_MS };
                     self.schedule_render(delay, &sender);
@@ -851,6 +933,24 @@ impl SimpleComponent for App {
                         self.canvas.set_page_texture(job.page, Some(texture));
                     }
                     Err(err) => tracing::warn!(page = job.page, "render failed: {err}"),
+                }
+            }
+            AppMsg::SidebarPages(pages) => self.sidebar_pages = pages,
+            AppMsg::PageStripChanged => {
+                let Some(pdf) = &self.pdf else { return };
+                let jobs = self.page_strip.wanted().into_iter().map(|page| {
+                    let size = pdf.layout.rects[page].size();
+                    let scale = THUMB_WIDTH / size.0 * self.scale_factor as f64;
+                    RenderJob { page, scale: pdf::effective_scale(size, scale) }
+                });
+                pdf.thumb_renderer.request(jobs);
+            }
+            AppMsg::ThumbRendered { doc_key, job, result } => {
+                let Some(pdf) = &self.pdf else { return };
+                if doc_key == pdf.doc_key {
+                    if let Ok(rendered) = result {
+                        self.page_strip.set_thumbnail(job.page, rendered.into_texture());
+                    }
                 }
             }
             AppMsg::PageBy(delta) => {
