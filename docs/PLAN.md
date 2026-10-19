@@ -64,7 +64,7 @@ Goal of the phase: Lumen replaces your current image viewer for everyday use.
   - Touchpad pinch zoom with `gtk::GestureZoom`.
 - **Done when:** scrollbars, wheel, touchpad two-finger scroll, drag and pinch all behave like Loupe or Firefox.
 
-### 1.4 Open files from anywhere 🟡
+### 1.4 ✅ Open files from anywhere 🟡
 **Goal:** Lumen is a proper desktop citizen.
 - Tasks
   - Switch to `gio::ApplicationFlags::HANDLES_OPEN` and handle `connect_open` (remove the manual `args_os` parsing in `main.rs`).
