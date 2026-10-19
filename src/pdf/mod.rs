@@ -51,7 +51,7 @@ impl RenderedPage {
     }
 }
 
-pub(self) fn open_document(path: &Path) -> Result<poppler::Document> {
+fn open_document(path: &Path) -> Result<poppler::Document> {
     let uri = gio::File::for_path(path).uri();
     poppler::Document::from_file(&uri, None).context("failed to open PDF")
 }
