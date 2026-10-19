@@ -1,6 +1,11 @@
 //! Root Relm4 component: the main window.
 
-use std::{cell::RefCell, collections::HashSet, path::PathBuf, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, HashSet},
+    path::PathBuf,
+    rc::Rc,
+};
 
 use relm4::{
     ComponentParts, ComponentSender, RelmWidgetExt, SimpleComponent,
@@ -12,13 +17,19 @@ use crate::{
     APP_NAME,
     document::{self, DocumentInfo, DocumentKind, Opened},
     folder,
-    pdf::{self, OutlineTarget, PageCache, PageLayout, PageRenderer, RenderJob, RenderedPage},
+    pdf::{
+        self, HitRect, OutlineTarget, PageCache, PageLayout, PageRenderer, RenderJob, RenderedPage,
+        SearchEvent, SearchWorker,
+    },
     thumbnails::{ThumbData, ThumbnailLoader},
     widgets::{
         CanvasContent, FileStrip, LumenCanvas, OutlinePanel, PageStrip, PropertiesPanel, THUMB_WIDTH,
         ViewInfo,
     },
 };
+
+/// Action name, the message it sends, and keyboard accelerators.
+type NavAction<'a> = (&'a str, fn() -> AppMsg, &'a [&'a str]);
 
 /// Action name, canvas handler and keyboard accelerators.
 type ViewAction<'a> = (&'a str, fn(&LumenCanvas), &'a [&'a str]);
@@ -57,6 +68,7 @@ struct PdfView {
     renderer: PageRenderer,
     /// Renders the sidebar thumbnails; separate so it never delays the pages.
     thumb_renderer: PageRenderer,
+    search: SearchWorker,
 }
 
 thread_local! {
@@ -84,6 +96,14 @@ pub struct App {
     sidebar_stack: gtk::Stack,
     outline: OutlinePanel,
     sidebar_mode: SidebarMode,
+    search_open: bool,
+    search_text: String,
+    /// Identifies the running search; events from older ones are dropped.
+    search_id: u64,
+    searching: bool,
+    hits: BTreeMap<usize, Vec<HitRect>>,
+    /// The selected hit: page and index within that page.
+    current_hit: Option<(usize, usize)>,
     properties: PropertiesPanel,
     properties_open: bool,
     thumbnails: ThumbnailLoader,
@@ -161,6 +181,16 @@ pub enum AppMsg {
         job: RenderJob,
         result: Result<RenderedPage, String>,
     },
+    /// The search text changed.
+    SearchChanged(String),
+    Search {
+        doc_key: u64,
+        event: SearchEvent,
+    },
+    /// Go to the next (1) or previous (-1) match.
+    SearchStep(isize),
+    /// The search bar was opened or closed.
+    SearchOpened(bool),
     ToggleSidebar,
     ToggleProperties,
     Hover(bool),
@@ -280,6 +310,52 @@ impl App {
         }
     }
 
+    /// Forget all hits and, if a search is wanted, start it over on the current document.
+    fn restart_search(&mut self) {
+        self.search_id += 1;
+        self.hits.clear();
+        self.current_hit = None;
+        self.canvas.clear_highlights();
+        self.searching = false;
+
+        let Some(pdf) = &self.pdf else { return };
+        if self.search_open && !self.search_text.is_empty() {
+            self.searching = true;
+            pdf.search.start(self.search_id, self.search_text.clone(), pdf.page);
+        } else {
+            pdf.search.stop(self.search_id);
+        }
+    }
+
+    /// Hits in reading order as (page, index within page).
+    fn hit_positions(&self) -> Vec<(usize, usize)> {
+        self.hits
+            .iter()
+            .flat_map(|(&page, hits)| (0..hits.len()).map(move |i| (page, i)))
+            .collect()
+    }
+
+    fn select_hit(&mut self, hit: (usize, usize)) {
+        self.current_hit = Some(hit);
+        self.canvas.set_current_hit(self.current_hit);
+        if let Some(rect) = self.hits.get(&hit.0).and_then(|h| h.get(hit.1)) {
+            self.canvas.reveal(hit.0, *rect);
+        }
+    }
+
+    fn search_status(&self) -> String {
+        if self.search_text.is_empty() {
+            return String::new();
+        }
+        let positions = self.hit_positions();
+        let more = if self.searching { "…" } else { "" };
+        match self.current_hit.and_then(|c| positions.iter().position(|&p| p == c)) {
+            Some(i) => format!("{} of {}{more}", i + 1, positions.len()),
+            None if self.searching => "Searching…".to_owned(),
+            None => "No results".to_owned(),
+        }
+    }
+
     fn has_outline(&self) -> bool {
         self.pdf.as_ref().is_some_and(|p| p.has_outline)
     }
@@ -352,8 +428,12 @@ impl App {
                     let input = input.clone();
                     move |job, result| input.emit(AppMsg::PageRendered { doc_key, job, result })
                 }),
-                thumb_renderer: PageRenderer::new(&info.path, move |job, result| {
-                    input.emit(AppMsg::ThumbRendered { doc_key, job, result })
+                thumb_renderer: PageRenderer::new(&info.path, {
+                    let input = input.clone();
+                    move |job, result| input.emit(AppMsg::ThumbRendered { doc_key, job, result })
+                }),
+                search: SearchWorker::new(&info.path, move |event| {
+                    input.emit(AppMsg::Search { doc_key, event })
                 }),
             }
         });
@@ -368,6 +448,7 @@ impl App {
         self.sidebar_mode = if self.pdf.is_some() { SidebarMode::Pages } else { SidebarMode::Files };
         self.document = Some(info);
         self.sync_canvas();
+        self.restart_search();
         self.preload_neighbours(sender);
     }
 
@@ -569,6 +650,47 @@ impl SimpleComponent for App {
                     },
                 },
 
+                #[name = "search_bar"]
+                add_top_bar = &gtk::SearchBar {
+                    set_show_close_button: true,
+                    connect_search_mode_enabled_notify[sender] => move |bar| {
+                        sender.input(AppMsg::SearchOpened(bar.is_search_mode()));
+                    },
+
+                    #[wrap(Some)]
+                    set_child = &gtk::Box {
+                        set_spacing: 6,
+
+                        #[name = "search_entry"]
+                        gtk::SearchEntry {
+                            set_hexpand: true,
+                            set_max_width_chars: 40,
+                            set_placeholder_text: Some("Find in document"),
+                            connect_search_changed[sender] => move |entry| {
+                                sender.input(AppMsg::SearchChanged(entry.text().to_string()));
+                            },
+                        },
+
+                        gtk::Label {
+                            add_css_class: "dim-label",
+                            set_width_chars: 12,
+                            #[watch]
+                            set_label: &model.search_status(),
+                        },
+
+                        gtk::Button {
+                            set_icon_name: "go-up-symbolic",
+                            set_tooltip_text: Some("Previous Match (Shift+Enter)"),
+                            set_action_name: Some("win.find-prev"),
+                        },
+                        gtk::Button {
+                            set_icon_name: "go-down-symbolic",
+                            set_tooltip_text: Some("Next Match (Enter)"),
+                            set_action_name: Some("win.find-next"),
+                        },
+                    },
+                },
+
                 #[wrap(Some)]
                 set_content = &gtk::Box {
                     append = &gtk::Box {
@@ -737,6 +859,12 @@ impl SimpleComponent for App {
                 move |target| sender.input(AppMsg::GotoTarget(target))
             }),
             sidebar_mode: SidebarMode::Files,
+            search_open: false,
+            search_text: String::new(),
+            search_id: 0,
+            searching: false,
+            hits: BTreeMap::new(),
+            current_hit: None,
             properties: PropertiesPanel::new(),
             properties_open: false,
             thumbnails,
@@ -803,32 +931,72 @@ impl SimpleComponent for App {
         widgets.main_window.add_action(&goto_action);
         relm4::main_application().set_accels_for_action("win.goto-page", &["<Control>g"]);
 
-        let nav_actions: [(&str, AppMsg, &[&str]); 8] = [
-            ("page-next", AppMsg::PageBy(1), &["Page_Down"]),
-            ("page-prev", AppMsg::PageBy(-1), &["Page_Up"]),
-            ("page-first", AppMsg::GotoPage(0), &["Home"]),
-            ("page-last", AppMsg::GotoPage(usize::MAX), &["End"]),
-            ("next", AppMsg::Navigate(1), &["Right", "space"]),
-            ("prev", AppMsg::Navigate(-1), &["Left", "BackSpace"]),
-            ("toggle-sidebar", AppMsg::ToggleSidebar, &["F9"]),
-            ("toggle-properties", AppMsg::ToggleProperties, &["<Alt>Return"]),
+        let nav_actions: [NavAction; 11] = [
+            ("page-next", || AppMsg::PageBy(1), &["Page_Down"]),
+            ("page-prev", || AppMsg::PageBy(-1), &["Page_Up"]),
+            ("page-first", || AppMsg::GotoPage(0), &["Home"]),
+            ("page-last", || AppMsg::GotoPage(usize::MAX), &["End"]),
+            ("next", || AppMsg::Navigate(1), &["Right", "space"]),
+            ("prev", || AppMsg::Navigate(-1), &["Left", "BackSpace"]),
+            ("toggle-sidebar", || AppMsg::ToggleSidebar, &["F9"]),
+            ("toggle-properties", || AppMsg::ToggleProperties, &["<Alt>Return"]),
+            ("find-next", || AppMsg::SearchStep(1), &["F3"]),
+            ("find-prev", || AppMsg::SearchStep(-1), &["<Shift>F3"]),
+            ("find-close", || AppMsg::SearchOpened(false), &[]),
         ];
         let app = relm4::main_application();
-        for (name, msg, accels) in nav_actions {
+        for (name, make_msg, accels) in nav_actions {
             let action = gio::SimpleAction::new(name, None);
             let sender = sender.clone();
-            action.connect_activate(move |_, _| {
-                sender.input(match msg {
-                    AppMsg::Navigate(delta) => AppMsg::Navigate(delta),
-                    AppMsg::PageBy(delta) => AppMsg::PageBy(delta),
-                    AppMsg::GotoPage(page) => AppMsg::GotoPage(page),
-                    AppMsg::ToggleProperties => AppMsg::ToggleProperties,
-                    _ => AppMsg::ToggleSidebar,
-                })
-            });
+            action.connect_activate(move |_, _| sender.input(make_msg()));
             widgets.main_window.add_action(&action);
             app.set_accels_for_action(&format!("win.{name}"), accels);
         }
+
+        // Ctrl+F opens the search bar, but only for PDFs.
+        let find_action = gio::SimpleAction::new("find", None);
+        {
+            let (bar, entry, canvas) = (widgets.search_bar.clone(), widgets.search_entry.clone(), canvas.clone());
+            find_action.connect_activate(move |_, _| {
+                if canvas.has_pages() {
+                    bar.set_search_mode(true);
+                    entry.grab_focus();
+                    entry.select_region(0, -1);
+                }
+            });
+        }
+        widgets.main_window.add_action(&find_action);
+
+        // `win.search` takes the text to look for: opens the bar and fills it in.
+        let search_action = gio::SimpleAction::new("search", Some(glib::VariantTy::STRING));
+        {
+            let (bar, entry, canvas) = (widgets.search_bar.clone(), widgets.search_entry.clone(), canvas.clone());
+            search_action.connect_activate(move |_, text| {
+                if let (true, Some(text)) = (canvas.has_pages(), text.and_then(|t| t.str())) {
+                    bar.set_search_mode(true);
+                    entry.set_text(text);
+                }
+            });
+        }
+        widgets.main_window.add_action(&search_action);
+        app.set_accels_for_action("win.find", &["<Control>f"]);
+        widgets.search_bar.connect_entry(&widgets.search_entry);
+
+        // Shift+Enter goes to the previous match; plain Enter to the next.
+        let keys = gtk::EventControllerKey::new();
+        keys.set_propagation_phase(gtk::PropagationPhase::Capture);
+        keys.connect_key_pressed({
+            let sender = sender.clone();
+            move |_, key, _, state| {
+                if key != gdk::Key::Return && key != gdk::Key::KP_Enter {
+                    return glib::Propagation::Proceed;
+                }
+                let step = if state.contains(gdk::ModifierType::SHIFT_MASK) { -1 } else { 1 };
+                sender.input(AppMsg::SearchStep(step));
+                glib::Propagation::Stop
+            }
+        });
+        widgets.search_entry.add_controller(keys);
 
         let motion = gtk::EventControllerMotion::new();
         let enter_sender = sender.clone();
@@ -1028,6 +1196,45 @@ impl SimpleComponent for App {
                 if let Ok(page) = text.trim().parse::<usize>() {
                     self.goto_page(page.saturating_sub(1));
                 }
+            }
+            AppMsg::SearchChanged(text) => {
+                self.search_text = text;
+                self.restart_search();
+            }
+            AppMsg::SearchOpened(open) => {
+                self.search_open = open;
+                // Closing the bar drops the highlights; reopening searches again.
+                self.restart_search();
+            }
+            AppMsg::Search { doc_key, event } => {
+                let Some(pdf) = &self.pdf else { return };
+                if doc_key != pdf.doc_key {
+                    return;
+                }
+                match event {
+                    SearchEvent::Page { id, page, hits } if id == self.search_id => {
+                        self.canvas.add_highlights(page, hits.clone());
+                        self.hits.insert(page, hits);
+                        // Jump to the first hit found, which is the first one from the viewed page on.
+                        if self.current_hit.is_none() {
+                            self.select_hit((page, 0));
+                        }
+                    }
+                    SearchEvent::Done { id } if id == self.search_id => self.searching = false,
+                    _ => {}
+                }
+            }
+            AppMsg::SearchStep(step) => {
+                let positions = self.hit_positions();
+                if positions.is_empty() {
+                    return;
+                }
+                let current = self.current_hit.and_then(|c| positions.iter().position(|&p| p == c));
+                let next = match current {
+                    Some(i) => (i as isize + step).rem_euclid(positions.len() as isize) as usize,
+                    None => 0,
+                };
+                self.select_hit(positions[next]);
             }
             AppMsg::ToggleSidebar => self.sidebar_open = !self.sidebar_open,
             AppMsg::ToggleProperties => self.properties_open = !self.properties_open,

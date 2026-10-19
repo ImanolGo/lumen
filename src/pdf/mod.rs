@@ -6,6 +6,7 @@
 mod cache;
 pub mod layout;
 mod outline;
+mod search;
 mod renderer;
 
 use std::path::Path;
@@ -16,6 +17,7 @@ use relm4::gtk::{cairo, gdk, gio, glib, prelude::*};
 pub use cache::PageCache;
 pub use layout::PageLayout;
 pub use outline::{OutlineItem, OutlineTarget};
+pub use search::{HitRect, SearchEvent, SearchWorker};
 pub use renderer::{PageRenderer, RenderJob};
 
 /// Rendering is capped so a high zoom on a huge page cannot exhaust memory.

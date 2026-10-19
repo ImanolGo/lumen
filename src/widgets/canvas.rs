@@ -16,7 +16,7 @@ use std::{collections::HashMap, rc::Rc};
 
 use crate::{
     image::{ImageDocument, Orientation},
-    pdf::PageLayout,
+    pdf::{HitRect, PageLayout},
 };
 
 const MIN_ZOOM: f64 = 0.02;
@@ -57,6 +57,9 @@ impl ViewInfo {
     }
 }
 
+const HIT_OTHER: gdk::RGBA = gdk::RGBA::new(1.0, 0.85, 0.0, 0.45);
+const HIT_CURRENT: gdk::RGBA = gdk::RGBA::new(1.0, 0.45, 0.0, 0.6);
+
 /// Fit-to-width never zooms a document past this.
 const MAX_PAGES_FIT_ZOOM: f64 = 3.0;
 
@@ -68,6 +71,10 @@ type ViewCallback = Box<dyn Fn(ViewInfo)>;
 pub struct PagesState {
     layout: Rc<PageLayout>,
     textures: HashMap<usize, gdk::Texture>,
+    /// Search hits per page.
+    highlights: HashMap<usize, Vec<HitRect>>,
+    /// The hit that is selected: page and index within that page's hits.
+    current_hit: Option<(usize, usize)>,
 }
 
 mod imp {
@@ -370,6 +377,8 @@ impl LumenCanvas {
                     *imp.pages.borrow_mut() = Some(PagesState {
                         layout: Rc::clone(layout),
                         textures: HashMap::new(),
+                        highlights: HashMap::new(),
+                        current_hit: None,
                     });
                     self.new_content();
                 }
@@ -410,6 +419,59 @@ impl LumenCanvas {
         }
     }
 
+    /// Whether a PDF is being shown (as opposed to an image or nothing).
+    pub fn has_pages(&self) -> bool {
+        self.imp().pages.borrow().is_some()
+    }
+
+    pub fn clear_highlights(&self) {
+        if let Some(pages) = self.imp().pages.borrow_mut().as_mut() {
+            pages.highlights.clear();
+            pages.current_hit = None;
+        }
+        self.queue_draw();
+    }
+
+    pub fn add_highlights(&self, page: usize, hits: Vec<HitRect>) {
+        if let Some(pages) = self.imp().pages.borrow_mut().as_mut() {
+            pages.highlights.insert(page, hits);
+        }
+        self.queue_draw();
+    }
+
+    pub fn set_current_hit(&self, hit: Option<(usize, usize)>) {
+        if let Some(pages) = self.imp().pages.borrow_mut().as_mut() {
+            pages.current_hit = hit;
+        }
+        self.queue_draw();
+    }
+
+    /// Scroll just enough to bring `hit` on `page` into view, centring it if it is not.
+    pub fn reveal(&self, page: usize, hit: HitRect) {
+        let rect = {
+            let pages = self.imp().pages.borrow();
+            pages.as_ref().and_then(|p| p.layout.rects.get(page).copied())
+        };
+        let Some(rect) = rect else { return };
+        let zoom = self.effective_zoom();
+        let (ox, oy) = self.origin();
+        // The hit in widget coordinates.
+        let (left, right) = (ox + (rect.x + hit.x1) * zoom, ox + (rect.x + hit.x2) * zoom);
+        let (top, bottom) = (oy + (rect.y + hit.y1) * zoom, oy + (rect.y + hit.y2) * zoom);
+        let (width, height) = (self.width() as f64, self.height() as f64);
+
+        let margin = 24.0;
+        for (orientation, start, end, extent) in [
+            (gtk::Orientation::Horizontal, left, right, width),
+            (gtk::Orientation::Vertical, top, bottom, height),
+        ] {
+            if start < margin || end > extent - margin {
+                let shift = (start + end) / 2.0 - extent / 2.0;
+                self.set_adjustment_value(orientation, self.adjustment_value(orientation) + shift);
+            }
+        }
+    }
+
     fn snapshot_pages(
         &self,
         snapshot: &gtk::Snapshot,
@@ -434,6 +496,19 @@ impl LumenCanvas {
                     snapshot.append_scaled_texture(texture, gsk::ScalingFilter::Trilinear, &bounds)
                 }
                 None => snapshot.append_color(&gdk::RGBA::WHITE, &bounds),
+            }
+            if let Some(hits) = pages.highlights.get(&index) {
+                for (i, hit) in hits.iter().enumerate() {
+                    let current = pages.current_hit == Some((index, i));
+                    let color = if current { HIT_CURRENT } else { HIT_OTHER };
+                    let rect = graphene::Rect::new(
+                        (ox + (r.x + hit.x1) * zoom) as f32,
+                        (oy + (r.y + hit.y1) * zoom) as f32,
+                        ((hit.x2 - hit.x1) * zoom) as f32,
+                        ((hit.y2 - hit.y1) * zoom) as f32,
+                    );
+                    snapshot.append_color(&color, &rect);
+                }
             }
         }
     }

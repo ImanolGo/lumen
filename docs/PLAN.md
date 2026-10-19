@@ -131,7 +131,7 @@ Install `glycin` + `glycin-loaders` and use `glycin::Loader`. This gives sandbox
 ### 2.5 ✅ Outline (table of contents) 🟢
 - Tasks: `poppler::IndexIter` → `gtk::TreeListModel`; clicking jumps to the destination.
 
-### 2.6 Text search 🟡
+### 2.6 ✅ Text search 🟡
 - Tasks: `Ctrl+F` search bar; `page.find_text_with_options`; highlight the matches (draw rectangles in the canvas snapshot); Enter/Shift+Enter step through them. Search in the background, page by page.
 - **Done when:** searching a word highlights every hit across the document.
 
