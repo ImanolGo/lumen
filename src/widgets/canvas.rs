@@ -12,11 +12,11 @@
 
 use relm4::gtk::{self, gdk, glib, graphene, gsk, prelude::*, subclass::prelude::*};
 
-use std::{collections::HashMap, rc::Rc};
+use std::{cell::Cell, collections::HashMap, rc::Rc};
 
 use crate::{
     image::{ImageDocument, Orientation},
-    pdf::{HitRect, PageLayout},
+    pdf::{HitRect, PageLayout, PagePoint},
 };
 
 const MIN_ZOOM: f64 = 0.02;
@@ -33,6 +33,17 @@ pub enum CanvasContent<'a> {
         key: u64,
         layout: &'a Rc<PageLayout>,
     },
+}
+
+/// What the user is doing with the pointer on a PDF page.
+#[derive(Debug, Clone, Copy)]
+pub enum SelectGesture {
+    /// Pressed on a page; `clicks` is 1 for a single click, 2 for a double click, 3 for a triple.
+    Start { point: PagePoint, clicks: u32 },
+    /// The pointer moved while pressed.
+    Extend(PagePoint),
+    /// Released; `moved` is false for a plain click.
+    End { moved: bool },
 }
 
 /// What is on screen, reported to the owner so it can render what is needed.
@@ -57,6 +68,7 @@ impl ViewInfo {
     }
 }
 
+const SELECTION_COLOR: gdk::RGBA = gdk::RGBA::new(0.2, 0.5, 1.0, 0.35);
 const HIT_OTHER: gdk::RGBA = gdk::RGBA::new(1.0, 0.85, 0.0, 0.45);
 const HIT_CURRENT: gdk::RGBA = gdk::RGBA::new(1.0, 0.45, 0.0, 0.6);
 
@@ -67,6 +79,7 @@ const KEY_ZOOM_STEP: f64 = 1.25;
 const WHEEL_ZOOM_STEP: f64 = 0.1;
 
 type ViewCallback = Box<dyn Fn(ViewInfo)>;
+type SelectCallback = Box<dyn Fn(SelectGesture)>;
 
 pub struct PagesState {
     layout: Rc<PageLayout>,
@@ -75,6 +88,8 @@ pub struct PagesState {
     highlights: HashMap<usize, Vec<HitRect>>,
     /// The hit that is selected: page and index within that page's hits.
     current_hit: Option<(usize, usize)>,
+    /// Selected text rectangles per page.
+    selection: HashMap<usize, Vec<HitRect>>,
 }
 
 mod imp {
@@ -95,6 +110,9 @@ mod imp {
         pub pages: RefCell<Option<PagesState>>,
         pub last_view: Cell<Option<ViewInfo>>,
         pub view_callback: RefCell<Option<ViewCallback>>,
+        pub select_callback: RefCell<Option<SelectCallback>>,
+        /// Time (ms), position and count of the last press, to detect double and triple clicks.
+        pub last_press: Cell<Option<(u32, f64, f64, u32)>>,
         pub zoom: Cell<f64>,
         pub fit: Cell<bool>,
         pub pointer: Cell<Option<(f64, f64)>>,
@@ -121,6 +139,8 @@ mod imp {
                 pages: RefCell::default(),
                 last_view: Cell::new(None),
                 view_callback: RefCell::default(),
+                select_callback: RefCell::default(),
+                last_press: Cell::new(None),
                 zoom: Cell::new(1.0),
                 fit: Cell::new(true),
                 pointer: Cell::new(None),
@@ -217,41 +237,11 @@ mod imp {
             ));
             canvas.add_controller(scroll);
 
-            // Drag to pan.
-            let drag = gtk::GestureDrag::new();
-            let start = Cell::new((0.0, 0.0));
-            drag.connect_drag_begin(glib::clone!(
-                #[weak]
-                canvas,
-                #[strong]
-                start,
-                move |_, _, _| {
-                    start.set((
-                        canvas.adjustment_value(gtk::Orientation::Horizontal),
-                        canvas.adjustment_value(gtk::Orientation::Vertical),
-                    ));
-                    if canvas.can_pan() {
-                        canvas.set_cursor_from_name(Some("grabbing"));
-                    }
-                }
-            ));
-            drag.connect_drag_update(glib::clone!(
-                #[weak]
-                canvas,
-                #[strong]
-                start,
-                move |_, dx, dy| {
-                    let (sx, sy) = start.get();
-                    canvas.set_adjustment_value(gtk::Orientation::Horizontal, sx - dx);
-                    canvas.set_adjustment_value(gtk::Orientation::Vertical, sy - dy);
-                }
-            ));
-            drag.connect_drag_end(glib::clone!(
-                #[weak]
-                canvas,
-                move |_, _, _| canvas.update_cursor()
-            ));
-            canvas.add_controller(drag);
+            // Drag to pan: the primary button on images, the middle button anywhere.
+            canvas.add_pan_gesture(gdk::BUTTON_PRIMARY, false);
+            canvas.add_pan_gesture(gdk::BUTTON_MIDDLE, true);
+            canvas.add_select_gesture();
+            canvas.set_focusable(true);
 
             // Touchpad / touchscreen pinch.
             let pinch = gtk::GestureZoom::new();
@@ -379,6 +369,7 @@ impl LumenCanvas {
                         textures: HashMap::new(),
                         highlights: HashMap::new(),
                         current_hit: None,
+                        selection: HashMap::new(),
                     });
                     self.new_content();
                 }
@@ -417,6 +408,131 @@ impl LumenCanvas {
             let value = (top + y.unwrap_or(0.0) - margin) * self.effective_zoom();
             self.set_adjustment_value(gtk::Orientation::Vertical, value);
         }
+    }
+
+    fn add_pan_gesture(&self, button: u32, also_on_pages: bool) {
+        let drag = gtk::GestureDrag::builder().button(button).build();
+        let start = Rc::new(Cell::new((0.0, 0.0)));
+        drag.connect_drag_begin(glib::clone!(
+            #[weak(rename_to = canvas)]
+            self,
+            #[strong]
+            start,
+            move |gesture, _, _| {
+                // On PDF pages the primary button selects text instead.
+                if canvas.has_pages() && !also_on_pages {
+                    gesture.set_state(gtk::EventSequenceState::Denied);
+                    return;
+                }
+                start.set((
+                    canvas.adjustment_value(gtk::Orientation::Horizontal),
+                    canvas.adjustment_value(gtk::Orientation::Vertical),
+                ));
+                if canvas.can_pan() {
+                    canvas.set_cursor_from_name(Some("grabbing"));
+                }
+            }
+        ));
+        drag.connect_drag_update(glib::clone!(
+            #[weak(rename_to = canvas)]
+            self,
+            #[strong]
+            start,
+            move |_, dx, dy| {
+                let (sx, sy) = start.get();
+                canvas.set_adjustment_value(gtk::Orientation::Horizontal, sx - dx);
+                canvas.set_adjustment_value(gtk::Orientation::Vertical, sy - dy);
+            }
+        ));
+        drag.connect_drag_end(glib::clone!(
+            #[weak(rename_to = canvas)]
+            self,
+            move |_, _, _| canvas.update_cursor()
+        ));
+        self.add_controller(drag);
+    }
+
+    /// Primary-button drags on PDF pages select text.
+    fn add_select_gesture(&self) {
+        let drag = gtk::GestureDrag::builder().button(gdk::BUTTON_PRIMARY).build();
+        let origin = Rc::new(Cell::new((0.0, 0.0)));
+        drag.connect_drag_begin(glib::clone!(
+            #[weak(rename_to = canvas)]
+            self,
+            #[strong]
+            origin,
+            move |gesture, x, y| {
+                if !canvas.has_pages() {
+                    gesture.set_state(gtk::EventSequenceState::Denied);
+                    return;
+                }
+                canvas.grab_focus();
+                origin.set((x, y));
+                let clicks = canvas.count_click(gesture.current_event_time(), x, y);
+                if let Some(point) = canvas.page_point_at(x, y) {
+                    canvas.emit_select(SelectGesture::Start { point, clicks });
+                }
+            }
+        ));
+        drag.connect_drag_update(glib::clone!(
+            #[weak(rename_to = canvas)]
+            self,
+            #[strong]
+            origin,
+            move |_, dx, dy| {
+                let (x, y) = origin.get();
+                if let Some(point) = canvas.page_point_at(x + dx, y + dy) {
+                    canvas.emit_select(SelectGesture::Extend(point));
+                }
+            }
+        ));
+        drag.connect_drag_end(glib::clone!(
+            #[weak(rename_to = canvas)]
+            self,
+            move |_, dx, dy| {
+                canvas.emit_select(SelectGesture::End { moved: dx.hypot(dy) > 3.0 });
+            }
+        ));
+        self.add_controller(drag);
+    }
+
+    /// 1 for a fresh click, 2 or 3 when it follows the previous one closely enough.
+    fn count_click(&self, time: u32, x: f64, y: f64) -> u32 {
+        let imp = self.imp();
+        let interval = self.settings().gtk_double_click_time() as u32;
+        let count = match imp.last_press.get() {
+            Some((t, px, py, n)) if time.wrapping_sub(t) < interval && (x - px).hypot(y - py) < 6.0 => n % 3 + 1,
+            _ => 1,
+        };
+        imp.last_press.set(Some((time, x, y, count)));
+        count
+    }
+
+    fn emit_select(&self, gesture: SelectGesture) {
+        if let Some(callback) = self.imp().select_callback.borrow().as_ref() {
+            callback(gesture);
+        }
+    }
+
+    /// The page point under widget coordinates (`x`, `y`); the nearest page if between pages.
+    fn page_point_at(&self, x: f64, y: f64) -> Option<PagePoint> {
+        let zoom = self.effective_zoom();
+        let (ox, oy) = self.origin();
+        let pages = self.imp().pages.borrow();
+        let (page, px, py) = pages.as_ref()?.layout.locate((x - ox) / zoom, (y - oy) / zoom)?;
+        Some(PagePoint { page, x: px, y: py })
+    }
+
+    pub fn connect_select(&self, callback: impl Fn(SelectGesture) + 'static) {
+        *self.imp().select_callback.borrow_mut() = Some(Box::new(callback));
+    }
+
+    /// Replace the selection rectangles drawn on the pages.
+    pub fn set_selection(&self, rects: Vec<(usize, Vec<HitRect>)>) {
+        if let Some(pages) = self.imp().pages.borrow_mut().as_mut() {
+            pages.selection = rects.into_iter().collect();
+        }
+        self.queue_draw();
     }
 
     /// Whether a PDF is being shown (as opposed to an image or nothing).
@@ -496,6 +612,17 @@ impl LumenCanvas {
                     snapshot.append_scaled_texture(texture, gsk::ScalingFilter::Trilinear, &bounds)
                 }
                 None => snapshot.append_color(&gdk::RGBA::WHITE, &bounds),
+            }
+            if let Some(rects) = pages.selection.get(&index) {
+                for hit in rects {
+                    let rect = graphene::Rect::new(
+                        (ox + (r.x + hit.x1) * zoom) as f32,
+                        (oy + (r.y + hit.y1) * zoom) as f32,
+                        ((hit.x2 - hit.x1) * zoom) as f32,
+                        ((hit.y2 - hit.y1) * zoom) as f32,
+                    );
+                    snapshot.append_color(&SELECTION_COLOR, &rect);
+                }
             }
             if let Some(hits) = pages.highlights.get(&index) {
                 for (i, hit) in hits.iter().enumerate() {
@@ -647,7 +774,12 @@ impl LumenCanvas {
     }
 
     fn update_cursor(&self) {
-        self.set_cursor_from_name(self.can_pan().then_some("grab"));
+        let name = if self.has_pages() {
+            Some("text")
+        } else {
+            self.can_pan().then_some("grab")
+        };
+        self.set_cursor_from_name(name);
     }
 
     fn update_adjustments(&self) {

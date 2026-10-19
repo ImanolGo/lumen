@@ -9,7 +9,7 @@ use std::{
 
 use anyhow::Result;
 
-use super::{RenderedPage, open_document, render_page};
+use super::{RenderedPage, open_document, poppler_lock, render_page};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RenderJob {
@@ -41,7 +41,10 @@ impl PageRenderer {
         let path: PathBuf = path.to_owned();
         thread::spawn(move || {
             // Poppler documents are not `Send`, so the thread opens its own.
-            let doc = open_document(&path).map_err(|err| format!("{err:#}"));
+            let doc = {
+                let _poppler = poppler_lock();
+                open_document(&path).map_err(|err| format!("{err:#}"))
+            };
             loop {
                 let job = {
                     let (lock, condvar) = &*worker;
@@ -58,7 +61,10 @@ impl PageRenderer {
                     }
                 };
                 let result = match &doc {
-                    Ok(doc) => render_page(doc, job.page, job.scale).map_err(|e| format!("{e:#}")),
+                    Ok(doc) => {
+                        let _poppler = poppler_lock();
+                        render_page(doc, job.page, job.scale).map_err(|e| format!("{e:#}"))
+                    }
                     Err(err) => Err(err.clone()),
                 };
                 worker.0.lock().unwrap().in_flight = None;

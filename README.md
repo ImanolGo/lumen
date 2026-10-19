@@ -53,6 +53,7 @@ cargo run -- path/to/file.pdf   # open a file directly
 | `Alt+Enter` | Toggle the properties panel |
 | `Page Up` / `Page Down`, `Home` / `End` | Previous / next / first / last PDF page |
 | `Ctrl+G` | Go to page |
+| `Ctrl+C` | Copy the selected PDF text (drag, double-click or triple-click to select) |
 | `Ctrl+F` | Find in PDF; `Enter` / `Shift+Enter` or `F3` / `Shift+F3` for next / previous match |
 | `Ctrl+=` / `Ctrl+-` | Zoom in / out |
 | `Ctrl+0` / `Ctrl+1` | Best fit / 100 % |

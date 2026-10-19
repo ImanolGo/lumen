@@ -4,7 +4,7 @@ pub mod outline;
 pub mod page_strip;
 pub mod properties;
 
-pub use canvas::{CanvasContent, LumenCanvas, ViewInfo};
+pub use canvas::{CanvasContent, LumenCanvas, SelectGesture, ViewInfo};
 pub use file_strip::FileStrip;
 pub use outline::OutlinePanel;
 pub use page_strip::{PageStrip, THUMB_WIDTH};

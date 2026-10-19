@@ -135,7 +135,7 @@ Install `glycin` + `glycin-loaders` and use `glycin::Loader`. This gives sandbox
 - Tasks: `Ctrl+F` search bar; `page.find_text_with_options`; highlight the matches (draw rectangles in the canvas snapshot); Enter/Shift+Enter step through them. Search in the background, page by page.
 - **Done when:** searching a word highlights every hit across the document.
 
-### 2.7 Text selection and copy 🟠
+### 2.7 ✅ Text selection and copy 🟠
 - Tasks: map widget coordinates to page coordinates (write and unit-test this transform!), `page.selected_region` / `page.selected_text`, draw the selection, `Ctrl+C` to the clipboard.
 - **Done when:** you can select a paragraph and paste it elsewhere.
 

@@ -12,7 +12,7 @@ use std::{
 
 use poppler::FindFlags;
 
-use super::open_document;
+use super::{open_document, poppler_lock};
 
 /// A match, in points from the top-left corner of its page.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -59,7 +59,11 @@ impl SearchWorker {
         let path: PathBuf = path.to_owned();
         thread::spawn(move || {
             // Poppler documents are not `Send`, so the thread opens its own.
-            let Ok(doc) = open_document(&path) else { return };
+            let doc = {
+                let _poppler = poppler_lock();
+                open_document(&path)
+            };
+            let Ok(doc) = doc else { return };
             let n_pages = doc.n_pages().max(0) as usize;
             loop {
                 let query = {
@@ -84,6 +88,7 @@ impl SearchWorker {
                         finished = false;
                         break;
                     }
+                    let _poppler = poppler_lock();
                     let Some(page) = doc.page(page_index as i32) else { continue };
                     let height = page.size().1;
                     let hits: Vec<HitRect> = page

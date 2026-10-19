@@ -19,12 +19,12 @@ use crate::{
     folder,
     pdf::{
         self, HitRect, OutlineTarget, PageCache, PageLayout, PageRenderer, RenderJob, RenderedPage,
-        SearchEvent, SearchWorker,
+        SearchEvent, SearchWorker, Granularity, PagePoint, SelectRequest, SelectionResult, SelectionWorker,
     },
     thumbnails::{ThumbData, ThumbnailLoader},
     widgets::{
-        CanvasContent, FileStrip, LumenCanvas, OutlinePanel, PageStrip, PropertiesPanel, THUMB_WIDTH,
-        ViewInfo,
+        CanvasContent, FileStrip, LumenCanvas, OutlinePanel, PageStrip, PropertiesPanel, SelectGesture,
+        THUMB_WIDTH, ViewInfo,
     },
 };
 
@@ -54,6 +54,14 @@ pub enum SidebarMode {
     Outline,
 }
 
+/// Selected text: where the drag started and where it is now.
+#[derive(Debug, Clone, Copy)]
+struct Selection {
+    anchor: PagePoint,
+    head: PagePoint,
+    granularity: Granularity,
+}
+
 /// The PDF being shown as a continuous column of pages.
 struct PdfView {
     n_pages: usize,
@@ -69,6 +77,7 @@ struct PdfView {
     /// Renders the sidebar thumbnails; separate so it never delays the pages.
     thumb_renderer: PageRenderer,
     search: SearchWorker,
+    selector: SelectionWorker,
 }
 
 thread_local! {
@@ -96,6 +105,9 @@ pub struct App {
     sidebar_stack: gtk::Stack,
     outline: OutlinePanel,
     sidebar_mode: SidebarMode,
+    selection: Option<Selection>,
+    /// Identifies the newest selection request; stale rectangles are dropped.
+    selection_id: u64,
     search_open: bool,
     search_text: String,
     /// Identifies the running search; events from older ones are dropped.
@@ -181,6 +193,15 @@ pub enum AppMsg {
         job: RenderJob,
         result: Result<RenderedPage, String>,
     },
+    /// The pointer selected text on a page.
+    Select(SelectGesture),
+    SelectionResult {
+        doc_key: u64,
+        result: SelectionResult,
+    },
+    /// Put the selected text on the clipboard.
+    Copy,
+    ClearSelection,
     /// The search text changed.
     SearchChanged(String),
     Search {
@@ -310,6 +331,27 @@ impl App {
         }
     }
 
+    fn clear_selection(&mut self) {
+        self.selection = None;
+        self.selection_id += 1;
+        self.canvas.set_selection(Vec::new());
+    }
+
+    /// Ask the selection worker for the rectangles (and optionally the text) of the selection.
+    fn request_selection(&mut self, want_text: bool) {
+        let Some(selection) = self.selection else { return };
+        let Some(pdf) = &self.pdf else { return };
+        self.selection_id += 1;
+        pdf.selector.request(SelectRequest {
+            id: self.selection_id,
+            anchor: selection.anchor,
+            head: selection.head,
+            granularity: selection.granularity,
+            visible: pdf.visible,
+            want_text,
+        });
+    }
+
     /// Forget all hits and, if a search is wanted, start it over on the current document.
     fn restart_search(&mut self) {
         self.search_id += 1;
@@ -432,8 +474,12 @@ impl App {
                     let input = input.clone();
                     move |job, result| input.emit(AppMsg::ThumbRendered { doc_key, job, result })
                 }),
-                search: SearchWorker::new(&info.path, move |event| {
-                    input.emit(AppMsg::Search { doc_key, event })
+                search: SearchWorker::new(&info.path, {
+                    let input = input.clone();
+                    move |event| input.emit(AppMsg::Search { doc_key, event })
+                }),
+                selector: SelectionWorker::new(&info.path, move |result| {
+                    input.emit(AppMsg::SelectionResult { doc_key, result })
                 }),
             }
         });
@@ -448,6 +494,7 @@ impl App {
         self.sidebar_mode = if self.pdf.is_some() { SidebarMode::Pages } else { SidebarMode::Files };
         self.document = Some(info);
         self.sync_canvas();
+        self.clear_selection();
         self.restart_search();
         self.preload_neighbours(sender);
     }
@@ -859,6 +906,8 @@ impl SimpleComponent for App {
                 move |target| sender.input(AppMsg::GotoTarget(target))
             }),
             sidebar_mode: SidebarMode::Files,
+            selection: None,
+            selection_id: 0,
             search_open: false,
             search_text: String::new(),
             search_id: 0,
@@ -903,6 +952,27 @@ impl SimpleComponent for App {
 
         let canvas = model_canvas;
         widgets.scroller.set_child(Some(&canvas));
+        canvas.connect_select({
+            let sender = sender.clone();
+            move |gesture| sender.input(AppMsg::Select(gesture))
+        });
+        // Ctrl+C copies the selection, but only while the page view has focus, so
+        // it never steals the shortcut from a text entry.
+        let shortcuts = gtk::ShortcutController::new();
+        for (accel, make_msg) in [
+            ("<Control>c", (|| AppMsg::Copy) as fn() -> AppMsg),
+            ("Escape", || AppMsg::ClearSelection),
+        ] {
+            let sender = sender.clone();
+            shortcuts.add_shortcut(gtk::Shortcut::new(
+                gtk::ShortcutTrigger::parse_string(accel),
+                Some(gtk::CallbackAction::new(move |_, _| {
+                    sender.input(make_msg());
+                    glib::Propagation::Stop
+                })),
+            ));
+        }
+        canvas.add_controller(shortcuts);
         canvas.connect_view_changed({
             let sender = sender.clone();
             move |info| sender.input(AppMsg::ViewChanged(info))
@@ -931,7 +1001,7 @@ impl SimpleComponent for App {
         widgets.main_window.add_action(&goto_action);
         relm4::main_application().set_accels_for_action("win.goto-page", &["<Control>g"]);
 
-        let nav_actions: [NavAction; 11] = [
+        let nav_actions: [NavAction; 12] = [
             ("page-next", || AppMsg::PageBy(1), &["Page_Down"]),
             ("page-prev", || AppMsg::PageBy(-1), &["Page_Up"]),
             ("page-first", || AppMsg::GotoPage(0), &["Home"]),
@@ -943,6 +1013,7 @@ impl SimpleComponent for App {
             ("find-next", || AppMsg::SearchStep(1), &["F3"]),
             ("find-prev", || AppMsg::SearchStep(-1), &["<Shift>F3"]),
             ("find-close", || AppMsg::SearchOpened(false), &[]),
+            ("copy", || AppMsg::Copy, &[]),
         ];
         let app = relm4::main_application();
         for (name, make_msg, accels) in nav_actions {
@@ -966,6 +1037,30 @@ impl SimpleComponent for App {
             });
         }
         widgets.main_window.add_action(&find_action);
+
+        // `win.select-text` takes (page, x1, y1, x2, y2) in points from the page's top-left
+        // and selects the text between those two points, as a drag would.
+        let select_action = gio::SimpleAction::new(
+            "select-text",
+            Some(&<(u32, f64, f64, f64, f64)>::static_variant_type()),
+        );
+        {
+            let sender = sender.clone();
+            select_action.connect_activate(move |_, args| {
+                let Some((page, x1, y1, x2, y2)) = args.and_then(|a| a.get::<(u32, f64, f64, f64, f64)>()) else {
+                    return;
+                };
+                let page = page as usize;
+                for gesture in [
+                    SelectGesture::Start { point: PagePoint { page, x: x1, y: y1 }, clicks: 1 },
+                    SelectGesture::Extend(PagePoint { page, x: x2, y: y2 }),
+                    SelectGesture::End { moved: true },
+                ] {
+                    sender.input(AppMsg::Select(gesture));
+                }
+            });
+        }
+        widgets.main_window.add_action(&select_action);
 
         // `win.search` takes the text to look for: opens the bar and fills it in.
         let search_action = gio::SimpleAction::new("search", Some(glib::VariantTy::STRING));
@@ -1140,6 +1235,8 @@ impl SimpleComponent for App {
                     pdf.visible = (info.first_visible, info.last_visible);
                     let delay = if zoom_changed { RERENDER_DELAY_MS } else { SCROLL_RENDER_DELAY_MS };
                     self.schedule_render(delay, &sender);
+                    // Rectangles are only computed near the view, so refresh them when it moves.
+                    self.request_selection(false);
                 }
             }
             AppMsg::RenderPages { ticket } => {
@@ -1197,6 +1294,50 @@ impl SimpleComponent for App {
                     self.goto_page(page.saturating_sub(1));
                 }
             }
+            AppMsg::Select(gesture) => {
+                if self.pdf.is_none() {
+                    return;
+                }
+                match gesture {
+                    SelectGesture::Start { point, clicks } => {
+                        let granularity = match clicks {
+                            1 => Granularity::Glyph,
+                            2 => Granularity::Word,
+                            _ => Granularity::Line,
+                        };
+                        self.selection = Some(Selection { anchor: point, head: point, granularity });
+                        self.request_selection(false);
+                    }
+                    SelectGesture::Extend(point) => {
+                        if let Some(selection) = &mut self.selection {
+                            selection.head = point;
+                            self.request_selection(false);
+                        }
+                    }
+                    SelectGesture::End { moved } => {
+                        // A plain single click just deselects; double and triple clicks keep their word or line.
+                        if !moved && self.selection.is_some_and(|s| s.granularity == Granularity::Glyph) {
+                            self.clear_selection();
+                        }
+                    }
+                }
+            }
+            AppMsg::SelectionResult { doc_key, result } => {
+                let Some(pdf) = &self.pdf else { return };
+                if doc_key != pdf.doc_key {
+                    return;
+                }
+                if result.id == self.selection_id {
+                    self.canvas.set_selection(result.rects);
+                }
+                if let (Some(text), Some(display)) =
+                    (result.text.filter(|t| !t.is_empty()), gdk::Display::default())
+                {
+                    display.clipboard().set_text(&text);
+                }
+            }
+            AppMsg::Copy => self.request_selection(true),
+            AppMsg::ClearSelection => self.clear_selection(),
             AppMsg::SearchChanged(text) => {
                 self.search_text = text;
                 self.restart_search();

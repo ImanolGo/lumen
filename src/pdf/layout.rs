@@ -54,6 +54,26 @@ impl PageLayout {
         }
     }
 
+    /// The page nearest to the point (`x`, `y`) of the whole layout, and that
+    /// point relative to the page's top-left corner. The point may lie outside
+    /// the page (in a gap or margin), so selections can be dragged past the edges.
+    pub fn locate(&self, x: f64, y: f64) -> Option<(usize, f64, f64)> {
+        let last = self.rects.len().checked_sub(1)?;
+        // First page that ends below `y`.
+        let below = self.rects.partition_point(|r| r.y + r.h <= y).min(last);
+        let page = match below.checked_sub(1) {
+            // In the gap between two pages: the closer one wins.
+            Some(above) if y < self.rects[below].y => {
+                let gap_above = y - (self.rects[above].y + self.rects[above].h);
+                let gap_below = self.rects[below].y - y;
+                if gap_above <= gap_below { above } else { below }
+            }
+            _ => below,
+        };
+        let r = self.rects[page];
+        Some((page, x - r.x, y - r.y))
+    }
+
     /// First and last page touching the vertical span `top..bottom`. When the
     /// span only covers gaps or margin, the nearest page is returned.
     pub fn visible(&self, top: f64, bottom: f64) -> Option<(usize, usize)> {
@@ -109,6 +129,23 @@ mod tests {
         assert_eq!(l.visible(gap, gap + 2.0), Some((1, 1)));
         assert_eq!(l.visible(10_000.0, 10_100.0), Some((2, 2)));
         assert_eq!(PageLayout::new(&[]).visible(0.0, 10.0), None);
+    }
+
+    #[test]
+    fn locating_points() {
+        let l = layout();
+        let r1 = l.rects[1];
+        // Inside page 1.
+        assert_eq!(l.locate(r1.x + 10.0, r1.y + 20.0), Some((1, 10.0, 20.0)));
+        // Left of the page and above everything: clamps to the first page, unclamped coordinates.
+        assert_eq!(l.locate(0.0, 0.0), Some((0, -l.rects[0].x, -l.rects[0].y)));
+        // Below everything: the last page.
+        assert_eq!(l.locate(0.0, 10_000.0).map(|p| p.0), Some(2));
+        // In the gap: the nearer page.
+        let gap_top = l.rects[0].y + l.rects[0].h;
+        assert_eq!(l.locate(0.0, gap_top + 2.0).map(|p| p.0), Some(0));
+        assert_eq!(l.locate(0.0, gap_top + PAGE_GAP - 2.0).map(|p| p.0), Some(1));
+        assert_eq!(PageLayout::new(&[]).locate(0.0, 0.0), None);
     }
 
     #[test]

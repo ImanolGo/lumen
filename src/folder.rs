@@ -53,7 +53,7 @@ mod tests {
 
     #[test]
     fn natural_order() {
-        let mut files = vec![
+        let mut files = [
             PathBuf::from("/a/photo10.jpg"),
             PathBuf::from("/a/photo2.jpg"),
             PathBuf::from("/a/Photo1.jpg"),

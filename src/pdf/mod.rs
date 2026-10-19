@@ -7,6 +7,7 @@ mod cache;
 pub mod layout;
 mod outline;
 mod search;
+mod selection;
 mod renderer;
 
 use std::path::Path;
@@ -18,6 +19,7 @@ pub use cache::PageCache;
 pub use layout::PageLayout;
 pub use outline::{OutlineItem, OutlineTarget};
 pub use search::{HitRect, SearchEvent, SearchWorker};
+pub use selection::{Granularity, PagePoint, SelectRequest, SelectionResult, SelectionWorker};
 pub use renderer::{PageRenderer, RenderJob};
 
 /// Rendering is capped so a high zoom on a huge page cannot exhaust memory.
@@ -57,6 +59,15 @@ impl RenderedPage {
     }
 }
 
+/// Poppler is not safe to call from several threads at once, even for different
+/// documents (font and glyph caches are shared), so every use holds this lock.
+/// Never take it while already holding it.
+fn poppler_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    // A panic in another Poppler call does not make the library state unusable.
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 fn open_document(path: &Path) -> Result<poppler::Document> {
     let uri = gio::File::for_path(path).uri();
     poppler::Document::from_file(&uri, None).context("failed to open PDF")
@@ -64,6 +75,7 @@ fn open_document(path: &Path) -> Result<poppler::Document> {
 
 /// Blocking: call it off the main thread.
 pub fn load_info(path: &Path) -> Result<PdfInfo> {
+    let _poppler = poppler_lock();
     let doc = open_document(path)?;
     let n_pages = doc.n_pages().max(0) as usize;
     anyhow::ensure!(n_pages > 0, "the PDF has no pages");
