@@ -34,6 +34,9 @@ pub enum CanvasContent<'a> {
 const KEY_ZOOM_STEP: f64 = 1.25;
 const WHEEL_ZOOM_STEP: f64 = 0.1;
 
+/// Called with `(zoom, scale_factor)`.
+type ZoomCallback = Box<dyn Fn(f64, i32)>;
+
 mod imp {
     use std::cell::{Cell, RefCell};
 
@@ -50,7 +53,7 @@ mod imp {
         pub crisp: Cell<bool>,
         pub content_key: Cell<u64>,
         pub notified_zoom: Cell<f64>,
-        pub zoom_callback: RefCell<Option<Box<dyn Fn(f64, i32)>>>,
+        pub zoom_callback: RefCell<Option<ZoomCallback>>,
         pub zoom: Cell<f64>,
         pub fit: Cell<bool>,
         pub pointer: Cell<Option<(f64, f64)>>,
