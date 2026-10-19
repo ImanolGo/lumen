@@ -1,0 +1,39 @@
+# Maintainer: Imanol Gomez <imanol@steinergomez.com>
+pkgname=lumen
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Fast image and PDF viewer with light editing, markup and page management'
+arch=('x86_64' 'aarch64')
+url='https://github.com/ImanolGo/lumen'
+license=('GPL-3.0-or-later')
+depends=('gtk4' 'libadwaita' 'poppler-glib' 'glib2' 'cairo')
+makedepends=('cargo' 'gettext')
+checkdepends=('desktop-file-utils' 'appstream')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+# Replace with the real checksum once the tag exists: `updpkgsums`.
+sha256sums=('SKIP')
+
+prepare() {
+    cd "$pkgname-$pkgver"
+    export RUSTUP_TOOLCHAIN=stable
+    cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+    cd "$pkgname-$pkgver"
+    export RUSTUP_TOOLCHAIN=stable
+    export CARGO_TARGET_DIR=target
+    make build translations
+}
+
+check() {
+    cd "$pkgname-$pkgver"
+    desktop-file-validate data/io.github.imanolgo.Lumen.desktop
+    appstreamcli validate --no-net data/io.github.imanolgo.Lumen.metainfo.xml
+}
+
+package() {
+    cd "$pkgname-$pkgver"
+    make install-files DESTDIR="$pkgdir" PREFIX=/usr
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

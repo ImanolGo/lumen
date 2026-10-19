@@ -1,0 +1,58 @@
+name: Release
+
+# Pushing a tag such as v0.1.0 builds the release artifacts and attaches them to a GitHub release.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  tarball:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install dependencies
+        run: pacman -Syu --noconfirm --needed base-devel git rust gtk4 libadwaita poppler-glib gettext
+      - uses: actions/checkout@v4
+      - name: Build and stage
+        run: |
+          make build translations
+          make install-files DESTDIR="$PWD/stage" PREFIX=/usr
+          tar -C stage -czf "lumen-${GITHUB_REF_NAME}-x86_64-linux.tar.gz" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tarball
+          path: lumen-*.tar.gz
+
+  flatpak:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: lumen.flatpak
+          manifest-path: build-aux/flatpak/io.github.imanolgo.Lumen.yaml
+          cache-key: flatpak-builder-${{ github.sha }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak
+          path: lumen.flatpak
+
+  publish:
+    needs: [tarball, flatpak]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            lumen-*.tar.gz
+            lumen.flatpak
+          generate_release_notes: true

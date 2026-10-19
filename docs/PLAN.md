@@ -251,7 +251,7 @@ This is the heart of "Preview-like". **Design the model first, UI second.**
 - [x] **7.5 i18n** — `gettext-rs`, `po/` directory with a template and a complete Spanish translation; scripts in `build-aux/` extract and compile it (see `docs/DEVELOPMENT.md`).
 - [x] **7.6 Icon and metainfo** — app icon and symbolic icon (SVG), `metainfo.xml` (validated with `appstreamcli`), three screenshots in `data/screenshots/`, desktop file with the icon, and a `Makefile` whose `install` target puts everything in place (`DESTDIR`/`PREFIX` aware).
 - [x] **7.7 Flatpak** (manifest written; not build-tested, because `flatpak-builder` is not installed here) — manifest in `build-aux/`, `flatpak-cargo-generator` for offline builds, test via GNOME Builder. This is also the place for the optional step 1.8 (glycin sandboxed decoding), which was skipped earlier.
-- [ ] **7.8 Packaging** — AUR `PKGBUILD` (you're on CachyOS), release tags, GitHub Actions building release artifacts.
+- [x] **7.8 Packaging** — Arch/AUR `PKGBUILD` in `build-aux/arch/` (built and checked here with `makepkg` from a `git archive` of the repository), GitHub Actions for CI (`fmt`, `clippy -D warnings`, tests, desktop and metainfo validation) and for tagged releases (tarball and Flatpak bundle). To release: tag `vX.Y.Z` and push the tag; then run `updpkgsums` in `build-aux/arch/` and publish the PKGBUILD to the AUR.
 - [ ] **7.9 Performance pass** — `cargo flamegraph`, startup time < 150 ms, test with huge files.
 
 ## Phase 8 — Agent control (optional)
