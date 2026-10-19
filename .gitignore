@@ -3,3 +3,12 @@
 *.swp
 .idea/
 .vscode/
+# Packaging output
+/build-aux/aur/*/src/
+/build-aux/aur/*/pkg/
+/build-aux/aur/*/lumen/
+/build-aux/aur/*/*.pkg.tar.*
+/build-aux/aur/*/*.tar.gz
+/lumen_*.deb
+/build-dir/
+/.flatpak-builder/

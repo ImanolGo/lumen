@@ -1,9 +1,11 @@
 name: Release
 
 # Pushing a tag such as v0.1.0 builds the release artifacts and attaches them to a GitHub release.
+# Running it by hand (Actions > Release > Run workflow) builds the same artifacts without publishing.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -20,7 +22,7 @@ jobs:
         run: |
           make build translations
           make install-files DESTDIR="$PWD/stage" PREFIX=/usr
-          tar -C stage -czf "lumen-${GITHUB_REF_NAME}-x86_64-linux.tar.gz" .
+          tar -C stage -czf "lumen-${GITHUB_REF_NAME//\//-}-x86_64-linux.tar.gz" .
       - uses: actions/upload-artifact@v4
         with:
           name: tarball
@@ -43,8 +45,34 @@ jobs:
           name: flatpak
           path: lumen.flatpak
 
+  deb:
+    runs-on: ubuntu-latest
+    # Lumen needs libadwaita 1.8 and poppler-glib 25.06, which Ubuntu has from 26.04.
+    container: ubuntu:26.04
+    steps:
+      - name: Install dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential ca-certificates curl dpkg-dev gettext git pkg-config \
+            libgtk-4-dev libadwaita-1-dev libpoppler-glib-dev libglib2.0-dev-bin
+          curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - uses: actions/checkout@v4
+      - name: Build the package
+        run: build-aux/debian/build-deb.sh
+      - name: Check that it installs
+        run: |
+          apt-get install -y ./lumen_*.deb
+          dpkg -L lumen | grep -q /usr/bin/lumen
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: lumen_*.deb
+
   publish:
-    needs: [tarball, flatpak]
+    needs: [tarball, flatpak, deb]
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -55,4 +83,5 @@ jobs:
           files: |
             lumen-*.tar.gz
             lumen.flatpak
+            lumen_*.deb
           generate_release_notes: true

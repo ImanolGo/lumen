@@ -22,7 +22,8 @@ First release.
 - Editing of GIF, BMP and TIFF pictures (saved as a copy in JPEG, PNG or WebP).
 - A warning before saving a rearranged password-protected PDF, which can only be written without its password.
 - `win.screenshot-to` and `build-aux/screenshot.sh` for headless screenshots.
-- README, `CONTRIBUTING.md` and this changelog.
+- Packages: Flatpak, `.deb` for Ubuntu 26.04+ and Debian testing (`make deb`), and `lumen` and `lumen-git` PKGBUILDs for the AUR. The release workflow builds the Flatpak, the `.deb` and a tarball, and can be run by hand without publishing.
+- README, `CONTRIBUTING.md`, `docs/RELEASING.md` and this changelog.
 
 [Unreleased]: https://github.com/ImanolGo/lumen/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/ImanolGo/lumen/releases/tag/v0.1.0

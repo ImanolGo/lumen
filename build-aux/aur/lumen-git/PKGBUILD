@@ -1,0 +1,54 @@
+# Maintainer: Imanol Gomez <imanol@steinergomez.com>
+# Builds the latest commit on main. For releases, see the `lumen` package.
+pkgname=lumen-git
+_pkgname=lumen
+pkgver=0.1.0.r37.gefa2a87
+pkgrel=1
+pkgdesc='Fast image and PDF viewer with light editing, markup and page management (development version)'
+arch=('x86_64' 'aarch64')
+url='https://github.com/ImanolGo/lumen'
+license=('GPL-3.0-or-later')
+depends=('gtk4>=4.16' 'libadwaita>=1.8' 'poppler-glib>=25.06' 'glib2' 'cairo')
+makedepends=('cargo' 'gettext' 'git')
+checkdepends=('desktop-file-utils' 'appstream')
+provides=("$_pkgname")
+conflicts=("$_pkgname")
+source=("$_pkgname::git+$url.git")
+sha256sums=('SKIP')
+
+pkgver() {
+    cd "$_pkgname"
+    # v0.1.0-5-gabc1234 -> 0.1.0.r5.gabc1234; before the first tag, count from Cargo.toml's version.
+    if git describe --tags >/dev/null 2>&1; then
+        git describe --long --tags --abbrev=7 | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g'
+    else
+        printf '%s.r%s.g%s' \
+            "$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)" \
+            "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
+    fi
+}
+
+prepare() {
+    cd "$_pkgname"
+    export RUSTUP_TOOLCHAIN=stable
+    cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+    cd "$_pkgname"
+    export RUSTUP_TOOLCHAIN=stable
+    export CARGO_TARGET_DIR=target
+    make build translations
+}
+
+check() {
+    cd "$_pkgname"
+    desktop-file-validate data/io.github.imanolgo.Lumen.desktop
+    appstreamcli validate --no-net data/io.github.imanolgo.Lumen.metainfo.xml
+}
+
+package() {
+    cd "$_pkgname"
+    make install-files DESTDIR="$pkgdir" PREFIX=/usr
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$_pkgname/LICENSE"
+}

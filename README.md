@@ -35,26 +35,41 @@
 
 ## Installing
 
-Lumen is at version 0.1.0 and is not on Flathub or the AUR yet. For now, install it from source or from a release.
+Lumen is at version 0.1.0. It is not on Flathub yet; install it from a release, the AUR or source.
 
 ### From a release
 
-Each tagged release on the [releases page](https://github.com/ImanolGo/lumen/releases) has an x86_64 tarball and a Flatpak bundle.
+Each tagged release on the [releases page](https://github.com/ImanolGo/lumen/releases) has a Flatpak bundle, a `.deb` and an x86_64 tarball.
+
+| Package | Install | Works on |
+|---|---|---|
+| `lumen.flatpak` | `flatpak install --user lumen.flatpak` | Any distribution with Flatpak (brings its own GNOME 50 runtime) |
+| `lumen_X.Y.Z-1_amd64.deb` | `sudo apt install ./lumen_X.Y.Z-1_amd64.deb` | Ubuntu 26.04 or later, Debian testing |
+| `lumen-vX.Y.Z-x86_64-linux.tar.gz` | `sudo tar -C / -xzf lumen-vX.Y.Z-x86_64-linux.tar.gz` | Distributions with GTK 4.16+, libadwaita 1.8+ and poppler-glib 25.06+ |
+
+If your distribution is older than that, use the Flatpak.
+
+### Arch Linux (AUR)
+
+Two packages are maintained in [`build-aux/aur/`](build-aux/aur/): `lumen` builds the latest release and `lumen-git` the latest commit. Once they are on the AUR:
 
 ```sh
-sudo tar -C / -xzf lumen-vX.Y.Z-x86_64-linux.tar.gz   # installs under /usr
-# or the Flatpak bundle
-flatpak install --user lumen.flatpak
+yay -S lumen        # or lumen-git
 ```
 
-The tarball needs GTK 4.16+, libadwaita 1.8+ and poppler-glib 25.06+ on the system. If your distribution is older, use the Flatpak.
-
-### Arch Linux
-
-A `PKGBUILD` is in [`build-aux/arch/`](build-aux/arch/):
+Or build one straight from this repository:
 
 ```sh
-cd build-aux/arch && makepkg -si
+cd build-aux/aur/lumen-git && makepkg -si
+```
+
+### Debian and Ubuntu, from source
+
+On Ubuntu 26.04+ or Debian testing, `build-aux/debian/build-deb.sh` builds a `.deb` from the source tree (see the script for the packages it needs):
+
+```sh
+make deb
+sudo apt install ./lumen_*.deb
 ```
 
 ### From source
@@ -133,6 +148,7 @@ Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): stack, module layout, data flow, coordinate spaces
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): setup, debugging, icons, scripting and screenshots, translations
 - [docs/PLAN.md](docs/PLAN.md): the development plan and what is still open
+- [docs/RELEASING.md](docs/RELEASING.md): tagging, the AUR and the `.deb`
 - [CHANGELOG.md](CHANGELOG.md)
 
 ## License

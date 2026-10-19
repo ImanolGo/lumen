@@ -3,6 +3,7 @@
 #   make                       build the release binary
 #   make install               install under /usr (override with PREFIX, stage with DESTDIR)
 #   make install PREFIX=/app   what the Flatpak does
+#   make deb                   build a .deb (on Debian or Ubuntu, see build-aux/debian/)
 #
 # Packagers: `make install DESTDIR="$pkgdir"`.
 
@@ -12,7 +13,7 @@ ID      := io.github.imanolgo.Lumen
 BIN     := target/release/lumen
 CARGO   ?= cargo
 
-.PHONY: all build translations install install-files uninstall check
+.PHONY: all build translations install install-files uninstall check deb
 
 all: build
 
@@ -55,3 +56,7 @@ check:
 	appstreamcli validate --no-net data/$(ID).metainfo.xml
 	$(CARGO) clippy --all-targets -- -D warnings
 	$(CARGO) test
+
+# A Debian/Ubuntu package of the release build.
+deb:
+	./build-aux/debian/build-deb.sh
