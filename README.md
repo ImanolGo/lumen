@@ -1,89 +1,139 @@
-# Lumen
+<p align="center">
+  <img src="data/icons/hicolor/256x256/apps/io.github.imanolgo.Lumen.png" alt="Lumen icon" width="128" height="128">
+</p>
 
-A fast, Preview-like image and PDF viewer for Linux, written in Rust with GTK 4 and libadwaita.
+<h1 align="center">Lumen</h1>
 
-> **Status: early development.** Phase 0 (foundations) is done. See the [roadmap](docs/PLAN.md).
+<p align="center">
+  A fast image and PDF viewer for Linux, with the light editing and markup you use every day.<br>
+  Written in Rust with GTK 4 and libadwaita.
+</p>
 
-## Goals
+<p align="center">
+  <a href="https://github.com/ImanolGo/lumen/actions/workflows/ci.yml"><img src="https://github.com/ImanolGo/lumen/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License: GPL-3.0-or-later"></a>
+</p>
 
-- **Fast:** opens instantly, never freezes the UI, handles huge images and 500-page PDFs.
-- **One app** for pictures *and* PDFs.
-- **Light editing:** rotate, flip, crop, resize, with lossless JPEG rotation.
-- **Markup:** shapes, arrows, text, freehand and highlights on images and PDFs. PDF annotations stay editable in other readers.
-- **Print** anything with the native GTK print dialog.
-- **Native:** follows the GNOME HIG, works on any desktop, and gets distributed via Flatpak.
+<p align="center">
+  <img src="data/screenshots/image-markup.png" alt="Marking up a picture in Lumen" width="640">
+</p>
 
 ## Features
 
-| | Feature | Phase |
-|---|---|---|
-| ✅ | Open dialog, CLI argument, image/PDF detection | 0 |
-| ✅ | Image viewing: zoom, pan, folder browsing, EXIF orientation | 1 |
-| ✅ | PDF viewing: continuous scroll, thumbnails, outline, search, text selection, links, passwords | 2 |
-| ✅ | Printing | 3 |
-| ✅ | Rotate / flip / crop / resize / colour adjust, undo, save & export | 4 |
-| ✅ | Annotations on images and PDFs | 5 |
-| ✅ | PDF page management: reorder, rotate, delete, merge | 6 |
-| ⬜ | Preferences, Flatpak, AUR | 7 |
+- **Fast.** Pictures and pages load in the background, so the UI never freezes. A 50 MP JPEG is on screen in about half a second and a 500-page PDF opens in about 50 ms (release build, measured on a 2020 laptop).
+- **Pictures and PDFs in one app.** Browse a whole folder with thumbnails, zoom and pan smoothly, honour EXIF orientation, run a slideshow or go fullscreen.
+- **Light editing.** Rotate, flip, crop, resize and adjust colour, with undo and redo. Rotating a JPEG does not recompress it.
+- **Markup.** Rectangles, ellipses, arrows, lines, pen strokes, text and highlights on pictures and PDFs. PDF annotations are real annotations, so other readers can still edit them.
+- **PDF reading.** Continuous scroll, page thumbnails, table of contents, search, text selection and copy, clickable links, password-protected files.
+- **PDF page management.** Rotate, delete, reorder and insert pages, merge files, export pages as a PDF or PNG.
+- **Printing** through the native GTK print dialog.
+- **Native.** Follows the GNOME HIG and works on any desktop. Preferences, keyboard shortcuts dialog and accessible names are included. Translations use gettext; Spanish ships today.
 
-## Building
-
-Install the system libraries (see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for other distros):
-
-```sh
-# Arch / CachyOS
-sudo pacman -S --needed base-devel gtk4 libadwaita poppler-glib
-```
-
-Then:
-
-```sh
-cargo run                       # empty window, Ctrl+O to open
-cargo run -- path/to/file.pdf   # open a file directly
-```
+| Crop with draggable handles | Annotate a PDF |
+|---|---|
+| <img src="data/screenshots/image-crop.png" alt="Cropping a picture" width="380"> | <img src="data/screenshots/pdf-annotations.png" alt="Annotating a PDF with page thumbnails" width="380"> |
 
 ## Installing
 
+Lumen is at version 0.1.0 and is not on Flathub or the AUR yet. For now, install it from source or from a release.
+
+### From a release
+
+Each tagged release on the [releases page](https://github.com/ImanolGo/lumen/releases) has an x86_64 tarball and a Flatpak bundle.
+
 ```sh
-make install PREFIX=$HOME/.local   # or: sudo make install
+sudo tar -C / -xzf lumen-vX.Y.Z-x86_64-linux.tar.gz   # installs under /usr
+# or the Flatpak bundle
+flatpak install --user lumen.flatpak
 ```
 
-A Flatpak manifest is in `build-aux/flatpak/`, and an Arch `PKGBUILD` in `build-aux/arch/`.
+The tarball needs GTK 4.16+, libadwaita 1.6+ and poppler-glib on the system.
 
-## Keyboard shortcuts
+### Arch Linux
+
+A `PKGBUILD` is in [`build-aux/arch/`](build-aux/arch/):
+
+```sh
+cd build-aux/arch && makepkg -si
+```
+
+### From source
+
+You need a C toolchain, Rust 1.92 or newer, GTK ≥ 4.16, libadwaita ≥ 1.6, poppler-glib and gettext.
+
+| Distro | Command |
+|---|---|
+| Arch / CachyOS | `sudo pacman -S --needed base-devel rust gtk4 libadwaita poppler-glib gettext` |
+| Fedora | `sudo dnf install gcc cargo gtk4-devel libadwaita-devel poppler-glib-devel gettext` |
+| Debian / Ubuntu (24.04+) | `sudo apt install build-essential cargo libgtk-4-dev libadwaita-1-dev libpoppler-glib-dev gettext` |
+
+On Debian and Ubuntu, the packaged Rust and libadwaita may be older than the minimums above. Use [rustup](https://rustup.rs) for Rust, and check your versions with `pkg-config --modversion gtk4 libadwaita-1`.
+
+```sh
+git clone https://github.com/ImanolGo/lumen.git
+cd lumen
+make
+sudo make install                    # to /usr
+make install PREFIX=$HOME/.local     # or just for your user
+```
+
+To try it without installing:
+
+```sh
+cargo run --release -- path/to/file.pdf
+```
+
+Remove an installed copy with `make uninstall` (use the same `PREFIX`).
+
+## Usage
+
+```sh
+lumen                      # empty window, Ctrl+O to open
+lumen photo.jpg report.pdf # open files directly
+```
+
+Lumen registers itself for PDF, PNG, JPEG, GIF, WebP, BMP, TIFF, SVG, AVIF and HEIF. To make it the default PDF viewer:
+
+```sh
+xdg-mime default io.github.imanolgo.Lumen.desktop application/pdf
+```
+
+Press `Ctrl+?` in the app for the full, searchable list of shortcuts. The main ones:
 
 | Shortcut | Action |
 |---|---|
 | `Ctrl+O` | Open |
-| `Ctrl+W` | Close window |
-| `←` / `→`, `Backspace` / `Space` | Previous / next file in the folder |
-| `F9` | Toggle the thumbnail sidebar |
-| `Alt+Enter` | Toggle the properties panel |
-| `Page Up` / `Page Down`, `Home` / `End` | Previous / next / first / last PDF page |
-| `Ctrl+G` | Go to page |
-| `Ctrl+R` / `Ctrl+Shift+R` | Rotate right / left (lossless for JPEG) |
-| `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo |
+| `←` / `→` | Previous / next file in the folder |
+| `Page Up` / `Page Down`, `Ctrl+G` | Previous / next PDF page, go to page |
+| `Ctrl+=` / `Ctrl+-`, `Ctrl+0` / `Ctrl+1` | Zoom in / out, best fit / 100 % |
+| `Ctrl+R` / `Ctrl+Shift+R` | Rotate right / left |
 | `Ctrl+K` | Crop (`Enter` applies, `Esc` cancels) |
-| `Ctrl+Alt+R` / `Ctrl+Alt+C` | Resize / adjust colour |
+| `Ctrl+Shift+A` | Markup toolbar |
+| `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo |
 | `Ctrl+S` / `Ctrl+Shift+S` | Save / Save As |
-| `Ctrl+Shift+A` | Markup toolbar: Select, Rectangle, Ellipse, Arrow, Line, Pen, Text, Highlight |
-| `Delete`, arrow keys | Delete / nudge the selected annotation (double-click text to edit it) |
-| `Ctrl+R` / `Ctrl+Shift+R` on a PDF | Rotate the selected pages (or the page in view) |
-| `Delete` in the page sidebar | Delete the selected pages |
-| `F11` / `F5` | Fullscreen / slideshow (`Esc` leaves) |
-| `Ctrl+,` / `Ctrl+?` | Preferences / keyboard shortcuts |
-| `Ctrl+P` | Print (the print button's menu also sets Fit to Page / Actual Size) |
-| `Ctrl+C` | Copy the selected PDF text (drag, double-click or triple-click to select) |
-| `Ctrl+F` | Find in PDF; `Enter` / `Shift+Enter` or `F3` / `Shift+F3` for next / previous match |
-| `Ctrl+=` / `Ctrl+-` | Zoom in / out |
-| `Ctrl+0` / `Ctrl+1` | Best fit / 100 % |
-| `Ctrl`+scroll | Zoom around the cursor |
+| `Ctrl+F` | Find in PDF |
+| `Ctrl+P` | Print |
+| `F9` | Toggle the thumbnail sidebar |
+| `F11` / `F5` | Fullscreen / slideshow |
+| `Ctrl+,` | Preferences |
 
-## Documentation
+### Files Lumen writes
 
-- [docs/PLAN.md](docs/PLAN.md): the step-by-step development plan
+| Path | Contents |
+|---|---|
+| `~/.config/lumen/settings.toml` | Preferences |
+| `~/.local/share/lumen/state.toml` | Window size, sidebar state, last page per PDF |
+
+Lumen only overwrites a file you opened when you choose Save. Edits and page changes are kept as working copies until then.
+
+## Contributing
+
+Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, and the docs below for how the code is organised.
+
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): stack, module layout, data flow, coordinate spaces
-- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): setup, debugging and references
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): setup, debugging, translations and references
+- [docs/PLAN.md](docs/PLAN.md): the development plan and what is still open
+- [CHANGELOG.md](CHANGELOG.md)
 
 ## License
 

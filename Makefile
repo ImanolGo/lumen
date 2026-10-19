@@ -30,6 +30,9 @@ install-files:
 	install -Dm644 data/$(ID).desktop $(DESTDIR)$(PREFIX)/share/applications/$(ID).desktop
 	install -Dm644 data/$(ID).metainfo.xml $(DESTDIR)$(PREFIX)/share/metainfo/$(ID).metainfo.xml
 	install -Dm644 data/icons/hicolor/scalable/apps/$(ID).svg $(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps/$(ID).svg
+	for size in 16 32 48 64 128 256 512; do \
+		install -Dm644 data/icons/hicolor/$${size}x$${size}/apps/$(ID).png $(DESTDIR)$(PREFIX)/share/icons/hicolor/$${size}x$${size}/apps/$(ID).png; \
+	done
 	install -Dm644 data/icons/hicolor/symbolic/apps/$(ID)-symbolic.svg $(DESTDIR)$(PREFIX)/share/icons/hicolor/symbolic/apps/$(ID)-symbolic.svg
 	for mo in target/locale/*/LC_MESSAGES/lumen.mo; do \
 		[ -e "$$mo" ] || continue; \
@@ -42,6 +45,7 @@ uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/share/applications/$(ID).desktop
 	rm -f $(DESTDIR)$(PREFIX)/share/metainfo/$(ID).metainfo.xml
 	rm -f $(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps/$(ID).svg
+	rm -f $(DESTDIR)$(PREFIX)/share/icons/hicolor/*x*/apps/$(ID).png
 	rm -f $(DESTDIR)$(PREFIX)/share/icons/hicolor/symbolic/apps/$(ID)-symbolic.svg
 	rm -f $(DESTDIR)$(PREFIX)/share/locale/*/LC_MESSAGES/lumen.mo
 
