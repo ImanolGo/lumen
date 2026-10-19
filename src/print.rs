@@ -10,6 +10,7 @@ use anyhow::{Context, Result};
 use relm4::gtk::{self, cairo, prelude::*};
 
 use crate::{
+    annotate::{AnnotationLayer, render as annot_render},
     image::ImageDocument,
     pdf::{PdfSource, PrintDocument},
 };
@@ -23,8 +24,14 @@ pub enum Job {
         source: PdfSource,
         /// Page sizes in points, to choose the sheet orientation.
         page_sizes: Vec<(f64, f64)>,
+        /// Annotations per page, drawn over the pages.
+        layers: std::collections::BTreeMap<usize, AnnotationLayer>,
     },
-    Image(ImageDocument),
+    Image {
+        image: ImageDocument,
+        /// Annotations in the displayed image's pixels.
+        layer: AnnotationLayer,
+    },
 }
 
 /// How the content is sized on the sheet.
@@ -75,7 +82,7 @@ pub fn print(job: Job, name: &str, parent: Option<&gtk::Window>, export_to: Opti
             page_sizes.len(),
             page_sizes.iter().map(|&(w, h)| w > h).collect::<Vec<_>>(),
         ),
-        Job::Image(image) => {
+        Job::Image { image, .. } => {
             let (w, h) = image.display_size();
             (1, vec![w > h])
         }
@@ -172,18 +179,28 @@ pub fn print(job: Job, name: &str, parent: Option<&gtk::Window>, export_to: Opti
 
 /// The document being drawn, prepared once for the whole job.
 enum Content {
-    Pdf { document: PrintDocument, sizes: Vec<(f64, f64)> },
-    Image { surface: cairo::ImageSurface, orientation: cairo::Matrix, size: (f64, f64) },
+    Pdf {
+        document: PrintDocument,
+        sizes: Vec<(f64, f64)>,
+        layers: std::collections::BTreeMap<usize, AnnotationLayer>,
+    },
+    Image {
+        surface: cairo::ImageSurface,
+        orientation: cairo::Matrix,
+        size: (f64, f64),
+        layer: AnnotationLayer,
+    },
 }
 
 impl Content {
     fn open(job: Job) -> Result<Self> {
         match job {
-            Job::Pdf { source, page_sizes } => Ok(Self::Pdf {
+            Job::Pdf { source, page_sizes, layers } => Ok(Self::Pdf {
                 document: PrintDocument::open(&source)?,
                 sizes: page_sizes,
+                layers,
             }),
-            Job::Image(image) => {
+            Job::Image { image, layer } => {
                 let (tw, th) = (image.texture.width(), image.texture.height());
                 let stride = tw as usize * 4;
                 let mut data = vec![0u8; stride * th as usize];
@@ -196,7 +213,7 @@ impl Content {
                 let (xx, yx, xy, yy, x0, y0) = image.orientation.transform().to_2d();
                 let orientation = cairo::Matrix::new(xx as f64, yx as f64, xy as f64, yy as f64, x0 as f64, y0 as f64);
                 let (w, h) = image.display_size();
-                Ok(Self::Image { surface, orientation, size: (w as f64, h as f64) })
+                Ok(Self::Image { surface, orientation, size: (w as f64, h as f64), layer })
             }
         }
     }
@@ -205,27 +222,34 @@ impl Content {
         let cr = context.cairo_context();
         let area = (context.width(), context.height());
         match self {
-            Self::Pdf { document, sizes } => {
+            Self::Pdf { document, sizes, layers } => {
                 let size = sizes.get(page).copied().context("no such page")?;
                 let scale = scaled_size(size, 1.0, area, scaling);
                 cr.save()?;
                 cr.translate((area.0 - size.0 * scale) / 2.0, (area.1 - size.1 * scale) / 2.0);
                 cr.scale(scale, scale);
                 document.render_for_printing(page, &cr)?;
+                if let Some(layer) = layers.get(&page) {
+                    annot_render::draw_layer(&cr, layer);
+                }
                 cr.restore()?;
             }
-            Self::Image { surface, orientation, size } => {
+            Self::Image { surface, orientation, size, layer } => {
                 let scale = scaled_size(*size, PIXEL_TO_POINT, area, scaling);
                 cr.save()?;
                 cr.translate((area.0 - size.0 * scale) / 2.0, (area.1 - size.1 * scale) / 2.0);
                 cr.scale(scale, scale);
                 // The oriented image is centred on the origin in `orientation`'s frame.
+                cr.save()?;
                 cr.translate(size.0 / 2.0, size.1 / 2.0);
                 cr.transform(*orientation);
                 let (tw, th) = (surface.width() as f64, surface.height() as f64);
                 cr.set_source_surface(surface, -tw / 2.0, -th / 2.0)?;
                 cr.source().set_filter(cairo::Filter::Good);
                 cr.paint()?;
+                cr.restore()?;
+                // Annotations are in the displayed image's pixels, with its top-left as origin.
+                annot_render::draw_layer(&cr, layer);
                 cr.restore()?;
             }
         }

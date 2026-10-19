@@ -209,6 +209,8 @@ impl PrintDocument {
             .0
             .page(index as i32)
             .with_context(|| format!("page {} does not exist", index + 1))?;
+        // Lumen prints its own annotations over the page, so Poppler must not draw them too.
+        annots::hide_supported(&page);
         page.render_for_printing(cr);
         Ok(())
     }

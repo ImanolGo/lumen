@@ -12,9 +12,14 @@
 
 use relm4::gtk::{self, gdk, glib, graphene, gsk, prelude::*, subclass::prelude::*};
 
-use std::{cell::Cell, collections::HashMap, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashMap,
+    rc::Rc,
+};
 
 use crate::{
+    annotate::{self, Store, Tool, render as annot_render},
     edit::{
         CropRect,
         crop::{self, Grab, Rect},
@@ -52,6 +57,36 @@ pub enum SelectGesture {
     OpenLink(LinkTarget),
 }
 
+/// How the pointer is used on the canvas with regard to markup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MarkupMode {
+    /// Markup is closed.
+    #[default]
+    Off,
+    /// Pointer events draw and edit annotations with this tool.
+    Draw(Tool),
+    /// Text is selected as usual and the selection becomes a highlight (PDF pages).
+    TextSelect,
+}
+
+/// A pointer event on the canvas in markup mode, in document coordinates: pixels of
+/// the displayed image, or points on a PDF page.
+#[derive(Debug, Clone, Copy)]
+pub enum MarkupEvent {
+    Press {
+        page: usize,
+        point: annotate::Point,
+        /// Reach for hitting annotations, in document units.
+        tolerance: f64,
+        clicks: u32,
+    },
+    Drag(annotate::Point),
+    Release(annotate::Point),
+}
+
+/// Screen pixels within which a click hits an annotation or one of its handles.
+const MARKUP_REACH: f64 = 7.0;
+
 /// What is on screen, reported to the owner so it can render what is needed.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ViewInfo {
@@ -86,6 +121,7 @@ const WHEEL_ZOOM_STEP: f64 = 0.1;
 
 type ViewCallback = Box<dyn Fn(ViewInfo)>;
 type SelectCallback = Box<dyn Fn(SelectGesture)>;
+type MarkupCallback = Box<dyn Fn(MarkupEvent)>;
 
 /// The crop rectangle being edited, in pixels of the image as displayed.
 pub struct CropState {
@@ -132,6 +168,9 @@ mod imp {
         pub view_callback: RefCell<Option<ViewCallback>>,
         pub select_callback: RefCell<Option<SelectCallback>>,
         pub crop: RefCell<Option<CropState>>,
+        pub markup_store: RefCell<Option<Rc<RefCell<Store>>>>,
+        pub markup_mode: Cell<MarkupMode>,
+        pub markup_callback: RefCell<Option<MarkupCallback>>,
         /// A pan drag is in progress (the hover cursor must not override "grabbing").
         pub dragging: Cell<bool>,
         /// Time (ms), position and count of the last press, to detect double and triple clicks.
@@ -164,6 +203,9 @@ mod imp {
                 view_callback: RefCell::default(),
                 select_callback: RefCell::default(),
                 crop: RefCell::default(),
+                markup_store: RefCell::default(),
+                markup_mode: Cell::new(MarkupMode::Off),
+                markup_callback: RefCell::default(),
                 dragging: Cell::new(false),
                 last_press: Cell::new(None),
                 zoom: Cell::new(1.0),
@@ -270,6 +312,7 @@ mod imp {
             canvas.add_pan_gesture(gdk::BUTTON_MIDDLE, true);
             canvas.add_select_gesture();
             canvas.add_crop_gesture();
+            canvas.add_markup_gesture();
             canvas.set_focusable(true);
 
             // Touchpad / touchscreen pinch.
@@ -341,6 +384,7 @@ mod imp {
             }
             snapshot.restore();
             canvas.snapshot_crop(snapshot, zoom, (x, y));
+            canvas.snapshot_markup(snapshot, 0, (x, y), zoom);
         }
     }
 
@@ -451,7 +495,7 @@ impl LumenCanvas {
             start,
             move |gesture, _, _| {
                 // On PDF pages the primary button selects text instead.
-                if (canvas.has_pages() || canvas.in_crop_mode()) && !also_on_pages {
+                if (canvas.has_pages() || canvas.in_crop_mode() || canvas.markup_draws()) && !also_on_pages {
                     gesture.set_state(gtk::EventSequenceState::Denied);
                     return;
                 }
@@ -497,7 +541,7 @@ impl LumenCanvas {
             #[strong]
             origin,
             move |gesture, x, y| {
-                if !canvas.has_pages() {
+                if !canvas.has_pages() || canvas.markup_draws() {
                     gesture.set_state(gtk::EventSequenceState::Denied);
                     return;
                 }
@@ -589,10 +633,213 @@ impl LumenCanvas {
             }
             return;
         }
+        if let MarkupMode::Draw(tool) = self.imp().markup_mode.get() {
+            self.set_cursor_from_name(Some(markup_cursor(tool)));
+            return;
+        }
         if self.has_pages() && !self.imp().dragging.get() {
             let name = if self.link_at(x, y).is_some() { "pointer" } else { "text" };
             self.set_cursor_from_name(Some(name));
         }
+    }
+
+    // --- markup -------------------------------------------------------------------
+
+    /// The annotations to draw, shared with whoever edits them.
+    pub fn set_markup_store(&self, store: Rc<RefCell<Store>>) {
+        *self.imp().markup_store.borrow_mut() = Some(store);
+        self.queue_draw();
+    }
+
+    pub fn set_markup_mode(&self, mode: MarkupMode) {
+        if self.imp().markup_mode.replace(mode) != mode {
+            self.update_cursor();
+        }
+        self.queue_draw();
+    }
+
+    pub fn connect_markup(&self, callback: impl Fn(MarkupEvent) + 'static) {
+        *self.imp().markup_callback.borrow_mut() = Some(Box::new(callback));
+    }
+
+    fn markup_draws(&self) -> bool {
+        matches!(self.imp().markup_mode.get(), MarkupMode::Draw(_))
+    }
+
+    fn emit_markup(&self, event: MarkupEvent) {
+        if let Some(callback) = self.imp().markup_callback.borrow().as_ref() {
+            callback(event);
+        }
+    }
+
+    /// Where the document origin of `page` is in widget coordinates (images: page 0).
+    fn page_origin(&self, page: usize) -> Option<(f64, f64)> {
+        let zoom = self.effective_zoom();
+        let (ox, oy) = self.origin();
+        match self.imp().pages.borrow().as_ref() {
+            Some(pages) => {
+                let r = pages.layout.rects.get(page)?;
+                Some((ox + r.x * zoom, oy + r.y * zoom))
+            }
+            None => self.imp().logical.get().map(|_| (ox, oy)),
+        }
+    }
+
+    /// The point of `page` under widget coordinates (`x`, `y`), possibly outside the page.
+    fn doc_point(&self, page: usize, x: f64, y: f64) -> Option<annotate::Point> {
+        let zoom = self.effective_zoom();
+        let (px, py) = self.page_origin(page)?;
+        Some(annotate::Point::new((x - px) / zoom, (y - py) / zoom))
+    }
+
+    /// The page and point under widget coordinates (`x`, `y`): the nearest page for PDFs.
+    fn doc_point_at(&self, x: f64, y: f64) -> Option<(usize, annotate::Point)> {
+        if self.has_pages() {
+            let hit = self.page_point_at(x, y)?;
+            Some((hit.page, annotate::Point::new(hit.x, hit.y)))
+        } else {
+            self.doc_point(0, x, y).map(|p| (0, p))
+        }
+    }
+
+    fn add_markup_gesture(&self) {
+        let drag = gtk::GestureDrag::builder().button(gdk::BUTTON_PRIMARY).build();
+        // The page the drag began on and where, so later points are relative to that page.
+        let start = Rc::new(Cell::new((0usize, 0.0f64, 0.0f64)));
+        drag.connect_drag_begin(glib::clone!(
+            #[weak(rename_to = canvas)]
+            self,
+            #[strong]
+            start,
+            move |gesture, x, y| {
+                let hit = canvas.markup_draws().then(|| canvas.doc_point_at(x, y)).flatten();
+                let Some((page, point)) = hit else {
+                    gesture.set_state(gtk::EventSequenceState::Denied);
+                    return;
+                };
+                canvas.grab_focus();
+                start.set((page, x, y));
+                let clicks = canvas.count_click(gesture.current_event_time(), x, y);
+                let tolerance = MARKUP_REACH / canvas.effective_zoom();
+                canvas.emit_markup(MarkupEvent::Press { page, point, tolerance, clicks });
+            }
+        ));
+        drag.connect_drag_update(glib::clone!(
+            #[weak(rename_to = canvas)]
+            self,
+            #[strong]
+            start,
+            move |_, dx, dy| {
+                let (page, x, y) = start.get();
+                if let Some(point) = canvas.doc_point(page, x + dx, y + dy) {
+                    canvas.emit_markup(MarkupEvent::Drag(point));
+                }
+            }
+        ));
+        drag.connect_drag_end(glib::clone!(
+            #[weak(rename_to = canvas)]
+            self,
+            #[strong]
+            start,
+            move |_, dx, dy| {
+                let (page, x, y) = start.get();
+                if let Some(point) = canvas.doc_point(page, x + dx, y + dy) {
+                    canvas.emit_markup(MarkupEvent::Release(point));
+                }
+            }
+        ));
+        self.add_controller(drag);
+    }
+
+    /// Draw the annotations of `page` (document origin at `origin` on screen).
+    fn snapshot_markup(&self, snapshot: &gtk::Snapshot, page: usize, (ox, oy): (f64, f64), zoom: f64) {
+        let Some(store) = self.imp().markup_store.borrow().clone() else {
+            return;
+        };
+        let store = store.borrow();
+        let layer = store.layer(page).filter(|l| !l.is_empty());
+        let draft = store.draft.as_ref().filter(|(p, _)| *p == page).map(|(_, a)| a);
+        let selected = store.selection.filter(|s| s.page == page).and(store.selected());
+        if layer.is_none() && draft.is_none() && selected.is_none() {
+            return;
+        }
+        let bounds = graphene::Rect::new(0.0, 0.0, self.width() as f32, self.height() as f32);
+        let cr = snapshot.append_cairo(&bounds);
+        cr.translate(ox, oy);
+        cr.scale(zoom, zoom);
+        if let Some(layer) = layer {
+            annot_render::draw_layer(&cr, layer);
+        }
+        if let Some(draft) = draft {
+            annot_render::draw_annotation(&cr, draft);
+        }
+        if let Some(selected) = selected {
+            annot_render::draw_selection(&cr, selected, zoom);
+        }
+    }
+
+    /// Edit the text of an annotation in a small popover over it. `on_done` gets the
+    /// text when the popover closes.
+    pub fn edit_text(&self, page: usize, bounds: annotate::Rect, initial: &str, on_done: impl FnOnce(String) + 'static) {
+        let Some((ox, oy)) = self.page_origin(page) else { return };
+        let zoom = self.effective_zoom();
+        let target = gdk::Rectangle::new(
+            (ox + bounds.x * zoom) as i32,
+            (oy + bounds.y * zoom) as i32,
+            (bounds.w * zoom).max(8.0) as i32,
+            (bounds.h * zoom).max(8.0) as i32,
+        );
+
+        let popover = gtk::Popover::new();
+        popover.set_parent(self);
+        popover.set_pointing_to(Some(&target));
+        let view = gtk::TextView::builder()
+            .wrap_mode(gtk::WrapMode::WordChar)
+            .accepts_tab(false)
+            .top_margin(6)
+            .bottom_margin(6)
+            .left_margin(6)
+            .right_margin(6)
+            .build();
+        view.buffer().set_text(initial);
+        let scroller = gtk::ScrolledWindow::builder()
+            .child(&view)
+            .min_content_width(260)
+            .min_content_height(90)
+            .build();
+        popover.set_child(Some(&scroller));
+
+        // Ctrl+Enter finishes; Escape or a click elsewhere does too.
+        let keys = gtk::EventControllerKey::new();
+        keys.connect_key_pressed(glib::clone!(
+            #[weak]
+            popover,
+            #[upgrade_or]
+            glib::Propagation::Proceed,
+            move |_, key, _, state| {
+                let enter = key == gdk::Key::Return || key == gdk::Key::KP_Enter;
+                if enter && state.contains(gdk::ModifierType::CONTROL_MASK) {
+                    popover.popdown();
+                    return glib::Propagation::Stop;
+                }
+                glib::Propagation::Proceed
+            }
+        ));
+        view.add_controller(keys);
+
+        let on_done = Cell::new(Some(on_done));
+        let buffer_view = view.clone();
+        popover.connect_closed(move |popover| {
+            let buffer = buffer_view.buffer();
+            let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).to_string();
+            if let Some(done) = on_done.take() {
+                done(text);
+            }
+            let popover = popover.clone();
+            glib::idle_add_local_once(move || popover.unparent());
+        });
+        popover.popup();
+        view.grab_focus();
     }
 
     // --- crop mode ---------------------------------------------------------------
@@ -840,6 +1087,7 @@ impl LumenCanvas {
                 }
                 None => snapshot.append_color(&gdk::RGBA::WHITE, &bounds),
             }
+            self.snapshot_markup(snapshot, index, (ox + r.x * zoom, oy + r.y * zoom), zoom);
             if let Some(rects) = pages.selection.get(&index) {
                 for hit in rects {
                     let rect = graphene::Rect::new(
@@ -1002,7 +1250,9 @@ impl LumenCanvas {
     }
 
     fn update_cursor(&self) {
-        let name = if self.has_pages() {
+        let name = if let MarkupMode::Draw(tool) = self.imp().markup_mode.get() {
+            Some(markup_cursor(tool))
+        } else if self.has_pages() {
             Some("text")
         } else {
             self.can_pan().then_some("grab")
@@ -1072,5 +1322,13 @@ impl LumenCanvas {
         if let Some(callback) = imp.view_callback.borrow().as_ref() {
             callback(info);
         }
+    }
+}
+
+fn markup_cursor(tool: Tool) -> &'static str {
+    match tool {
+        Tool::Select => "default",
+        Tool::Text => "text",
+        _ => "crosshair",
     }
 }

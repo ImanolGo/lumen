@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use super::model::{Annotation, AnnotationLayer, Handle, Pages, Point, Rect, Shape, Style};
+use super::model::{Annotation, AnnotationLayer, Color, Handle, Pages, Point, Rect, Shape, Style};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Tool {
@@ -94,20 +94,31 @@ const MIN_DRAG: f64 = 3.0;
 /// Size of a new text box.
 const TEXT_WIDTH: f64 = 180.0;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Editor {
     pub tool: Tool,
     pub style: Style,
+    /// The marker colour: highlights have their own, so they start out yellow whatever
+    /// colour the pen is.
+    pub highlight_color: Color,
     grab: Option<Grab>,
     /// An annotation created by the Text tool whose text has not been confirmed.
     unconfirmed_text: Option<(usize, u64)>,
 }
 
-impl Editor {
-    pub fn is_dragging(&self) -> bool {
-        self.grab.is_some()
+impl Default for Editor {
+    fn default() -> Self {
+        Self {
+            tool: Tool::default(),
+            style: Style::default(),
+            highlight_color: Color::YELLOW,
+            grab: None,
+            unconfirmed_text: None,
+        }
     }
+}
 
+impl Editor {
     /// The pointer went down at `p` on `page`. `tolerance` is the click reach in
     /// document units; `clicks` is 1, 2 or 3 for single, double and triple clicks.
     pub fn press(
@@ -152,7 +163,8 @@ impl Editor {
     fn draw_style(&self, tool: Tool) -> Style {
         let mut style = self.style.clone();
         if tool == Tool::Highlight {
-            style.fill = Some(style.stroke);
+            style.stroke = self.highlight_color;
+            style.fill = Some(self.highlight_color);
             style.width = 0.0;
         }
         style
@@ -171,17 +183,16 @@ impl Editor {
             .selected()
             .cloned()
             .filter(|_| store.selection.is_some_and(|s| s.page == page))
+            && let Some(handle) = selected.handle_at(p, tolerance)
         {
-            if let Some(handle) = selected.handle_at(p, tolerance) {
-                let id = selected.id;
-                self.grab = Some(Grab::Resize {
-                    page,
-                    id,
-                    handle,
-                    original: selected,
-                });
-                return Outcome::default();
-            }
+            let id = selected.id;
+            self.grab = Some(Grab::Resize {
+                page,
+                id,
+                handle,
+                original: selected,
+            });
+            return Outcome::default();
         }
 
         let hit = store.layer(page).and_then(|layer| layer.hit(p, tolerance));
@@ -475,10 +486,11 @@ impl Editor {
             return Outcome::default();
         };
         let before = item.style.clone();
-        item.style.stroke = new.stroke;
         if matches!(item.shape, Shape::Highlight(_)) {
-            item.style.fill = Some(new.stroke);
+            item.style.stroke = self.highlight_color;
+            item.style.fill = Some(self.highlight_color);
         } else {
+            item.style.stroke = new.stroke;
             item.style.width = new.width;
             item.style.font_size = new.font_size;
         }
@@ -744,7 +756,6 @@ mod tests {
     #[test]
     fn highlights_take_the_colour_as_fill_and_no_outline() {
         let (mut editor, mut store) = editor(Tool::Highlight);
-        editor.style.stroke = super::super::model::Color::YELLOW;
         let outcome = editor.add_highlight(
             &mut store,
             2,
@@ -757,6 +768,22 @@ mod tests {
         let item = &store.layer(2).unwrap().items[0];
         assert_eq!(item.style.fill, Some(super::super::model::Color::YELLOW));
         assert_eq!(item.style.width, 0.0);
+    }
+
+    #[test]
+    fn highlighting_ignores_the_pen_colour() {
+        let (mut editor, mut store) = editor(Tool::Highlight);
+        editor.style.stroke = Color::RED;
+        drag_out(&mut editor, &mut store, (0.0, 0.0), (50.0, 12.0));
+        assert_eq!(store.layer(0).unwrap().items[0].style.fill, Some(Color::YELLOW));
+        // Choosing another marker colour changes new and selected highlights, not the pen.
+        editor.highlight_color = Color::rgba(0.0, 1.0, 0.0, 1.0);
+        editor.tool = Tool::Select;
+        editor.press(&mut store, 0, Point::new(20.0, 5.0), TOL, 1);
+        editor.release(&mut store, Point::new(20.0, 5.0));
+        assert!(editor.restyle_selected(&mut store).committed);
+        assert_eq!(store.selected().unwrap().style.fill, Some(Color::rgba(0.0, 1.0, 0.0, 1.0)));
+        assert_eq!(editor.style.stroke, Color::RED);
     }
 
     #[test]

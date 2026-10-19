@@ -122,7 +122,11 @@ fn set_orientation(path: &Path, orientation: Orientation) -> Result<()> {
 
 fn write_reencoded(request: &SaveRequest, temp: &Path) -> Result<()> {
     let stored = image::open(&request.source).with_context(|| format!("cannot read {}", request.source.display()))?;
-    let rendered = edit::render(&stored, request.base_orientation, request.edits.active());
+    let mut rendered = edit::render(&stored, request.base_orientation, request.edits.active());
+    // Annotations are part of the picture once saved.
+    if let Some(layer) = request.edits.current_layer() {
+        rendered = crate::annotate::render::flatten(&rendered, &layer).context("cannot draw the annotations")?;
+    }
 
     match request.format {
         Format::Jpeg { quality } => {
@@ -295,6 +299,33 @@ mod tests {
         save(&request(&source, &dest, &[EditOp::RotateCw], Format::Png)).unwrap();
         let expected = image::open(&source).unwrap().rotate90().to_rgb8();
         assert_eq!(image::open(&dest).unwrap().to_rgb8(), expected);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn saving_burns_annotations_into_the_pixels() {
+        use crate::annotate::{AnnotationLayer, Color, Rect, Shape, Style};
+        let dir = scratch_dir("annotated");
+        let (source, dest) = (dir.join("a.jpg"), dir.join("a.png"));
+        make_jpeg(&source);
+
+        let mut layer = AnnotationLayer::default();
+        let red = Color::rgba(1.0, 0.0, 0.0, 1.0);
+        layer.add(
+            Shape::Rect(Rect::new(10.0, 10.0, 20.0, 20.0)),
+            Style { stroke: red, fill: Some(red), width: 0.0, font_size: 12.0 },
+        );
+        let mut edits = EditStack::default();
+        edits.push_with_layer(EditOp::Annotate, Some(std::sync::Arc::new(layer)));
+
+        // Even a JPEG-to-JPEG save has to re-encode now.
+        let jpeg = SaveRequest { source: source.clone(), dest: dir.join("b.jpg"), base_orientation: Orientation::NORMAL, edits: edits.clone(), format: Format::Jpeg { quality: 95 } };
+        assert!(!is_lossless(&jpeg));
+
+        save(&SaveRequest { source, dest: dest.clone(), base_orientation: Orientation::NORMAL, edits, format: Format::Png }).unwrap();
+        let saved = image::open(&dest).unwrap().to_rgb8();
+        assert_eq!(saved.get_pixel(20, 20).0, [255, 0, 0], "the rectangle is in the picture");
+        assert_ne!(saved.get_pixel(50, 40).0, [255, 0, 0]);
         let _ = fs::remove_dir_all(dir);
     }
 

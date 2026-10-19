@@ -1,6 +1,7 @@
 //! Root Relm4 component: the main window.
 
 mod edit;
+mod markup;
 
 use std::{
     cell::{Cell, RefCell},
@@ -17,6 +18,7 @@ use relm4::{
 
 use crate::{
     APP_NAME,
+    annotate::{self, Tool},
     document::{self, DocumentInfo, DocumentKind, OpenError, Opened},
     edit::{Adjustments, EditOp},
     folder, print,
@@ -27,8 +29,8 @@ use crate::{
     },
     thumbnails::{ThumbData, ThumbnailLoader},
     widgets::{
-        CanvasContent, FileStrip, LumenCanvas, OutlinePanel, PageStrip, PropertiesPanel, SelectGesture,
-        THUMB_WIDTH, ViewInfo,
+        CanvasContent, FileStrip, LumenCanvas, MarkupEvent, OutlinePanel, PageStrip, PropertiesPanel,
+        SelectGesture, THUMB_WIDTH, ViewInfo,
     },
 };
 
@@ -39,6 +41,7 @@ type NavAction<'a> = (&'a str, fn() -> AppMsg, &'a [&'a str]);
 type ViewAction<'a> = (&'a str, fn(&LumenCanvas), &'a [&'a str]);
 
 use edit::{AdjustField, CropAspect, EditMode, EditSession, Pending, RenderedEdit};
+use markup::MarkupState;
 
 const RECENT_LIMIT: usize = 10;
 /// How many neighbours on each side of the current file stay decoded.
@@ -157,6 +160,7 @@ pub struct App {
     /// What to do once a save the user asked for has finished.
     after_save: Option<Pending>,
     saving: bool,
+    markup: MarkupState,
     /// Index into `CropAspect::CHOICES`.
     crop_choice: usize,
     canvas: LumenCanvas,
@@ -259,6 +263,18 @@ pub enum AppMsg {
     SaveAs,
     SaveTo { dest: PathBuf, format: Format },
     Saved { dest: PathBuf, result: Result<(), String> },
+    /// A pointer event while the markup tools are in use.
+    Markup(MarkupEvent),
+    ToggleMarkup,
+    SetTool(Tool),
+    SetColor(annotate::Color),
+    SetWidth(f64),
+    SetFontSize(f64),
+    MarkupDelete,
+    MarkupNudge(f64, f64),
+    MarkupText { page: usize, id: u64, text: String },
+    /// Place a text annotation without the editor popover (scripted use).
+    MarkupAddText { page: usize, x: f64, y: f64, text: String },
     /// The window is closing with unsaved edits.
     CloseRequested,
     /// The user chose to save before going on to `Pending`.
@@ -319,6 +335,7 @@ impl App {
             (None, None) => CanvasContent::None,
         };
         self.canvas.set_content(content);
+        self.canvas.set_markup_mode(self.markup_canvas_mode());
     }
 
     fn page_text(&self) -> String {
@@ -437,8 +454,12 @@ impl App {
             (Some(pdf), _) => print::Job::Pdf {
                 source: pdf.source.clone(),
                 page_sizes: pdf.layout.rects.iter().map(|r| r.size()).collect(),
+                layers: self.markup.store.borrow().pages.layers.clone(),
             },
-            (None, Some(image)) => print::Job::Image(image.clone()),
+            (None, Some(image)) => print::Job::Image {
+                image: image.clone(),
+                layer: self.markup.store.borrow().pages.layers.get(&0).cloned().unwrap_or_default(),
+            },
             (None, None) => return,
         };
         let name = self.document.as_ref().map(DocumentInfo::file_name).unwrap_or_default();
@@ -574,6 +595,7 @@ impl App {
         self.reset_edit_session();
         self.properties.set_image(self.image.as_ref());
         let opened_outline = opened.pdf.as_ref().map(|p| p.outline.clone());
+        let opened_annotations = opened.pdf.as_ref().map(|p| p.annotations.clone());
         self.pdf = opened.pdf.map(|pdf_info| {
             self.next_key += 1;
             let doc_key = self.next_key;
@@ -620,6 +642,7 @@ impl App {
             None => self.outline.set_outline(&[]),
         }
         self.sidebar_mode = if self.pdf.is_some() { SidebarMode::Pages } else { SidebarMode::Files };
+        self.load_markup(opened_annotations);
         self.document = Some(info);
         self.sync_canvas();
         self.clear_selection();
@@ -674,6 +697,7 @@ impl App {
         self.image = None;
         self.pdf = None;
         self.reset_edit_session();
+        self.load_markup(None);
         self.page_strip.clear();
         self.properties.set_image(None);
         self.error = Some(err);
@@ -827,8 +851,18 @@ impl SimpleComponent for App {
                         },
                     },
 
-                    pack_end = &gtk::MenuButton {
+                    pack_end = &gtk::ToggleButton {
                         set_icon_name: "document-edit-symbolic",
+                        set_tooltip_text: Some("Markup (Ctrl+Shift+A)"),
+                        #[watch]
+                        set_active: model.markup.open,
+                        #[watch]
+                        set_visible: model.image.is_some() || model.pdf.is_some(),
+                        connect_clicked[sender] => move |_| sender.input(AppMsg::ToggleMarkup),
+                    },
+
+                    pack_end = &gtk::MenuButton {
+                        set_icon_name: "edit-symbolic",
                         set_tooltip_text: Some("Edit"),
                         set_menu_model: Some(&edit_menu),
                         #[watch]
@@ -906,6 +940,99 @@ impl SimpleComponent for App {
                             set_tooltip_text: Some("Next Match (Enter)"),
                             set_action_name: Some("win.find-next"),
                         },
+                    },
+                },
+
+                add_top_bar = &gtk::Box {
+                    set_spacing: 12,
+                    set_margin_all: 6,
+                    add_css_class: "toolbar",
+                    #[watch]
+                    set_visible: model.markup.open,
+
+                    gtk::Box {
+                        add_css_class: "linked",
+                        gtk::ToggleButton {
+                            set_label: "Select",
+                            #[watch]
+                            set_active: model.markup_tool() == Tool::Select,
+                            connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Select)),
+                        },
+                        gtk::ToggleButton {
+                            set_label: "Rectangle",
+                            #[watch]
+                            set_active: model.markup_tool() == Tool::Rectangle,
+                            connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Rectangle)),
+                        },
+                        gtk::ToggleButton {
+                            set_label: "Ellipse",
+                            #[watch]
+                            set_active: model.markup_tool() == Tool::Ellipse,
+                            connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Ellipse)),
+                        },
+                        gtk::ToggleButton {
+                            set_label: "Arrow",
+                            #[watch]
+                            set_active: model.markup_tool() == Tool::Arrow,
+                            connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Arrow)),
+                        },
+                        gtk::ToggleButton {
+                            set_label: "Line",
+                            #[watch]
+                            set_active: model.markup_tool() == Tool::Line,
+                            connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Line)),
+                        },
+                        gtk::ToggleButton {
+                            set_label: "Pen",
+                            #[watch]
+                            set_active: model.markup_tool() == Tool::Pen,
+                            connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Pen)),
+                        },
+                        gtk::ToggleButton {
+                            set_label: "Text",
+                            #[watch]
+                            set_active: model.markup_tool() == Tool::Text,
+                            connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Text)),
+                        },
+                        gtk::ToggleButton {
+                            set_label: "Highlight",
+                            #[watch]
+                            set_active: model.markup_tool() == Tool::Highlight,
+                            connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Highlight)),
+                        },
+                    },
+
+                    gtk::Separator {},
+
+                    #[local_ref]
+                    color_button -> gtk::ColorDialogButton {
+                        set_tooltip_text: Some("Colour"),
+                    },
+
+                    gtk::Label { set_label: "Width" },
+                    gtk::SpinButton {
+                        set_adjustment: &gtk::Adjustment::new(3.0, 1.0, 40.0, 1.0, 5.0, 0.0),
+                        set_tooltip_text: Some("Line width"),
+                        #[watch]
+                        set_value: model.markup.editor.style.width,
+                        connect_value_changed[sender] => move |spin| sender.input(AppMsg::SetWidth(spin.value())),
+                    },
+
+                    gtk::Label { set_label: "Text size" },
+                    gtk::SpinButton {
+                        set_adjustment: &gtk::Adjustment::new(18.0, 6.0, 200.0, 1.0, 6.0, 0.0),
+                        set_tooltip_text: Some("Text size"),
+                        #[watch]
+                        set_value: model.markup.editor.style.font_size,
+                        connect_value_changed[sender] => move |spin| sender.input(AppMsg::SetFontSize(spin.value())),
+                    },
+
+                    gtk::Box { set_hexpand: true },
+
+                    gtk::Button {
+                        set_icon_name: "edit-delete-symbolic",
+                        set_tooltip_text: Some("Delete the selected annotation (Delete)"),
+                        connect_clicked[sender] => move |_| sender.input(AppMsg::MarkupDelete),
                     },
                 },
 
@@ -1133,7 +1260,8 @@ impl SimpleComponent for App {
             ("resize", model.can_edit()),
             ("adjust", model.can_edit()),
             ("save", model.can_save()),
-            ("save-as", model.can_edit()),
+            ("save-as", model.can_edit() || model.can_save()),
+            ("markup", model.can_markup() || model.markup.open),
         ];
         for (name, enabled) in states {
             if let Some(action) = widgets.main_window.lookup_action(name).and_downcast::<gio::SimpleAction>() {
@@ -1167,6 +1295,9 @@ impl SimpleComponent for App {
         tools.append(Some("Resize…"), Some("win.resize"));
         tools.append(Some("Adjust Colour…"), Some("win.adjust"));
         edit_menu.append_section(None, &tools);
+        let markup_section = gio::Menu::new();
+        markup_section.append(Some("Markup"), Some("win.markup"));
+        edit_menu.append_section(None, &markup_section);
         let saving = gio::Menu::new();
         saving.append(Some("Save"), Some("win.save"));
         saving.append(Some("Save As…"), Some("win.save-as"));
@@ -1244,10 +1375,21 @@ impl SimpleComponent for App {
             overwrite_ok: HashSet::new(),
             after_save: None,
             saving: false,
+            markup: MarkupState::default(),
             crop_choice: 0,
             error: None,
         };
         let model_canvas = model.canvas.clone();
+        let model_markup_store = model.markup.store.clone();
+        let color_button = gtk::ColorDialogButton::new(Some(gtk::ColorDialog::new()));
+        color_button.set_rgba(&gdk::RGBA::new(0.9, 0.1, 0.1, 1.0));
+        color_button.connect_rgba_notify({
+            let sender = sender.clone();
+            move |button| {
+                let c = button.rgba();
+                sender.input(AppMsg::SetColor(annotate::Color::rgba(c.red(), c.green(), c.blue(), c.alpha())));
+            }
+        });
         let sidebar_stack = model.sidebar_stack.clone();
         sidebar_stack.add_named(model.strip.root(), Some("files"));
         sidebar_stack.add_named(model.page_strip.root(), Some("pages"));
@@ -1263,6 +1405,11 @@ impl SimpleComponent for App {
 
         let canvas = model_canvas;
         widgets.scroller.set_child(Some(&canvas));
+        canvas.set_markup_store(model_markup_store);
+        canvas.connect_markup({
+            let sender = sender.clone();
+            move |event| sender.input(AppMsg::Markup(event))
+        });
         canvas.connect_select({
             let sender = sender.clone();
             move |gesture| sender.input(AppMsg::Select(gesture))
@@ -1274,6 +1421,11 @@ impl SimpleComponent for App {
             ("<Control>c", (|| AppMsg::Copy) as fn() -> AppMsg),
             ("Escape", || AppMsg::Escape),
             ("Return", || AppMsg::Confirm),
+            ("Delete", || AppMsg::MarkupDelete),
+            ("Up", || AppMsg::MarkupNudge(0.0, -1.0)),
+            ("Down", || AppMsg::MarkupNudge(0.0, 1.0)),
+            ("<Shift>Up", || AppMsg::MarkupNudge(0.0, -10.0)),
+            ("<Shift>Down", || AppMsg::MarkupNudge(0.0, 10.0)),
         ] {
             let sender = sender.clone();
             shortcuts.add_shortcut(gtk::Shortcut::new(
@@ -1339,6 +1491,7 @@ impl SimpleComponent for App {
             ("save", || AppMsg::Save, &["<Control>s"]),
             ("save-as", || AppMsg::SaveAs, &["<Control><Shift>s"]),
             ("apply-tool", || AppMsg::Confirm, &[]),
+            ("markup", || AppMsg::ToggleMarkup, &["<Control><Shift>a"]),
         ];
         let app = relm4::main_application();
         for &(name, make_msg, accels) in nav_actions {
@@ -1462,6 +1615,68 @@ impl SimpleComponent for App {
         }
         widgets.main_window.add_action(&save_to_action);
 
+        // Scripted markup, for tests: `win.markup-draw` takes (tool, page, x1, y1, x2, y2) and drags
+        // that tool across the page; `win.markup-text` takes (page, x, y, text) and places text.
+        let draw_action = gio::SimpleAction::new(
+            "markup-draw",
+            Some(&<(String, u32, f64, f64, f64, f64)>::static_variant_type()),
+        );
+        {
+            let sender = sender.clone();
+            draw_action.connect_activate(move |_, args| {
+                let Some((tool, page, x1, y1, x2, y2)) = args.and_then(|a| a.get::<(String, u32, f64, f64, f64, f64)>()) else {
+                    return;
+                };
+                let tool = match tool.as_str() {
+                    "rectangle" => Tool::Rectangle,
+                    "ellipse" => Tool::Ellipse,
+                    "arrow" => Tool::Arrow,
+                    "line" => Tool::Line,
+                    "pen" => Tool::Pen,
+                    "text" => Tool::Text,
+                    "highlight" => Tool::Highlight,
+                    _ => Tool::Select,
+                };
+                let (page, a, b) = (page as usize, annotate::Point::new(x1, y1), annotate::Point::new(x2, y2));
+                sender.input(AppMsg::SetTool(tool));
+                sender.input(AppMsg::Markup(MarkupEvent::Press { page, point: a, tolerance: 4.0, clicks: 1 }));
+                sender.input(AppMsg::Markup(MarkupEvent::Drag(annotate::Point::new((x1 + x2) / 2.0, (y1 + y2) / 2.0))));
+                sender.input(AppMsg::Markup(MarkupEvent::Release(b)));
+            });
+        }
+        widgets.main_window.add_action(&draw_action);
+        let tool_action = gio::SimpleAction::new("markup-tool", Some(glib::VariantTy::STRING));
+        {
+            let sender = sender.clone();
+            tool_action.connect_activate(move |_, name| {
+                let tool = match name.and_then(|n| n.str()) {
+                    Some("rectangle") => Tool::Rectangle,
+                    Some("ellipse") => Tool::Ellipse,
+                    Some("arrow") => Tool::Arrow,
+                    Some("line") => Tool::Line,
+                    Some("pen") => Tool::Pen,
+                    Some("text") => Tool::Text,
+                    Some("highlight") => Tool::Highlight,
+                    _ => Tool::Select,
+                };
+                sender.input(AppMsg::SetTool(tool));
+            });
+        }
+        widgets.main_window.add_action(&tool_action);
+        let text_action = gio::SimpleAction::new(
+            "markup-text",
+            Some(&<(u32, f64, f64, String)>::static_variant_type()),
+        );
+        {
+            let sender = sender.clone();
+            text_action.connect_activate(move |_, args| {
+                if let Some((page, x, y, text)) = args.and_then(|a| a.get::<(u32, f64, f64, String)>()) {
+                    sender.input(AppMsg::MarkupAddText { page: page as usize, x, y, text });
+                }
+            });
+        }
+        widgets.main_window.add_action(&text_action);
+
         // `win.password` answers the password dialog without typing (for scripts and tests).
         let password_action = gio::SimpleAction::new("password", Some(glib::VariantTy::STRING));
         {
@@ -1560,6 +1775,7 @@ impl SimpleComponent for App {
 
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
         self.update_inner(msg, sender);
+        self.dirty.set(self.is_dirty());
         // Whatever the message did, the canvas must show the current document.
         self.sync_canvas();
     }
@@ -1600,6 +1816,10 @@ impl App {
                 }
             }
             AppMsg::Navigate(delta) => {
+                // With an annotation selected, the arrow keys move it instead.
+                if self.markup_nudge(delta.signum() as f64, 0.0, &sender) {
+                    return;
+                }
                 if !self.guard(Pending::Navigate(delta), &sender) {
                     return;
                 }
@@ -1749,6 +1969,14 @@ impl App {
                         self.follow_link(target);
                     }
                     SelectGesture::End { moved } => {
+                        // With the highlighter, a dragged selection becomes a highlight once measured.
+                        if self.markup_canvas_mode() == crate::widgets::MarkupMode::TextSelect {
+                            if moved {
+                                self.markup.highlight_pending = true;
+                                self.request_selection(false);
+                            }
+                            return;
+                        }
                         // A plain single click just deselects; double and triple clicks keep their word or line.
                         if !moved && self.selection.is_some_and(|s| s.granularity == Granularity::Glyph) {
                             self.clear_selection();
@@ -1762,7 +1990,12 @@ impl App {
                     return;
                 }
                 if result.id == self.selection_id {
-                    self.canvas.set_selection(result.rects);
+                    if self.markup.highlight_pending {
+                        let rects = result.rects.clone();
+                        self.highlight_selection(&rects, &sender);
+                    } else {
+                        self.canvas.set_selection(result.rects);
+                    }
                 }
                 if let (Some(text), Some(display)) =
                     (result.text.filter(|t| !t.is_empty()), gdk::Display::default())
@@ -1789,12 +2022,32 @@ impl App {
             }
             AppMsg::Confirm => self.apply_mode(&sender),
             AppMsg::Escape => {
-                if self.edit_mode == EditMode::None {
-                    self.clear_selection();
-                } else {
+                if self.edit_mode != EditMode::None {
                     self.cancel_mode(&sender);
+                } else if !self.markup_deselect() {
+                    self.clear_selection();
                 }
             }
+            AppMsg::Markup(event) => self.markup_event(event, &sender),
+            AppMsg::ToggleMarkup => self.toggle_markup(),
+            AppMsg::SetTool(tool) => self.set_tool(tool),
+            AppMsg::SetColor(color) => {
+                // Highlights keep a colour of their own, so choosing one never recolours the pen.
+                if self.markup.editor.tool == Tool::Highlight {
+                    self.markup.editor.highlight_color = color;
+                    self.set_markup_style(|_| {}, &sender);
+                } else {
+                    self.set_markup_style(|style| style.stroke = color, &sender);
+                }
+            }
+            AppMsg::SetWidth(width) => self.set_markup_style(|style| style.width = width, &sender),
+            AppMsg::SetFontSize(size) => self.set_markup_style(|style| style.font_size = size, &sender),
+            AppMsg::MarkupDelete => self.markup_delete(&sender),
+            AppMsg::MarkupNudge(dx, dy) => {
+                self.markup_nudge(dx, dy, &sender);
+            }
+            AppMsg::MarkupText { page, id, text } => self.markup_text(page, id, &text, &sender),
+            AppMsg::MarkupAddText { page, x, y, text } => self.markup_add_text(page, x, y, &text, &sender),
             AppMsg::CropAspect(index) => {
                 self.crop_choice = index.min(CropAspect::CHOICES.len() - 1);
                 if self.edit_mode == EditMode::Crop {

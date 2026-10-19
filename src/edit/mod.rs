@@ -9,9 +9,11 @@
 mod adjust;
 pub mod crop;
 
+use std::sync::Arc;
+
 use image::{DynamicImage, imageops::FilterType};
 
-use crate::image::Orientation;
+use crate::{annotate::AnnotationLayer, image::Orientation};
 
 pub use adjust::Adjustments;
 
@@ -33,6 +35,8 @@ pub enum EditOp {
     Crop(CropRect),
     Resize { w: u32, h: u32 },
     Adjust(Adjustments),
+    /// The annotations changed. Changes no pixels itself: the layer is kept with the stack entry.
+    Annotate,
 }
 
 impl EditOp {
@@ -46,15 +50,30 @@ impl EditOp {
 #[derive(Debug, Default, Clone)]
 pub struct EditStack {
     ops: Vec<EditOp>,
+    /// For each operation, the annotations as they are after it, if it changed them.
+    layers: Vec<Option<Arc<AnnotationLayer>>>,
     /// Number of operations that are applied; the rest can be redone.
     cursor: usize,
 }
 
 impl EditStack {
+    #[cfg(test)]
     pub fn push(&mut self, op: EditOp) {
+        self.push_with_layer(op, None);
+    }
+
+    /// Add an operation together with the annotations as they are after it.
+    pub fn push_with_layer(&mut self, op: EditOp, layer: Option<Arc<AnnotationLayer>>) {
         self.ops.truncate(self.cursor);
+        self.layers.truncate(self.cursor);
         self.ops.push(op);
+        self.layers.push(layer);
         self.cursor += 1;
+    }
+
+    /// The annotations after the active operations, if any operation set them.
+    pub fn current_layer(&self) -> Option<Arc<AnnotationLayer>> {
+        self.layers[..self.cursor].iter().rev().find_map(|layer| layer.clone())
     }
 
     pub fn undo(&mut self) -> bool {
@@ -94,13 +113,20 @@ impl EditStack {
             EditOp::RotateCcw => Some(orientation.rotated_ccw()),
             EditOp::FlipH => Some(orientation.flipped_horizontally()),
             EditOp::FlipV => Some(orientation.flipped_vertically()),
+            // Annotations are drawn over the image and do not touch its pixels.
+            EditOp::Annotate => Some(orientation),
             _ => None,
         })
     }
 
     /// Whether the active operations change the pixels (and so need a re-encode to save).
     pub fn changes_pixels(&self) -> bool {
-        self.active().iter().any(|op| !op.is_orientation_only())
+        let has_annotations = self.current_layer().is_some_and(|layer| !layer.is_empty());
+        has_annotations
+            || self
+                .active()
+                .iter()
+                .any(|op| !op.is_orientation_only() && *op != EditOp::Annotate)
     }
 }
 
@@ -120,6 +146,7 @@ pub fn render(stored: &DynamicImage, base: Orientation, ops: &[EditOp]) -> Dynam
             EditOp::Crop(r) => image.crop_imm(r.x, r.y, r.w, r.h),
             EditOp::Resize { w, h } => image.resize_exact(w.max(1), h.max(1), FilterType::Lanczos3),
             EditOp::Adjust(a) => adjust::apply(image, a),
+            EditOp::Annotate => image,
         };
     }
     image
@@ -208,6 +235,56 @@ mod tests {
         stack.push(EditOp::FlipV);
         assert!(!stack.can_redo());
         assert_eq!(stack.active(), &[EditOp::RotateCw, EditOp::FlipV]);
+    }
+
+    #[test]
+    fn annotation_layers_follow_undo_and_redo() {
+        use crate::annotate::{Rect, Shape, Style};
+        let layer_with = |n: usize| {
+            let mut layer = AnnotationLayer::default();
+            for i in 0..n {
+                layer.add(Shape::Rect(Rect::new(i as f64, 0.0, 1.0, 1.0)), Style::default());
+            }
+            Arc::new(layer)
+        };
+        let mut stack = EditStack::default();
+        assert!(stack.current_layer().is_none());
+        stack.push_with_layer(EditOp::Annotate, Some(layer_with(1)));
+        stack.push(EditOp::RotateCw);
+        stack.push_with_layer(EditOp::Annotate, Some(layer_with(2)));
+        assert_eq!(stack.current_layer().unwrap().items.len(), 2);
+        // A rotation that kept the layer unchanged still sees the earlier snapshot.
+        stack.undo();
+        assert_eq!(stack.current_layer().unwrap().items.len(), 1);
+        stack.undo();
+        assert_eq!(stack.current_layer().unwrap().items.len(), 1);
+        stack.undo();
+        assert!(stack.current_layer().is_none());
+        stack.redo();
+        stack.redo();
+        stack.redo();
+        assert_eq!(stack.current_layer().unwrap().items.len(), 2);
+        // A new edit after undoing drops the discarded branch's layers too.
+        stack.undo();
+        stack.push(EditOp::FlipH);
+        assert_eq!(stack.current_layer().unwrap().items.len(), 1);
+    }
+
+    #[test]
+    fn annotations_force_a_re_encode_only_while_they_exist() {
+        use crate::annotate::{Rect, Shape, Style};
+        let mut with_shape = AnnotationLayer::default();
+        with_shape.add(Shape::Rect(Rect::new(0.0, 0.0, 5.0, 5.0)), Style::default());
+
+        let mut stack = EditStack::default();
+        stack.push(EditOp::RotateCw);
+        assert!(!stack.changes_pixels());
+        stack.push_with_layer(EditOp::Annotate, Some(Arc::new(with_shape)));
+        assert!(stack.changes_pixels(), "a drawn shape has to be burned in");
+        assert!(stack.orientation_only(Orientation::NORMAL).is_some(), "but the pixels are still the file's");
+        // Deleting it again makes the rotation lossless once more.
+        stack.push_with_layer(EditOp::Annotate, Some(Arc::new(AnnotationLayer::default())));
+        assert!(!stack.changes_pixels());
     }
 
     #[test]

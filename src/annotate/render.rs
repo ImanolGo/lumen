@@ -169,10 +169,10 @@ pub fn flatten(
 
     // Cairo wants premultiplied BGRA (on little-endian machines).
     let mut data = vec![0u8; stride * height as usize];
-    for (src, dst) in rgba.pixels().zip(data.chunks_exact_mut(4)) {
+    for (src, dst) in rgba.pixels().zip(data.as_chunks_mut::<4>().0.iter_mut()) {
         let [r, g, b, a] = src.0;
         let premultiply = |c: u8| ((c as u16 * a as u16 + 127) / 255) as u8;
-        dst.copy_from_slice(&[premultiply(b), premultiply(g), premultiply(r), a]);
+        *dst = [premultiply(b), premultiply(g), premultiply(r), a];
     }
 
     let mut surface = cairo::ImageSurface::create_for_data(
@@ -190,7 +190,7 @@ pub fn flatten(
     let data = surface.data().map_err(|_| cairo::Error::SurfaceFinished)?;
 
     let mut out = RgbaImage::new(width as u32, height as u32);
-    for (src, dst) in data.chunks_exact(4).zip(out.pixels_mut()) {
+    for (src, dst) in data.as_chunks::<4>().0.iter().zip(out.pixels_mut()) {
         let [b, g, r, a] = [src[0], src[1], src[2], src[3]];
         let unpremultiply = |c: u8| {
             if a == 0 {

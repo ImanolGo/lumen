@@ -92,7 +92,7 @@ impl App {
     }
 
     pub(super) fn is_dirty(&self) -> bool {
-        self.edit.as_ref().is_some_and(|e| e.stack.is_dirty())
+        self.edit.as_ref().is_some_and(|e| e.stack.is_dirty()) || self.markup.pdf_dirty
     }
 
     /// Whether the editing tools apply right now.
@@ -101,15 +101,33 @@ impl App {
     }
 
     pub(super) fn can_undo(&self) -> bool {
+        if self.pdf.is_some() {
+            return self.markup.pdf_history.can_undo();
+        }
         self.edit_mode == EditMode::None && self.edit.as_ref().is_some_and(|e| e.stack.can_undo())
     }
 
     pub(super) fn can_redo(&self) -> bool {
+        if self.pdf.is_some() {
+            return self.markup.pdf_history.can_redo();
+        }
         self.edit_mode == EditMode::None && self.edit.as_ref().is_some_and(|e| e.stack.can_redo())
     }
 
     pub(super) fn can_save(&self) -> bool {
+        if self.pdf.is_some() {
+            return self.markup.pdf_dirty && self.edit_mode == EditMode::None;
+        }
         self.can_edit() && self.is_dirty()
+    }
+
+    /// The file being shown: the image being edited, or the PDF.
+    fn document_path(&self) -> Option<PathBuf> {
+        match (&self.pdf, &self.edit) {
+            (Some(pdf), _) => Some(pdf.source.path.clone()),
+            (None, Some(session)) => Some(session.path.clone()),
+            _ => None,
+        }
     }
 
     /// Start a fresh session for a newly opened image (or none, for other documents).
@@ -132,27 +150,45 @@ impl App {
         if self.edit_mode != EditMode::None {
             return;
         }
+        let size = self.shown_image().map(|i| i.display_size()).map(|(w, h)| (w as f64, h as f64));
+        let layer = size.and_then(|size| self.layer_after_geometry(op, size));
         let Some(session) = &mut self.edit else { return };
-        session.stack.push(op);
+        // Annotations move along with the image, and undo brings them back.
+        if let Some(layer) = &layer {
+            self.markup.store.borrow_mut().set_pages(std::collections::BTreeMap::from([(0, (**layer).clone())]));
+        }
+        session.stack.push_with_layer(op, layer);
         self.refresh_edit(sender, None);
     }
 
     pub(super) fn undo(&mut self, sender: &ComponentSender<App>) {
-        if self.can_undo() {
-            if let Some(session) = &mut self.edit {
-                session.stack.undo();
-            }
-            self.refresh_edit(sender, None);
+        if !self.can_undo() {
+            return;
         }
+        if self.pdf.is_some() {
+            self.markup_undo();
+            return;
+        }
+        if let Some(session) = &mut self.edit {
+            session.stack.undo();
+        }
+        self.sync_markup_from_history();
+        self.refresh_edit(sender, None);
     }
 
     pub(super) fn redo(&mut self, sender: &ComponentSender<App>) {
-        if self.can_redo() {
-            if let Some(session) = &mut self.edit {
-                session.stack.redo();
-            }
-            self.refresh_edit(sender, None);
+        if !self.can_redo() {
+            return;
         }
+        if self.pdf.is_some() {
+            self.markup_redo();
+            return;
+        }
+        if let Some(session) = &mut self.edit {
+            session.stack.redo();
+        }
+        self.sync_markup_from_history();
+        self.refresh_edit(sender, None);
     }
 
     /// Bring the displayed image in line with the stack. `preview` is an
@@ -330,11 +366,9 @@ impl App {
         if !self.can_save() {
             return;
         }
-        let Some(session) = &self.edit else { return };
-        let path = session.path.clone();
+        let Some(path) = self.document_path() else { return };
         if self.overwrite_ok.contains(&path) {
-            let format = Format::from_path(&path).unwrap_or(Format::Png);
-            self.start_save(path, format, sender);
+            self.start_save(path.clone(), Format::from_path(&path).unwrap_or(Format::Png), sender);
         } else {
             let name = file_name(&path);
             let sender = sender.clone();
@@ -347,22 +381,31 @@ impl App {
     }
 
     pub(super) fn save_confirmed(&mut self, sender: &ComponentSender<App>) {
-        let Some(session) = &self.edit else { return };
-        let path = session.path.clone();
+        let Some(path) = self.document_path() else { return };
         self.overwrite_ok.insert(path.clone());
-        let format = Format::from_path(&path).unwrap_or(Format::Png);
-        self.start_save(path, format, sender);
+        self.start_save(path.clone(), Format::from_path(&path).unwrap_or(Format::Png), sender);
     }
 
     /// Ctrl+Shift+S: pick a file name and format, then write there.
     pub(super) fn save_as(&mut self, sender: &ComponentSender<App>) {
+        let sender = sender.clone();
+        if let Some(pdf) = &self.pdf {
+            if !self.markup.pdf_dirty {
+                return;
+            }
+            let source = pdf.source.path.clone();
+            choose_pdf_destination(&source, move |dest| match dest {
+                Some(dest) => sender.input(AppMsg::SaveTo { dest, format: Format::Png }),
+                None => sender.input(AppMsg::SaveCancelled),
+            });
+            return;
+        }
         if !self.can_edit() {
             return;
         }
         let Some(session) = &self.edit else { return };
         let (source, base_format) = (session.path.clone(), Format::from_path(&session.path).unwrap_or(Format::Png));
         let changes_pixels = session.stack.changes_pixels();
-        let sender = sender.clone();
         choose_destination(&source, base_format, move |dest| {
             let Some(dest) = dest else {
                 sender.input(AppMsg::SaveCancelled);
@@ -381,6 +424,28 @@ impl App {
     }
 
     pub(super) fn start_save(&mut self, dest: PathBuf, format: Format, sender: &ComponentSender<App>) {
+        // A PDF: write the annotations into a copy of the file.
+        if let Some(pdf) = &self.pdf {
+            let source = pdf.source.clone();
+            let layers: std::collections::BTreeMap<_, _> = self
+                .markup
+                .store
+                .borrow()
+                .pages
+                .layers
+                .iter()
+                .filter(|(_, layer)| !layer.is_empty())
+                .map(|(page, layer)| (*page, layer.clone()))
+                .collect();
+            self.saving = true;
+            let sender = sender.clone();
+            relm4::spawn_blocking(move || {
+                let result = write_pdf(&source, &layers, &dest).map_err(|err| format!("{err:#}"));
+                sender.input(AppMsg::Saved { dest, result });
+            });
+            return;
+        }
+
         let Some(session) = &self.edit else { return };
         let request = SaveRequest {
             source: session.path.clone(),
@@ -424,7 +489,7 @@ impl App {
         if !self.is_dirty() {
             return true;
         }
-        let name = self.edit.as_ref().map(|e| file_name(&e.path)).unwrap_or_default();
+        let name = self.document_path().map(|p| file_name(&p)).unwrap_or_default();
         let sender = sender.clone();
         ask_unsaved(&name, move |choice| match choice {
             UnsavedChoice::Save => sender.input(AppMsg::SaveThen(pending.clone())),
@@ -436,6 +501,11 @@ impl App {
 
     pub(super) fn discard(&mut self, pending: Pending, sender: &ComponentSender<App>) {
         self.reset_edit_session();
+        if self.pdf.is_some() {
+            self.reset_markup();
+        } else {
+            self.load_markup(None);
+        }
         sender.input(AppMsg::Replay(pending));
     }
 
@@ -537,6 +607,46 @@ fn confirm_overwrite(name: &str, then: impl FnOnce(OverwriteChoice) + 'static) {
             "copy" => OverwriteChoice::SaveCopy,
             _ => OverwriteChoice::Cancel,
         });
+    });
+}
+
+/// Write annotations into a copy of the PDF next to `dest`, then move it into place.
+fn write_pdf(
+    source: &crate::pdf::PdfSource,
+    layers: &std::collections::BTreeMap<usize, crate::annotate::AnnotationLayer>,
+    dest: &std::path::Path,
+) -> anyhow::Result<()> {
+    use anyhow::Context;
+    let name = dest.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let temp = dest.with_file_name(format!(".{name}.lumen-tmp.pdf"));
+    let written = crate::pdf::annots::write(source, layers, &temp);
+    match written {
+        Ok(()) => std::fs::rename(&temp, dest).with_context(|| format!("cannot replace {}", dest.display())),
+        Err(err) => {
+            let _ = std::fs::remove_file(&temp);
+            Err(err)
+        }
+    }
+}
+
+fn choose_pdf_destination(source: &std::path::Path, then: impl FnOnce(Option<PathBuf>) + 'static) {
+    let filter = gtk::FileFilter::new();
+    filter.set_name(Some("PDF Documents"));
+    filter.add_mime_type("application/pdf");
+    let filters = gio::ListStore::new::<gtk::FileFilter>();
+    filters.append(&filter);
+    let stem = source.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let dialog = gtk::FileDialog::builder()
+        .title("Save As")
+        .modal(true)
+        .filters(&filters)
+        .initial_name(format!("{stem}-annotated.pdf"))
+        .build();
+    if let Some(folder) = source.parent() {
+        dialog.set_initial_folder(Some(&gio::File::for_path(folder)));
+    }
+    dialog.save(main_window().as_ref(), gio::Cancellable::NONE, move |result| {
+        then(result.ok().and_then(|file| file.path()));
     });
 }
 

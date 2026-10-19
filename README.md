@@ -22,7 +22,7 @@ A fast, Preview-like image and PDF viewer for Linux, written in Rust with GTK 4 
 | ✅ | PDF viewing: continuous scroll, thumbnails, outline, search, text selection, links, passwords | 2 |
 | ✅ | Printing | 3 |
 | ✅ | Rotate / flip / crop / resize / colour adjust, undo, save & export | 4 |
-| ⬜ | Annotations on images and PDFs | 5 |
+| ✅ | Annotations on images and PDFs | 5 |
 | ⬜ | PDF page management: reorder, rotate, delete, merge | 6 |
 | ⬜ | Preferences, Flatpak, AUR | 7 |
 
@@ -58,6 +58,8 @@ cargo run -- path/to/file.pdf   # open a file directly
 | `Ctrl+K` | Crop (`Enter` applies, `Esc` cancels) |
 | `Ctrl+Alt+R` / `Ctrl+Alt+C` | Resize / adjust colour |
 | `Ctrl+S` / `Ctrl+Shift+S` | Save / Save As |
+| `Ctrl+Shift+A` | Markup toolbar: Select, Rectangle, Ellipse, Arrow, Line, Pen, Text, Highlight |
+| `Delete`, arrow keys | Delete / nudge the selected annotation (double-click text to edit it) |
 | `Ctrl+P` | Print (the print button's menu also sets Fit to Page / Actual Size) |
 | `Ctrl+C` | Copy the selected PDF text (drag, double-click or triple-click to select) |
 | `Ctrl+F` | Find in PDF; `Enter` / `Shift+Enter` or `F3` / `Shift+F3` for next / previous match |

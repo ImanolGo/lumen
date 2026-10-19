@@ -190,11 +190,11 @@ Install `glycin` + `glycin-loaders` and use `glycin::Loader`. This gives sandbox
 
 ---
 
-## Phase 5 — Annotations (the "Markup toolbar")
+## Phase 5 — Annotations (the "Markup toolbar") ✅
 
 This is the heart of "Preview-like". **Design the model first, UI second.**
 
-### 5.1 Annotation model 🟡 🧠 retained-mode scene graph
+### 5.1 ✅ Annotation model 🟡 🧠 retained-mode scene graph
 - Tasks
   - `src/annotate/model.rs`, which is **pure Rust with no GTK**, fully unit-testable:
     ```rust
@@ -206,26 +206,27 @@ This is the heart of "Preview-like". **Design the model first, UI second.**
   - Integrate with the `EditStack` from 4.1 so annotation changes are undoable too.
 - **Done when:** model tests cover create, move, resize, hit-test and undo.
 
-### 5.2 Render the layer 🟢
+### 5.2 ✅ Render the layer 🟢
 - Tasks: draw annotations in the canvas `snapshot()` *after* the content, transforming document coordinates to widget coordinates. One renderer function that takes a `cairo::Context` lets you reuse it for screen, flattening (5.6) and printing.
 
-### 5.3 Tools and toolbar 🟠
+### 5.3 ✅ Tools and toolbar 🟠
 - Tasks: a markup toolbar (`Ctrl+Shift+A`) with Select, Rectangle, Ellipse, Arrow, Line, Pen, Text and Highlight tools; a colour picker (`gtk::ColorDialogButton`) and a stroke width; a tool state machine driven by `GestureDrag`.
 - **Done when:** you can draw every shape type on an image.
 
-### 5.4 Select and edit 🟠
+### 5.4 ✅ Select and edit 🟠
 - Tasks: click to select, handles to resize, drag to move, Delete to remove, double-click a text annotation to edit it in place (an overlaid `gtk::Entry` / `gtk::TextView`), arrow keys to nudge.
 
-### 5.5 Annotate PDFs 🟡
+### 5.5 ✅ Annotate PDFs 🟡
 - Tasks: one `AnnotationLayer` per page, in page coordinates (PDF points; watch out: PDF y goes *up*, so unit-test the transform).
 
-### 5.6 Save annotations 🟠
+### 5.6 ✅ Save annotations 🟠
 - **Images:** flatten. Render the image plus the layer into a `cairo::ImageSurface` at full resolution and encode it.
 - **PDFs:** write *real* annotations so other viewers can edit them:
   `poppler::AnnotSquare`, `AnnotCircle`, `AnnotLine`, `AnnotInk`, `AnnotFreeText`, `AnnotTextMarkup::new_highlight` → `page.add_annot` → `document.save(uri)`.
   Arrows: `AnnotLine` with line endings, or ink. If poppler lacks something, fall back to `lopdf`.
 - Also *load* existing PDF annotations into your model (`page.annot_mapping`) so they're editable.
 - **Done when:** annotate a PDF in Lumen, open it in Okular or Firefox, and the annotations are there and editable.
+- **Notes:** Poppler has no line-ending API, so lines and arrows are written as *ink* annotations (tagged in their contents so Lumen reads them back as lines and arrows). Annotations are written with Poppler's C API from `src/pdf/annots.rs`; `lopdf` was not needed.
 
 ---
 
