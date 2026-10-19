@@ -947,10 +947,8 @@ impl SimpleComponent for App {
             }
             AppMsg::ThumbRendered { doc_key, job, result } => {
                 let Some(pdf) = &self.pdf else { return };
-                if doc_key == pdf.doc_key {
-                    if let Ok(rendered) = result {
-                        self.page_strip.set_thumbnail(job.page, rendered.into_texture());
-                    }
+                if let (true, Ok(rendered)) = (doc_key == pdf.doc_key, result) {
+                    self.page_strip.set_thumbnail(job.page, rendered.into_texture());
                 }
             }
             AppMsg::PageBy(delta) => {
