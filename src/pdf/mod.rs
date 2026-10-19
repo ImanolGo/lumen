@@ -184,3 +184,25 @@ fn render_page(doc: &poppler::Document, index: usize, scale: f64) -> Result<Rend
         data,
     })
 }
+
+/// A PDF opened for printing. Lives on the main thread, because printing draws
+/// from GTK's draw-page signal; Poppler calls still take the global lock.
+pub struct PrintDocument(poppler::Document);
+
+impl PrintDocument {
+    pub fn open(source: &PdfSource) -> Result<Self> {
+        let _poppler = poppler_lock();
+        open_document(source).map(Self)
+    }
+
+    /// Draw page `index` at its natural size (1 point = 1 unit) onto `cr`.
+    pub fn render_for_printing(&self, index: usize, cr: &cairo::Context) -> Result<()> {
+        let _poppler = poppler_lock();
+        let page = self
+            .0
+            .page(index as i32)
+            .with_context(|| format!("page {} does not exist", index + 1))?;
+        page.render_for_printing(cr);
+        Ok(())
+    }
+}

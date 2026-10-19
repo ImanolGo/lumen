@@ -3,6 +3,7 @@ mod document;
 mod folder;
 mod image;
 mod pdf;
+mod print;
 mod thumbnails;
 mod widgets;
 

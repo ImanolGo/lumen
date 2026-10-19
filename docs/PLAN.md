@@ -144,18 +144,19 @@ Install `glycin` + `glycin-loaders` and use `glycin::Loader`. This gives sandbox
 
 ---
 
-## Phase 3 — Printing
+## Phase 3 — Printing ✅
 
-### 3.1 Print a PDF 🟡 🧠 `GtkPrintOperation`
+### 3.1 ✅ Print a PDF 🟡 🧠 `GtkPrintOperation`
 - Tasks
   - `src/print.rs`: `gtk::PrintOperation`, `set_n_pages`, and in `connect_draw_page` call `poppler_page.render_for_printing(&ctx.cairo_context())`.
   - Respect the page orientation per page (`connect_request_page_setup`).
   - Remember the print settings for the session.
 - **Done when:** `Ctrl+P` prints a multi-page PDF correctly, including "Print to File → PDF".
 
-### 3.2 Print an image 🟢
+### 3.2 ✅ Print an image 🟢
 - Tasks: one page; scale to fit within the printable area keeping the aspect ratio; centre; auto-rotate landscape images. Add a "Fit to page / Actual size" option via `connect_create_custom_widget`.
 - **Done when:** a landscape photo fills an A4 or Letter page nicely.
+- **Note:** under the desktop portal (the default on GNOME/KDE/Niri) GTK cannot show a custom "Scaling" tab in the print dialog, so the same choice lives in the print button's menu. The tab still appears where the portal is not used.
 
 ---
 

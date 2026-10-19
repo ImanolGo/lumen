@@ -16,7 +16,7 @@ use relm4::{
 use crate::{
     APP_NAME,
     document::{self, DocumentInfo, DocumentKind, OpenError, Opened},
-    folder,
+    folder, print,
     pdf::{
         self, HitRect, OutlineTarget, PageCache, PageLayout, PageRenderer, RenderJob, RenderedPage,
         LinkTarget, LinkWorker, LinksLoaded, NamedAction, PdfSource, SearchEvent, SearchWorker, Granularity, PagePoint, SelectRequest, SelectionResult, SelectionWorker,
@@ -72,6 +72,7 @@ struct PdfView {
     /// Identifies this document, so late renders of an older one are dropped.
     doc_key: u64,
     visible: (usize, usize),
+    source: PdfSource,
     cache: PageCache,
     renderer: PageRenderer,
     /// Renders the sidebar thumbnails; separate so it never delays the pages.
@@ -221,6 +222,8 @@ pub enum AppMsg {
     OpenWithPassword(String),
     /// The password dialog was dismissed.
     PasswordCancelled,
+    /// Print the open document (or, with a path, write it to a PDF file without asking).
+    Print(Option<PathBuf>),
     ToggleSidebar,
     ToggleProperties,
     Hover(bool),
@@ -373,6 +376,26 @@ impl App {
         }
     }
 
+    /// Print the current document through the GTK print dialog, or export it to `export_to`.
+    fn print(&self, export_to: Option<PathBuf>) {
+        let job = match (&self.pdf, &self.image) {
+            (Some(pdf), _) => print::Job::Pdf {
+                source: pdf.source.clone(),
+                page_sizes: pdf.layout.rects.iter().map(|r| r.size()).collect(),
+            },
+            (None, Some(image)) => print::Job::Image(image.clone()),
+            (None, None) => return,
+        };
+        let name = self.document.as_ref().map(DocumentInfo::file_name).unwrap_or_default();
+        let parent = relm4::main_application().active_window();
+        if let Err(err) = print::print(job, &name, parent.as_ref(), export_to.as_deref()) {
+            tracing::warn!("print failed: {err:#}");
+            let dialog = adw::AlertDialog::new(Some("Could Not Print"), Some(&format!("{err:#}")));
+            dialog.add_response("ok", "_OK");
+            dialog.present(parent.as_ref());
+        }
+    }
+
     fn clear_selection(&mut self) {
         self.selection = None;
         self.selection_id += 1;
@@ -502,6 +525,7 @@ impl App {
             let input = sender.input_sender().clone();
             let source = PdfSource::new(&info.path, pdf_info.password.as_deref());
             PdfView {
+                source: source.clone(),
                 n_pages: pdf_info.n_pages,
                 has_outline: !pdf_info.outline.is_empty(),
                 layout,
@@ -737,6 +761,14 @@ impl SimpleComponent for App {
                         },
                     },
 
+                    pack_end = &gtk::MenuButton {
+                        set_icon_name: "document-print-symbolic",
+                        set_tooltip_text: Some("Print (Ctrl+P)"),
+                        set_menu_model: Some(&print_menu),
+                        #[watch]
+                        set_visible: model.image.is_some() || model.pdf.is_some(),
+                    },
+
                     pack_end = &gtk::Button {
                         set_icon_name: "info-outline-symbolic",
                         set_tooltip_text: Some("Properties (Alt+Enter)"),
@@ -942,6 +974,13 @@ impl SimpleComponent for App {
     ) -> ComponentParts<Self> {
         INPUT.with(|input| *input.borrow_mut() = Some(sender.input_sender().clone()));
 
+        let print_menu = gio::Menu::new();
+        print_menu.append(Some("Print…"), Some("win.print"));
+        let size_section = gio::Menu::new();
+        size_section.append(Some("Fit to Page"), Some("win.print-scaling::fit"));
+        size_section.append(Some("Actual Size"), Some("win.print-scaling::actual"));
+        print_menu.append_section(Some("Size on Paper"), &size_section);
+
         let recent_menu = gio::Menu::new();
         refresh_recent_menu(&recent_menu);
         let strip = FileStrip::new({
@@ -1066,7 +1105,7 @@ impl SimpleComponent for App {
         widgets.main_window.add_action(&goto_action);
         relm4::main_application().set_accels_for_action("win.goto-page", &["<Control>g"]);
 
-        let nav_actions: [NavAction; 12] = [
+        let nav_actions: [NavAction; 13] = [
             ("page-next", || AppMsg::PageBy(1), &["Page_Down"]),
             ("page-prev", || AppMsg::PageBy(-1), &["Page_Up"]),
             ("page-first", || AppMsg::GotoPage(0), &["Home"]),
@@ -1079,6 +1118,7 @@ impl SimpleComponent for App {
             ("find-prev", || AppMsg::SearchStep(-1), &["<Shift>F3"]),
             ("find-close", || AppMsg::SearchOpened(false), &[]),
             ("copy", || AppMsg::Copy, &[]),
+            ("print", || AppMsg::Print(None), &["<Control>p"]),
         ];
         let app = relm4::main_application();
         for (name, make_msg, accels) in nav_actions {
@@ -1126,6 +1166,33 @@ impl SimpleComponent for App {
             });
         }
         widgets.main_window.add_action(&select_action);
+
+        // Radio items in the print menu: how big the content is on paper.
+        let scaling_action = gio::SimpleAction::new_stateful(
+            "print-scaling",
+            Some(glib::VariantTy::STRING),
+            &"fit".to_variant(),
+        );
+        scaling_action.connect_activate(|action, choice| {
+            if let Some(choice) = choice.and_then(|c| c.str()) {
+                print::set_actual_size(choice == "actual");
+                action.set_state(&choice.to_variant());
+            }
+        });
+        widgets.main_window.add_action(&scaling_action);
+
+        // `win.print-to-file` takes a path and writes the document there as a PDF, as
+        // "Print to File" would, without showing the dialog.
+        let export_action = gio::SimpleAction::new("print-to-file", Some(glib::VariantTy::STRING));
+        {
+            let sender = sender.clone();
+            export_action.connect_activate(move |_, path| {
+                if let Some(path) = path.and_then(|p| p.str()) {
+                    sender.input(AppMsg::Print(Some(PathBuf::from(path))));
+                }
+            });
+        }
+        widgets.main_window.add_action(&export_action);
 
         // `win.password` answers the password dialog without typing (for scripts and tests).
         let password_action = gio::SimpleAction::new("password", Some(glib::VariantTy::STRING));
@@ -1477,6 +1544,7 @@ impl SimpleComponent for App {
                 });
             }
             AppMsg::PasswordCancelled => self.fail(OpenError::PasswordRequired { retry: false }.message()),
+            AppMsg::Print(export_to) => self.print(export_to),
             AppMsg::ToggleSidebar => self.sidebar_open = !self.sidebar_open,
             AppMsg::ToggleProperties => self.properties_open = !self.properties_open,
             AppMsg::Hover(hover) => self.hover = hover,
