@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="data/icons/hicolor/256x256/apps/io.github.imanolgo.Lumen.png" alt="Lumen icon" width="128" height="128">
+  <img src="data/icons/hicolor/scalable/apps/io.github.imanolgo.Lumen.svg" alt="Lumen icon" width="128" height="128">
 </p>
 
 <h1 align="center">Lumen</h1>

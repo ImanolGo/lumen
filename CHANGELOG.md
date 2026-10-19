@@ -4,6 +4,10 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Changed
+- New app icon and symbolic icon: a fan of pages, the front one holding a photo above text with a highlighter stroke.
+- Retook the screenshots.
+
 ## [0.1.0] - 2026-10-19
 
 First release.

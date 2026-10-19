@@ -148,8 +148,10 @@ pub struct App {
     properties: PropertiesPanel,
     properties_open: bool,
     thumbnails: ThumbnailLoader,
-    /// Files being browsed (a whole folder, or the files picked together).
+    /// Files being browsed: the ones opened together, plus any dropped in since.
     list: Vec<PathBuf>,
+    /// Bumped whenever files are opened or added; older folder listings are dropped.
+    listing: u64,
     index: usize,
     /// Bumped on every navigation; results from older requests are dropped.
     generation: u64,
@@ -220,10 +222,13 @@ pub enum AppMsg {
     OpenDialog,
     /// Open files (from the dialog, CLI, drag-and-drop, recents).
     Open(Vec<PathBuf>),
-    /// The folder of a single opened file was listed.
-    FolderListed {
-        anchor: PathBuf,
+    /// Add files (dropped onto the window) to the ones being browsed.
+    Add(Vec<PathBuf>),
+    /// The files to open or add were worked out (folders listed, unsupported drops left out).
+    Listed {
+        listing: u64,
         files: Vec<PathBuf>,
+        add: bool,
     },
     /// Move by this many files in the list.
     Navigate(isize),
@@ -773,6 +778,24 @@ impl App {
 
     fn can_go_next(&self) -> bool {
         self.index + 1 < self.list.len()
+    }
+
+    /// Work out the files behind `paths` off the main thread (folders are listed), then
+    /// open them, or add them to the ones being browsed.
+    fn list_files(&mut self, paths: Vec<PathBuf>, add: bool, sender: &ComponentSender<Self>) {
+        self.listing += 1;
+        let listing = self.listing;
+        let sender = sender.clone();
+        relm4::spawn_blocking(move || {
+            // Files picked on purpose are opened even if their type is unknown, so the
+            // error says why; dropped extras that are not pictures or PDFs are skipped.
+            let files = folder::expand(&paths, add);
+            sender.input(AppMsg::Listed {
+                listing,
+                files,
+                add,
+            });
+        });
     }
 
     /// Start showing `list[index]`: from the cache, a pending preload, or a fresh load.
@@ -1870,6 +1893,7 @@ impl SimpleComponent for App {
             properties_open: false,
             thumbnails,
             list: Vec::new(),
+            listing: 0,
             index: 0,
             generation: 0,
             loading: false,
@@ -2566,7 +2590,7 @@ impl SimpleComponent for App {
             if paths.is_empty() {
                 return false;
             }
-            sender.input(AppMsg::Open(paths));
+            sender.input(AppMsg::Add(paths));
             true
         });
         widgets.main_window.add_controller(drop);
@@ -2598,40 +2622,49 @@ impl App {
     fn update_inner(&mut self, msg: AppMsg, sender: ComponentSender<Self>) {
         match msg {
             AppMsg::OpenDialog => Self::show_open_dialog(sender),
-            AppMsg::Open(mut paths) => {
+            AppMsg::Open(paths) => {
                 if !self.guard(Pending::Open(paths.clone()), &sender) {
                     return;
                 }
-                if paths.len() == 1 {
-                    // Browse the whole folder once it has been listed.
-                    let anchor = paths[0].clone();
-                    let sender = sender.clone();
-                    relm4::spawn_blocking(move || {
-                        let files = folder::siblings(&anchor);
-                        sender.input(AppMsg::FolderListed { anchor, files });
-                    });
-                } else {
-                    paths.sort_by(|a, b| folder::natural_cmp(a, b));
-                    paths.dedup();
-                }
-                self.cache.clear();
-                self.list = paths;
-                self.refresh_strip();
-                self.show_index(0, &sender);
+                self.list_files(paths, false, &sender);
             }
-            AppMsg::FolderListed { anchor, files } => {
-                // Ignore stale answers if the user already opened something else.
-                if self.list.len() == 1 && self.list[0] == anchor {
-                    let started = std::time::Instant::now();
-                    self.index = files.iter().position(|f| *f == anchor).unwrap_or(0);
+            AppMsg::Add(paths) => {
+                let add = !self.list.is_empty();
+                self.list_files(paths, add, &sender);
+            }
+            AppMsg::Listed {
+                listing,
+                files,
+                add,
+            } => {
+                if listing != self.listing {
+                    return;
+                }
+                if add {
+                    // Show the first file that was not there yet; `GoTo` deals with unsaved edits.
+                    let mut new: Vec<PathBuf> =
+                        files.into_iter().filter(|f| !self.list.contains(f)).collect();
+                    new.dedup();
+                    if new.is_empty() {
+                        return;
+                    }
+                    let first = self.list.len();
+                    self.list.extend(new);
+                    self.refresh_strip();
+                    sender.input(AppMsg::GoTo(first));
+                } else if files.is_empty() {
+                    self.fail(tr("There are no pictures or PDFs to open there."));
+                } else {
+                    let mut files = files;
+                    // Files picked together are shown in name order; a folder is already sorted.
+                    if files.len() > 1 && !files.is_sorted_by(|a, b| folder::natural_cmp(a, b).is_le()) {
+                        files.sort_by(|a, b| folder::natural_cmp(a, b));
+                    }
+                    files.dedup();
+                    self.cache.clear();
                     self.list = files;
                     self.refresh_strip();
-                    tracing::info!(
-                        files = self.list.len(),
-                        ms = started.elapsed().as_millis() as u64,
-                        "file list shown"
-                    );
-                    self.preload_neighbours(&sender);
+                    self.show_index(0, &sender);
                 }
             }
             AppMsg::Navigate(delta) => {

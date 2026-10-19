@@ -1,37 +1,24 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <defs>
-    <linearGradient id="base" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#4f8ff0"/>
-      <stop offset="1" stop-color="#2a63d4"/>
-    </linearGradient>
-    <radialGradient id="glow" cx="96" cy="26" r="56" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.45"/>
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#8cc0ff"/>
-      <stop offset="1" stop-color="#d6e8ff"/>
-    </linearGradient>
-  </defs>
-  <!-- base plate, with a darker lip at the bottom for depth -->
-  <rect x="8" y="12" width="112" height="108" rx="24" fill="#1b4aa8"/>
-  <rect x="8" y="8" width="112" height="106" rx="24" fill="url(#base)"/>
-  <rect x="8" y="8" width="112" height="106" rx="24" fill="url(#glow)"/>
-  <!-- a sheet of paper -->
-  <rect x="31" y="26" width="66" height="80" rx="8" fill="#0d2f73" opacity="0.25" transform="translate(0 3)"/>
-  <rect x="31" y="26" width="66" height="80" rx="8" fill="#ffffff"/>
-  <!-- holding a picture -->
-  <clipPath id="photo"><rect x="38" y="33" width="52" height="38" rx="5"/></clipPath>
-  <g clip-path="url(#photo)">
-    <rect x="38" y="33" width="52" height="38" fill="url(#sky)"/>
-    <path d="M38 71 L56 50 L67 62 L75 54 L90 71 Z" fill="#3d6fc2"/>
-    <path d="M38 71 L50 58 L60 71 Z" fill="#244f9e"/>
-  </g>
-  <circle cx="78" cy="45" r="5.5" fill="#ffc83d"/>
-  <!-- and two lines of text -->
-  <rect x="38" y="80" width="52" height="5" rx="2.5" fill="#c9d3e3"/>
-  <rect x="38" y="91" width="32" height="5" rx="2.5" fill="#dfe5ee"/>
-  <!-- a glint of light -->
-  <path d="M101 17 C101.8 23.5 104.5 26.2 111 27 C104.5 27.8 101.8 30.5 101 37 C100.2 30.5 97.5 27.8 91 27 C97.5 26.2 100.2 23.5 101 17 Z" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 150 150">
+  <!-- Lumen: a fan of pages, the front one a photo above text, with a highlighter stroke -->
+  <rect width="150" height="150" rx="34" fill="#1f1d2b"/>
+
+  <!-- back pages -->
+  <rect x="36" y="22" width="78" height="100" rx="10" fill="#5a4d85" transform="rotate(-12 75 138)"/>
+  <rect x="36" y="22" width="78" height="100" rx="10" fill="#e8795a" transform="rotate(12 75 138)"/>
+
+  <!-- front page -->
+  <rect x="36" y="22" width="78" height="100" rx="10" fill="#ffffff"/>
+
+  <!-- photo -->
+  <rect x="45" y="31" width="60" height="40" rx="5" fill="#ffcf8a"/>
+  <circle cx="92" cy="42" r="5" fill="#fff6dd"/>
+  <path d="M45 71 L63 50 L75 61 L85 53 L105 71 Z" fill="#6b5b95"/>
+
+  <!-- text lines -->
+  <rect x="45" y="82" width="52" height="6" rx="3" fill="#c9c3b6"/>
+  <rect x="45" y="108" width="46" height="6" rx="3" fill="#c9c3b6"/>
+
+  <!-- highlighter stroke -->
+  <path d="M41 98 Q72 91 106 97" fill="none" stroke="#f6b73c" stroke-width="11" stroke-linecap="round"/>
 </svg>
