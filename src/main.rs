@@ -32,6 +32,8 @@ fn main() -> glib::ExitCode {
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "lumen=info".into()))
         .init();
     i18n::init();
+    // Icons and the stylesheet. GtkApplication finds them under the app's resource base path.
+    gio::resources_register_include!("lumen.gresource").expect("the bundled resources are valid");
 
     // HANDLES_OPEN makes GApplication parse file arguments itself, so the CLI,
     // "Open With…" and a second `lumen file` launch all end up in `open`.

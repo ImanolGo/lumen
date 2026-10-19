@@ -116,6 +116,8 @@ impl ViewInfo {
 const SELECTION_COLOR: gdk::RGBA = gdk::RGBA::new(0.2, 0.5, 1.0, 0.35);
 const HIT_OTHER: gdk::RGBA = gdk::RGBA::new(1.0, 0.85, 0.0, 0.45);
 const HIT_CURRENT: gdk::RGBA = gdk::RGBA::new(1.0, 0.45, 0.0, 0.6);
+/// The soft shadow under each PDF page, so pages read as paper on any background.
+const PAGE_SHADOW: gdk::RGBA = gdk::RGBA::new(0.0, 0.0, 0.0, 0.22);
 
 /// Fit-to-width never zooms a document past this.
 const MAX_PAGES_FIT_ZOOM: f64 = 3.0;
@@ -1295,6 +1297,14 @@ impl LumenCanvas {
                 (oy + r.y * zoom) as f32,
                 (r.w * zoom) as f32,
                 (r.h * zoom) as f32,
+            );
+            snapshot.append_outset_shadow(
+                &gsk::RoundedRect::from_rect(bounds, 0.0),
+                &PAGE_SHADOW,
+                0.0,
+                1.0,
+                0.0,
+                6.0,
             );
             match pages.textures.get(&index) {
                 Some(texture) => {

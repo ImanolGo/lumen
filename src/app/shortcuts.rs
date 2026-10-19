@@ -16,6 +16,7 @@ const SECTIONS: &[(&str, &[(&str, &str)])] = &[
             (n_("Keyboard shortcuts"), "<Control>question"),
             (n_("Fullscreen"), "F11"),
             (n_("Slideshow"), "F5"),
+            (n_("Leave fullscreen or the slideshow"), "Escape"),
             (n_("Toggle sidebar"), "F9"),
             (n_("Properties"), "<Alt>Return"),
             (n_("Close window"), "<Control>w"),

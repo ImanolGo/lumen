@@ -43,6 +43,41 @@ pub struct PdfInfo {
     pub password: Option<String>,
     /// Annotations the file already holds that Lumen can edit, per page.
     pub annotations: std::collections::BTreeMap<usize, crate::annotate::AnnotationLayer>,
+    pub metadata: PdfMetadata,
+}
+
+/// What the document says about itself, for the properties panel. Fields the file
+/// leaves empty are `None`.
+#[derive(Debug, Clone, Default)]
+pub struct PdfMetadata {
+    pub title: Option<String>,
+    pub author: Option<String>,
+    pub subject: Option<String>,
+    pub creator: Option<String>,
+    pub producer: Option<String>,
+    /// Already formatted for the user's locale.
+    pub created: Option<String>,
+    pub version: Option<String>,
+}
+
+impl PdfMetadata {
+    fn read(doc: &poppler::Document) -> Self {
+        let text = |value: Option<glib::GString>| {
+            value.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
+        };
+        Self {
+            title: text(doc.title()),
+            author: text(doc.author()),
+            subject: text(doc.subject()),
+            creator: text(doc.creator()),
+            producer: text(doc.producer()),
+            created: doc
+                .creation_date_time()
+                .and_then(|date| date.to_local().ok()?.format("%x %X").ok())
+                .map(String::from),
+            version: text(doc.pdf_version_string()),
+        }
+    }
 }
 
 /// A rendered page: premultiplied BGRA pixels, safe to move between threads.
@@ -148,6 +183,7 @@ pub fn load_info(source: &PdfSource) -> Result<PdfInfo, PdfError> {
         outline,
         password: source.password.clone(),
         annotations,
+        metadata: PdfMetadata::read(&doc),
     })
 }
 
@@ -158,6 +194,35 @@ pub fn effective_scale(size: (f64, f64), scale: f64) -> f64 {
     scale
         .min(MAX_DIMENSION / w.max(h))
         .min((MAX_PIXELS / (w * h)).sqrt())
+}
+
+/// Render the first page of the PDF at `path` to fit in `size` × `size` pixels, as
+/// other readers show it (with its annotations). For file thumbnails; blocking.
+pub fn render_thumbnail(path: &Path, size: i32) -> Result<RenderedPage> {
+    let _poppler = poppler_lock();
+    let doc = open_document(&PdfSource::new(path, None))?;
+    let page = doc.page(0).context("the PDF has no pages")?;
+    let (w, h) = page.size();
+    let scale = effective_scale((w, h), size as f64 / w.max(h));
+    let (pixel_w, pixel_h) = ((w * scale).ceil() as i32, (h * scale).ceil() as i32);
+    let mut surface = cairo::ImageSurface::create(cairo::Format::ARgb32, pixel_w, pixel_h)
+        .context("cannot allocate the thumbnail")?;
+    {
+        let cr = cairo::Context::new(&surface)?;
+        cr.set_source_rgb(1.0, 1.0, 1.0);
+        cr.paint()?;
+        cr.scale(pixel_w as f64 / w, pixel_h as f64 / h);
+        page.render(&cr);
+    }
+    surface.flush();
+    let stride = surface.stride() as usize;
+    let data = surface.data()?.to_vec();
+    Ok(RenderedPage {
+        width: pixel_w,
+        height: pixel_h,
+        stride,
+        data,
+    })
 }
 
 /// Render page `index` at `scale` device pixels per point. Blocking.

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Compiled into the binary by build.rs, so the icons also work when running from the source tree. -->
+<gresources>
+  <gresource prefix="/io/github/imanolgo/Lumen/icons">
+    <file alias="scalable/apps/io.github.imanolgo.Lumen.svg">icons/hicolor/scalable/apps/io.github.imanolgo.Lumen.svg</file>
+    <file alias="symbolic/apps/io.github.imanolgo.Lumen-symbolic.svg">icons/hicolor/symbolic/apps/io.github.imanolgo.Lumen-symbolic.svg</file>
+    <file alias="scalable/actions/lumen-image-edit-symbolic.svg">icons/actions/lumen-image-edit-symbolic.svg</file>
+    <file alias="scalable/actions/lumen-tool-arrow-symbolic.svg">icons/actions/lumen-tool-arrow-symbolic.svg</file>
+    <file alias="scalable/actions/lumen-tool-ellipse-symbolic.svg">icons/actions/lumen-tool-ellipse-symbolic.svg</file>
+    <file alias="scalable/actions/lumen-tool-highlight-symbolic.svg">icons/actions/lumen-tool-highlight-symbolic.svg</file>
+    <file alias="scalable/actions/lumen-tool-line-symbolic.svg">icons/actions/lumen-tool-line-symbolic.svg</file>
+    <file alias="scalable/actions/lumen-tool-pen-symbolic.svg">icons/actions/lumen-tool-pen-symbolic.svg</file>
+    <file alias="scalable/actions/lumen-tool-rectangle-symbolic.svg">icons/actions/lumen-tool-rectangle-symbolic.svg</file>
+    <file alias="scalable/actions/lumen-tool-select-symbolic.svg">icons/actions/lumen-tool-select-symbolic.svg</file>
+    <file alias="scalable/actions/lumen-tool-text-symbolic.svg">icons/actions/lumen-tool-text-symbolic.svg</file>
+  </gresource>
+  <!-- GtkApplication adds <base>/icons to the icon theme and libadwaita loads <base>/style.css. -->
+  <gresource prefix="/io/github/imanolgo/Lumen">
+    <file compressed="true">style.css</file>
+  </gresource>
+</gresources>

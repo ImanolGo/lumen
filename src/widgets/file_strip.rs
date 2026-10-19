@@ -20,8 +20,9 @@ use crate::thumbnails::THUMB_SIZE;
 struct State {
     paths: RefCell<Vec<PathBuf>>,
     thumbs: RefCell<HashMap<PathBuf, gdk::Texture>>,
-    /// Rows on screen, by position.
-    bound: RefCell<HashMap<usize, (gtk::Stack, gtk::Picture)>>,
+    /// Rows on screen. Kept by row, not by position: when the list is replaced, a recycled
+    /// row is bound to its new file before it is unbound from the old one at the same position.
+    bound: RefCell<Vec<gtk::ListItem>>,
 }
 
 pub struct FileStrip {
@@ -106,7 +107,11 @@ impl FileStrip {
                         stack.set_visible_child_name("icon");
                     }
                 }
-                state.bound.borrow_mut().insert(position, (stack, picture));
+                let mut bound = state.bound.borrow_mut();
+                if !bound.contains(item) {
+                    bound.push(item.clone());
+                }
+                drop(bound);
                 changed();
             }
         });
@@ -115,7 +120,7 @@ impl FileStrip {
             let changed = Rc::clone(&on_visible_changed);
             move |_, object| {
                 let item = object.downcast_ref::<gtk::ListItem>().expect("a list item");
-                state.bound.borrow_mut().remove(&(item.position() as usize));
+                state.bound.borrow_mut().retain(|row| row != item);
                 changed();
             }
         });
@@ -169,16 +174,24 @@ impl FileStrip {
         }
     }
 
-    /// Files on screen that still lack a thumbnail, top to bottom (PDFs show an icon instead).
+    /// Files on screen that still lack a thumbnail, top to bottom.
     pub fn wanted(&self) -> Vec<PathBuf> {
         let paths = self.state.paths.borrow();
         let thumbs = self.state.thumbs.borrow();
-        let mut positions: Vec<usize> = self.state.bound.borrow().keys().copied().collect();
+        let mut positions: Vec<usize> = self
+            .state
+            .bound
+            .borrow()
+            .iter()
+            .map(|row| row.position())
+            .filter(|&p| p != gtk::INVALID_LIST_POSITION)
+            .map(|p| p as usize)
+            .collect();
         positions.sort_unstable();
         positions
             .into_iter()
             .filter_map(|p| paths.get(p))
-            .filter(|path| !is_pdf(path) && !thumbs.contains_key(*path))
+            .filter(|path| !thumbs.contains_key(*path))
             .cloned()
             .collect()
     }
@@ -189,8 +202,12 @@ impl FileStrip {
             .borrow_mut()
             .insert(path.to_owned(), texture.clone());
         let paths = self.state.paths.borrow();
-        for (position, (stack, picture)) in self.state.bound.borrow().iter() {
-            if paths.get(*position).is_some_and(|p| p == path) {
+        for row in self.state.bound.borrow().iter() {
+            if paths
+                .get(row.position() as usize)
+                .is_some_and(|p| p == path)
+            {
+                let (stack, picture, _, _) = row_widgets(row);
                 picture.set_paintable(Some(texture));
                 stack.set_visible_child_name("thumb");
             }

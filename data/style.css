@@ -1,0 +1,28 @@
+/* Loaded automatically by libadwaita from the app's resources. */
+
+/* The floating zoom and page controls at the bottom of the view. */
+.view-controls {
+  border-radius: 9999px;
+  padding: 4px;
+  border-spacing: 2px;
+}
+
+.view-controls button {
+  border-radius: 9999px;
+}
+
+.view-controls .zoom-level {
+  min-width: 4.5em;
+  font-feature-settings: "tnum";
+}
+
+.view-controls entry {
+  min-height: 28px;
+  min-width: 0;
+  font-feature-settings: "tnum";
+}
+
+.view-controls .page-total {
+  font-feature-settings: "tnum";
+  padding-right: 6px;
+}

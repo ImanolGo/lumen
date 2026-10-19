@@ -1,29 +1,37 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#62a0ea"/>
-      <stop offset="1" stop-color="#1a5fb4"/>
+    <linearGradient id="base" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4f8ff0"/>
+      <stop offset="1" stop-color="#2a63d4"/>
     </linearGradient>
+    <radialGradient id="glow" cx="96" cy="26" r="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
     <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#99c1f1"/>
-      <stop offset="1" stop-color="#dbeafe"/>
+      <stop offset="0" stop-color="#8cc0ff"/>
+      <stop offset="1" stop-color="#d6e8ff"/>
     </linearGradient>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
-      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#0b2d63" flood-opacity="0.45"/>
-    </filter>
   </defs>
-  <rect width="128" height="128" rx="28" fill="url(#bg)"/>
-  <!-- a sheet of paper holding a picture and two lines of text -->
-  <g filter="url(#shadow)">
-    <rect x="26" y="20" width="76" height="90" rx="9" fill="#ffffff"/>
+  <!-- base plate, with a darker lip at the bottom for depth -->
+  <rect x="8" y="12" width="112" height="108" rx="24" fill="#1b4aa8"/>
+  <rect x="8" y="8" width="112" height="106" rx="24" fill="url(#base)"/>
+  <rect x="8" y="8" width="112" height="106" rx="24" fill="url(#glow)"/>
+  <!-- a sheet of paper -->
+  <rect x="31" y="26" width="66" height="80" rx="8" fill="#0d2f73" opacity="0.25" transform="translate(0 3)"/>
+  <rect x="31" y="26" width="66" height="80" rx="8" fill="#ffffff"/>
+  <!-- holding a picture -->
+  <clipPath id="photo"><rect x="38" y="33" width="52" height="38" rx="5"/></clipPath>
+  <g clip-path="url(#photo)">
+    <rect x="38" y="33" width="52" height="38" fill="url(#sky)"/>
+    <path d="M38 71 L56 50 L67 62 L75 54 L90 71 Z" fill="#3d6fc2"/>
+    <path d="M38 71 L50 58 L60 71 Z" fill="#244f9e"/>
   </g>
-  <rect x="34" y="29" width="60" height="42" rx="5" fill="url(#sky)"/>
-  <circle cx="79" cy="42" r="7" fill="#f6d32d"/>
-  <path d="M34 71 L52 47 L63 61 L72 52 L94 71 Z" fill="#5e7ea8"/>
-  <path d="M34 71 L47 56 L58 71 Z" fill="#33567f"/>
-  <rect x="34" y="80" width="60" height="6" rx="3" fill="#c0bfbc"/>
-  <rect x="34" y="92" width="38" height="6" rx="3" fill="#deddda"/>
+  <circle cx="78" cy="45" r="5.5" fill="#ffc83d"/>
+  <!-- and two lines of text -->
+  <rect x="38" y="80" width="52" height="5" rx="2.5" fill="#c9d3e3"/>
+  <rect x="38" y="91" width="32" height="5" rx="2.5" fill="#dfe5ee"/>
   <!-- a glint of light -->
-  <path d="M100 14 L103 24 L113 27 L103 30 L100 40 L97 30 L87 27 L97 24 Z" fill="#ffffff" opacity="0.85"/>
+  <path d="M101 17 C101.8 23.5 104.5 26.2 111 27 C104.5 27.8 101.8 30.5 101 37 C100.2 30.5 97.5 27.8 91 27 C97.5 26.2 100.2 23.5 101 17 Z" fill="#ffffff"/>
 </svg>

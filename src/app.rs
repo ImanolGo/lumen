@@ -183,6 +183,7 @@ pub struct App {
     slideshow: Option<glib::SourceId>,
     /// Hides the pointer a little after it stops moving in fullscreen.
     cursor_timer: Option<glib::SourceId>,
+    cursor_hidden: bool,
     /// Preferences and remembered state; shared with the window's close handler.
     store: Rc<RefCell<Store>>,
     /// A page to scroll to as soon as the canvas has a size (the one a PDF was left on).
@@ -394,7 +395,9 @@ pub enum AppMsg {
     /// Print the open document (or, with a path, write it to a PDF file without asking).
     Print(Option<PathBuf>),
     ToggleSidebar,
+    ShowSidebar(bool),
     ToggleProperties,
+    ShowProperties(bool),
     Hover(bool),
 }
 
@@ -483,7 +486,7 @@ impl App {
     fn page_total(&self) -> String {
         self.pdf
             .as_ref()
-            .map(|p| format!("/ {}", p.n_pages))
+            .map(|p| tr_fmt("of {total}", &[("total", &p.n_pages.to_string())]))
             .unwrap_or_default()
     }
 
@@ -537,8 +540,27 @@ impl App {
         });
     }
 
+    /// Whether there is anything to list in the sidebar.
+    fn sidebar_available(&self) -> bool {
+        !self.fullscreen && (self.list.len() > 1 || self.pdf.is_some())
+    }
+
     fn sidebar_visible(&self) -> bool {
-        self.sidebar_open && !self.fullscreen && (self.list.len() > 1 || self.pdf.is_some())
+        self.sidebar_open && self.sidebar_available()
+    }
+
+    /// Whether the floating controls over the view are shown: while the pointer is over
+    /// it, and not once the pointer has been hidden in fullscreen.
+    fn controls_shown(&self) -> bool {
+        self.hover && !self.cursor_hidden && self.has_document()
+    }
+
+    fn zoom_text(&self) -> String {
+        if self.zoom > 0.0 {
+            format!("{:.0}%", self.zoom * 100.0)
+        } else {
+            String::new()
+        }
     }
 
     /// The mode actually shown: the chosen one, unless the document cannot offer it.
@@ -696,25 +718,35 @@ impl App {
         if self.search_text.is_empty() {
             return String::new();
         }
-        let positions = self.hit_positions();
+        // Called on every update, so count instead of listing every hit.
+        let total: usize = self.hits.values().map(Vec::len).sum();
         let more = if self.searching { "…" } else { "" };
-        match self
+        let current = self
             .current_hit
-            .and_then(|c| positions.iter().position(|&p| p == c))
-        {
-            Some(i) => format!(
+            .filter(|(page, i)| self.hits.get(page).is_some_and(|hits| *i < hits.len()));
+        match current {
+            Some((page, i)) => format!(
                 "{}{more}",
                 tr_fmt(
                     "{current} of {total}",
                     &[
-                        ("current", &(i + 1).to_string()),
-                        ("total", &positions.len().to_string())
+                        (
+                            "current",
+                            &(self.hits.range(..page).map(|(_, h)| h.len()).sum::<usize>() + i + 1)
+                                .to_string()
+                        ),
+                        ("total", &total.to_string())
                     ]
                 )
             ),
             None if self.searching => tr("Searching…"),
             None => tr("No results"),
         }
+    }
+
+    /// Whether a picture or a PDF is open.
+    fn has_document(&self) -> bool {
+        self.image.is_some() || self.pdf.is_some()
     }
 
     fn has_outline(&self) -> bool {
@@ -789,6 +821,7 @@ impl App {
             timer.remove();
         }
         self.canvas.set_cursor_hidden(false);
+        self.cursor_hidden = false;
         if self.fullscreen {
             let sender = sender.clone();
             self.cursor_timer = Some(glib::timeout_add_local_once(
@@ -878,7 +911,13 @@ impl App {
         self.error = None;
         self.image = opened.image;
         self.reset_edit_session();
-        self.properties.set_image(self.image.as_ref());
+        match &opened.pdf {
+            Some(pdf) => {
+                self.properties
+                    .set_pdf(&info.path, &pdf.metadata, pdf.n_pages, pdf.page_sizes[0])
+            }
+            None => self.properties.set_image(self.image.as_ref()),
+        }
         let opened_outline = opened.pdf.as_ref().map(|p| p.outline.clone());
         let opened_annotations = opened.pdf.as_ref().map(|p| p.annotations.clone());
         self.pdf = opened
@@ -993,7 +1032,7 @@ impl App {
             (Some(_), _) => "dialog-error-symbolic",
             (None, Some(d)) if d.kind == DocumentKind::Pdf => "x-office-document-symbolic",
             (None, Some(_)) => "image-x-generic-symbolic",
-            (None, None) => "document-open-symbolic",
+            (None, None) => crate::APP_ID,
         }
     }
 
@@ -1009,7 +1048,7 @@ impl App {
         match (&self.error, &self.document) {
             (Some(err), _) => err.clone(),
             (None, Some(d)) => d.summary.clone(),
-            (None, None) => tr("Press Ctrl+O or pass a file on the command line"),
+            (None, None) => tr("Drop a file here, or press Ctrl+O"),
         }
     }
 
@@ -1097,42 +1136,24 @@ impl SimpleComponent for App {
                 #[watch]
                 set_reveal_bottom_bars: !model.fullscreen || model.edit_mode != EditMode::None,
                 add_top_bar = &adw::HeaderBar {
-                    pack_start = &gtk::Button {
+                    pack_start = &gtk::ToggleButton {
+                        set_icon_name: "sidebar-show-symbolic",
+                        set_tooltip_text: Some(&tr("Sidebar (F9)")),
+                        #[watch]
+                        set_active: model.sidebar_visible(),
+                        #[watch]
+                        set_visible: model.sidebar_available(),
+                        connect_clicked[sender] => move |button| {
+                            sender.input(AppMsg::ShowSidebar(button.is_active()));
+                        },
+                    },
+
+                    pack_start = &adw::SplitButton {
                         set_icon_name: "document-open-symbolic",
                         set_tooltip_text: Some(&tr("Open… (Ctrl+O)")),
+                        set_dropdown_tooltip: &tr("Recent Files"),
                         set_action_name: Some("win.open"),
-                    },
-
-                    pack_start = &gtk::MenuButton {
-                        set_icon_name: "document-open-recent-symbolic",
-                        set_tooltip_text: Some(&tr("Recent Files")),
                         set_menu_model: Some(&recent_menu),
-                    },
-
-                    pack_end = &gtk::Box {
-                        set_spacing: 6,
-                        #[watch]
-                        set_visible: model.pdf.is_some(),
-
-                        #[name = "page_entry"]
-                        gtk::Entry {
-                            set_width_chars: 4,
-                            set_max_width_chars: 6,
-                            gtk::prelude::EditableExt::set_alignment: 1.0,
-                            set_valign: gtk::Align::Center,
-                            set_tooltip_text: Some(&tr("Go to page (Ctrl+G)")),
-                            #[watch]
-                            set_text: &model.page_text(),
-                            connect_activate[sender] => move |entry| {
-                                sender.input(AppMsg::GotoPageText(entry.text().to_string()));
-                            },
-                        },
-
-                        gtk::Label {
-                            add_css_class: "dim-label",
-                            #[watch]
-                            set_label: &model.page_total(),
-                        },
                     },
 
                     pack_end = &gtk::MenuButton {
@@ -1150,46 +1171,34 @@ impl SimpleComponent for App {
                         set_visible: model.pdf.is_some(),
                     },
 
-                    pack_end = &gtk::ToggleButton {
-                        set_icon_name: "document-edit-symbolic",
-                        set_tooltip_text: Some(&tr("Markup (Ctrl+Shift+A)")),
-                        #[watch]
-                        set_active: model.markup.open,
-                        #[watch]
-                        set_visible: model.image.is_some() || model.pdf.is_some(),
-                        connect_clicked[sender] => move |_| sender.input(AppMsg::ToggleMarkup),
-                    },
-
                     pack_end = &gtk::MenuButton {
-                        set_icon_name: "edit-symbolic",
+                        set_icon_name: "lumen-image-edit-symbolic",
                         set_tooltip_text: Some(&tr("Edit")),
                         set_menu_model: Some(&edit_menu),
                         #[watch]
                         set_visible: model.image.is_some(),
                     },
 
-                    pack_end = &gtk::MenuButton {
-                        set_icon_name: "document-print-symbolic",
-                        set_tooltip_text: Some(&tr("Print (Ctrl+P)")),
-                        set_menu_model: Some(&print_menu),
+                    pack_end = &gtk::ToggleButton {
+                        set_icon_name: "document-edit-symbolic",
+                        set_tooltip_text: Some(&tr("Markup (Ctrl+Shift+A)")),
                         #[watch]
-                        set_visible: model.image.is_some() || model.pdf.is_some(),
+                        set_active: model.markup.open,
+                        #[watch]
+                        set_visible: model.has_document(),
+                        connect_clicked[sender] => move |_| sender.input(AppMsg::ToggleMarkup),
                     },
 
-                    pack_end = &gtk::Button {
+                    pack_end = &gtk::ToggleButton {
                         set_icon_name: "info-outline-symbolic",
                         set_tooltip_text: Some(&tr("Properties (Alt+Enter)")),
-                        set_action_name: Some("win.toggle-properties"),
                         #[watch]
-                        set_visible: model.image.is_some(),
-                    },
-
-                    pack_end = &gtk::Button {
-                        set_icon_name: "sidebar-show-symbolic",
-                        set_tooltip_text: Some(&tr("Toggle Sidebar (F9)")),
-                        set_action_name: Some("win.toggle-sidebar"),
+                        set_active: model.properties_open,
                         #[watch]
-                        set_visible: model.list.len() > 1,
+                        set_visible: model.has_document(),
+                        connect_clicked[sender] => move |button| {
+                            sender.input(AppMsg::ShowProperties(button.is_active()));
+                        },
                     },
 
                     #[wrap(Some)]
@@ -1244,57 +1253,64 @@ impl SimpleComponent for App {
 
                 add_top_bar = &gtk::Box {
                     set_spacing: 12,
-                    set_margin_all: 6,
                     add_css_class: "toolbar",
                     #[watch]
                     set_visible: model.markup.open,
 
                     gtk::Box {
-                        add_css_class: "linked",
+                        set_spacing: 2,
                         gtk::ToggleButton {
-                            set_label: &tr("Select"),
+                            set_icon_name: "lumen-tool-select-symbolic",
+                            set_tooltip_text: Some(&tr("Select")),
                             #[watch]
                             set_active: model.markup_tool() == Tool::Select,
                             connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Select)),
                         },
                         gtk::ToggleButton {
-                            set_label: &tr("Rectangle"),
+                            set_icon_name: "lumen-tool-rectangle-symbolic",
+                            set_tooltip_text: Some(&tr("Rectangle")),
                             #[watch]
                             set_active: model.markup_tool() == Tool::Rectangle,
                             connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Rectangle)),
                         },
                         gtk::ToggleButton {
-                            set_label: &tr("Ellipse"),
+                            set_icon_name: "lumen-tool-ellipse-symbolic",
+                            set_tooltip_text: Some(&tr("Ellipse")),
                             #[watch]
                             set_active: model.markup_tool() == Tool::Ellipse,
                             connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Ellipse)),
                         },
                         gtk::ToggleButton {
-                            set_label: &tr("Arrow"),
+                            set_icon_name: "lumen-tool-arrow-symbolic",
+                            set_tooltip_text: Some(&tr("Arrow")),
                             #[watch]
                             set_active: model.markup_tool() == Tool::Arrow,
                             connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Arrow)),
                         },
                         gtk::ToggleButton {
-                            set_label: &tr("Line"),
+                            set_icon_name: "lumen-tool-line-symbolic",
+                            set_tooltip_text: Some(&tr("Line")),
                             #[watch]
                             set_active: model.markup_tool() == Tool::Line,
                             connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Line)),
                         },
                         gtk::ToggleButton {
-                            set_label: &tr("Pen"),
+                            set_icon_name: "lumen-tool-pen-symbolic",
+                            set_tooltip_text: Some(&tr("Pen")),
                             #[watch]
                             set_active: model.markup_tool() == Tool::Pen,
                             connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Pen)),
                         },
                         gtk::ToggleButton {
-                            set_label: &tr("Text"),
+                            set_icon_name: "lumen-tool-text-symbolic",
+                            set_tooltip_text: Some(&tr("Text")),
                             #[watch]
                             set_active: model.markup_tool() == Tool::Text,
                             connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Text)),
                         },
                         gtk::ToggleButton {
-                            set_label: &tr("Highlight"),
+                            set_icon_name: "lumen-tool-highlight-symbolic",
+                            set_tooltip_text: Some(&tr("Highlight")),
                             #[watch]
                             set_active: model.markup_tool() == Tool::Highlight,
                             connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Highlight)),
@@ -1308,7 +1324,7 @@ impl SimpleComponent for App {
                         set_tooltip_text: Some(&tr("Colour")),
                     },
 
-                    gtk::Label { set_label: &tr("Width") },
+                    gtk::Label { set_label: &tr("Width"), add_css_class: "dim-label" },
                     gtk::SpinButton {
                         set_adjustment: &gtk::Adjustment::new(3.0, 1.0, 40.0, 1.0, 5.0, 0.0),
                         set_tooltip_text: Some(&tr("Line width")),
@@ -1317,7 +1333,7 @@ impl SimpleComponent for App {
                         connect_value_changed[sender] => move |spin| sender.input(AppMsg::SetWidth(spin.value())),
                     },
 
-                    gtk::Label { set_label: &tr("Text size") },
+                    gtk::Label { set_label: &tr("Text size"), add_css_class: "dim-label" },
                     gtk::SpinButton {
                         set_adjustment: &gtk::Adjustment::new(18.0, 6.0, 200.0, 1.0, 6.0, 0.0),
                         set_tooltip_text: Some(&tr("Text size")),
@@ -1337,7 +1353,7 @@ impl SimpleComponent for App {
 
                 add_bottom_bar = &gtk::Box {
                     set_spacing: 12,
-                    set_margin_all: 8,
+                    add_css_class: "toolbar",
                     #[watch]
                     set_visible: model.edit_mode != EditMode::None,
 
@@ -1416,53 +1432,60 @@ impl SimpleComponent for App {
 
                 #[wrap(Some)]
                 set_content = &gtk::Box {
-                    append = &gtk::Box {
+                    append = &gtk::Revealer {
+                        set_transition_type: gtk::RevealerTransitionType::SlideRight,
                         #[watch]
-                        set_visible: model.sidebar_visible(),
+                        set_reveal_child: model.sidebar_visible(),
 
-                        gtk::Box {
-                            set_orientation: gtk::Orientation::Vertical,
+                        #[wrap(Some)]
+                        set_child = &gtk::Box {
+                            add_css_class: "sidebar-pane",
 
                             gtk::Box {
-                                add_css_class: "linked",
-                                set_margin_all: 6,
-                                set_homogeneous: true,
-                                #[watch]
-                                set_visible: model.sidebar_switchable(),
+                                set_orientation: gtk::Orientation::Vertical,
 
-                                gtk::ToggleButton {
-                                    set_label: &tr("Files"),
+                                gtk::Box {
+                                    add_css_class: "linked",
+                                    set_margin_all: 6,
+                                    set_homogeneous: true,
                                     #[watch]
-                                    set_visible: model.list.len() > 1,
-                                    #[watch]
-                                    set_active: model.mode() == SidebarMode::Files,
-                                    connect_clicked[sender] => move |_| sender.input(AppMsg::SidebarMode(SidebarMode::Files)),
+                                    set_visible: model.sidebar_switchable(),
+
+                                    gtk::ToggleButton {
+                                        set_label: &tr("Files"),
+                                        #[watch]
+                                        set_visible: model.list.len() > 1,
+                                        #[watch]
+                                        set_active: model.mode() == SidebarMode::Files,
+                                        connect_clicked[sender] => move |_| sender.input(AppMsg::SidebarMode(SidebarMode::Files)),
+                                    },
+                                    gtk::ToggleButton {
+                                        set_label: &tr("Pages"),
+                                        #[watch]
+                                        set_active: model.mode() == SidebarMode::Pages,
+                                        connect_clicked[sender] => move |_| sender.input(AppMsg::SidebarMode(SidebarMode::Pages)),
+                                    },
+                                    gtk::ToggleButton {
+                                        set_label: &tr("Outline"),
+                                        #[watch]
+                                        set_visible: model.has_outline(),
+                                        #[watch]
+                                        set_active: model.mode() == SidebarMode::Outline,
+                                        connect_clicked[sender] => move |_| sender.input(AppMsg::SidebarMode(SidebarMode::Outline)),
+                                    },
                                 },
-                                gtk::ToggleButton {
-                                    set_label: &tr("Pages"),
+
+                                #[local_ref]
+                                sidebar_stack -> gtk::Stack {
+                                    set_vexpand: true,
+                                    set_transition_type: gtk::StackTransitionType::Crossfade,
                                     #[watch]
-                                    set_active: model.mode() == SidebarMode::Pages,
-                                    connect_clicked[sender] => move |_| sender.input(AppMsg::SidebarMode(SidebarMode::Pages)),
-                                },
-                                gtk::ToggleButton {
-                                    set_label: &tr("Outline"),
-                                    #[watch]
-                                    set_visible: model.has_outline(),
-                                    #[watch]
-                                    set_active: model.mode() == SidebarMode::Outline,
-                                    connect_clicked[sender] => move |_| sender.input(AppMsg::SidebarMode(SidebarMode::Outline)),
+                                    set_visible_child_name: model.sidebar_page_name(),
                                 },
                             },
 
-                            #[local_ref]
-                            sidebar_stack -> gtk::Stack {
-                                set_vexpand: true,
-                                #[watch]
-                                set_visible_child_name: model.sidebar_page_name(),
-                            },
+                            gtk::Separator {},
                         },
-
-                        gtk::Separator {},
                     },
 
                     append = &gtk::Overlay {
@@ -1470,6 +1493,8 @@ impl SimpleComponent for App {
                         #[name = "overlay"]
                         #[wrap(Some)]
                         set_child = &gtk::Stack {
+                            set_transition_type: gtk::StackTransitionType::Crossfade,
+
                             add_named[Some("empty")] = &adw::StatusPage {
                                 #[watch]
                                 set_icon_name: Some(model.status_icon()),
@@ -1477,6 +1502,17 @@ impl SimpleComponent for App {
                                 set_title: &model.status_title(),
                                 #[watch]
                                 set_description: Some(&model.status_description()),
+
+                                #[wrap(Some)]
+                                set_child = &gtk::Button {
+                                    set_label: &tr("Open…"),
+                                    set_halign: gtk::Align::Center,
+                                    set_action_name: Some("win.open"),
+                                    add_css_class: "pill",
+                                    add_css_class: "suggested-action",
+                                    #[watch]
+                                    set_visible: model.document.is_none() && !model.loading,
+                                },
                             },
 
                             #[name = "scroller"]
@@ -1486,15 +1522,14 @@ impl SimpleComponent for App {
                             set_visible_child_name: model.page(),
                         },
 
-                        add_overlay = &gtk::Spinner {
+                        add_overlay = &adw::Spinner {
                             set_halign: gtk::Align::Center,
                             set_valign: gtk::Align::Center,
                             set_width_request: 48,
                             set_height_request: 48,
+                            set_can_target: false,
                             #[watch]
                             set_visible: model.loading,
-                            #[watch]
-                            set_spinning: model.loading,
                         },
 
                         add_overlay = &gtk::Revealer {
@@ -1502,7 +1537,7 @@ impl SimpleComponent for App {
                             set_valign: gtk::Align::Center,
                             set_transition_type: gtk::RevealerTransitionType::Crossfade,
                             #[watch]
-                            set_reveal_child: model.hover && model.can_go_prev(),
+                            set_reveal_child: model.controls_shown() && model.can_go_prev(),
                             #[wrap(Some)]
                             set_child = &gtk::Button {
                                 set_icon_name: "go-previous-symbolic",
@@ -1519,7 +1554,7 @@ impl SimpleComponent for App {
                             set_valign: gtk::Align::Center,
                             set_transition_type: gtk::RevealerTransitionType::Crossfade,
                             #[watch]
-                            set_reveal_child: model.hover && model.can_go_next(),
+                            set_reveal_child: model.controls_shown() && model.can_go_next(),
                             #[wrap(Some)]
                             set_child = &gtk::Button {
                                 set_icon_name: "go-next-symbolic",
@@ -1530,16 +1565,97 @@ impl SimpleComponent for App {
                                 add_css_class: "circular",
                             },
                         },
+
+                        // Zoom, and the page of a PDF, floating at the bottom of the view.
+                        add_overlay = &gtk::Revealer {
+                            set_halign: gtk::Align::Center,
+                            set_valign: gtk::Align::End,
+                            set_transition_type: gtk::RevealerTransitionType::Crossfade,
+                            #[watch]
+                            set_reveal_child: model.controls_shown() && model.edit_mode == EditMode::None,
+                            #[wrap(Some)]
+                            set_child = &gtk::Box {
+                                set_margin_all: 18,
+                                add_css_class: "osd",
+                                add_css_class: "toolbar",
+                                add_css_class: "view-controls",
+
+                                gtk::Box {
+                                    #[watch]
+                                    set_visible: model.pdf.is_some(),
+
+                                    gtk::Button {
+                                        add_css_class: "flat",
+                                        set_icon_name: "go-up-symbolic",
+                                        set_tooltip_text: Some(&tr("Previous Page (Page Up)")),
+                                        set_action_name: Some("win.page-prev"),
+                                    },
+                                    #[name = "page_entry"]
+                                    gtk::Entry {
+                                        set_width_chars: 3,
+                                        set_max_width_chars: 5,
+                                        gtk::prelude::EditableExt::set_alignment: 1.0,
+                                        set_valign: gtk::Align::Center,
+                                        set_tooltip_text: Some(&tr("Go to page (Ctrl+G)")),
+                                        #[watch]
+                                        set_text: &model.page_text(),
+                                        connect_activate[sender] => move |entry| {
+                                            sender.input(AppMsg::GotoPageText(entry.text().to_string()));
+                                        },
+                                    },
+                                    gtk::Label {
+                                        add_css_class: "page-total",
+                                        #[watch]
+                                        set_label: &model.page_total(),
+                                    },
+                                    gtk::Button {
+                                        add_css_class: "flat",
+                                        set_icon_name: "go-down-symbolic",
+                                        set_tooltip_text: Some(&tr("Next Page (Page Down)")),
+                                        set_action_name: Some("win.page-next"),
+                                    },
+                                    gtk::Separator {
+                                        set_margin_start: 4,
+                                        set_margin_end: 4,
+                                    },
+                                },
+
+                                gtk::Button {
+                                    add_css_class: "flat",
+                                    set_icon_name: "zoom-out-symbolic",
+                                    set_tooltip_text: Some(&tr("Zoom Out (Ctrl+−)")),
+                                    set_action_name: Some("win.zoom-out"),
+                                },
+                                gtk::Button {
+                                    add_css_class: "flat",
+                                    add_css_class: "zoom-level",
+                                    set_tooltip_text: Some(&tr("Fit to Window (Ctrl+0)")),
+                                    set_action_name: Some("win.best-fit"),
+                                    #[watch]
+                                    set_label: &model.zoom_text(),
+                                },
+                                gtk::Button {
+                                    add_css_class: "flat",
+                                    set_icon_name: "zoom-in-symbolic",
+                                    set_tooltip_text: Some(&tr("Zoom In (Ctrl+=)")),
+                                    set_action_name: Some("win.zoom-in"),
+                                },
+                            },
+                        },
                     },
 
-                    append = &gtk::Box {
+                    append = &gtk::Revealer {
+                        set_transition_type: gtk::RevealerTransitionType::SlideLeft,
                         #[watch]
-                        set_visible: model.properties_open && model.image.is_some() && !model.fullscreen,
+                        set_reveal_child: model.properties_open && model.has_document() && !model.fullscreen,
 
-                        gtk::Separator {},
-
-                        #[local_ref]
-                        properties_root -> gtk::ScrolledWindow {},
+                        #[wrap(Some)]
+                        set_child = &gtk::Box {
+                            add_css_class: "sidebar-pane",
+                            gtk::Separator {},
+                            #[local_ref]
+                            properties_root -> gtk::ScrolledWindow {},
+                        },
                     },
                 },
             },
@@ -1574,6 +1690,7 @@ impl SimpleComponent for App {
             ("export-pages", model.can_pages()),
             ("export-png", model.can_pages()),
             ("export-image-pdf", model.can_edit()),
+            ("print", model.has_document()),
         ];
         for (name, enabled) in states {
             if let Some(action) = widgets
@@ -1635,6 +1752,7 @@ impl SimpleComponent for App {
         edit_menu.append_section(None, &saving);
 
         let pages_menu = gio::Menu::new();
+        pages_menu.append_section(None, &history);
         let page_turns = gio::Menu::new();
         page_turns.append(Some(&tr("Rotate Right")), Some("win.rotate-right"));
         page_turns.append(Some(&tr("Rotate Left")), Some("win.rotate-left"));
@@ -1653,8 +1771,16 @@ impl SimpleComponent for App {
         );
         page_exports.append(Some(&tr("Export Page as PNG…")), Some("win.export-png"));
         pages_menu.append_section(None, &page_exports);
+        pages_menu.append_section(None, &saving);
 
         let main_menu = gio::Menu::new();
+        let print_section = gio::Menu::new();
+        print_section.append(Some(&tr("Print…")), Some("win.print"));
+        let paper_size = gio::Menu::new();
+        paper_size.append(Some(&tr("Fit to Page")), Some("win.print-scaling::fit"));
+        paper_size.append(Some(&tr("Actual Size")), Some("win.print-scaling::actual"));
+        print_section.append_submenu(Some(&tr("Size on Paper")), &paper_size);
+        main_menu.append_section(None, &print_section);
         let view_section = gio::Menu::new();
         view_section.append(Some(&tr("Fullscreen")), Some("win.fullscreen"));
         view_section.append(Some(&tr("Slideshow")), Some("win.slideshow"));
@@ -1666,13 +1792,6 @@ impl SimpleComponent for App {
         about_section.append(Some(&tr("Keyboard Shortcuts")), Some("win.shortcuts"));
         about_section.append(Some(&tr("About Lumen")), Some("win.about"));
         main_menu.append_section(None, &about_section);
-
-        let print_menu = gio::Menu::new();
-        print_menu.append(Some(&tr("Print…")), Some("win.print"));
-        let size_section = gio::Menu::new();
-        size_section.append(Some(&tr("Fit to Page")), Some("win.print-scaling::fit"));
-        size_section.append(Some(&tr("Actual Size")), Some("win.print-scaling::actual"));
-        print_menu.append_section(Some(&tr("Size on Paper")), &size_section);
 
         let recent_menu = gio::Menu::new();
         refresh_recent_menu(&recent_menu);
@@ -1772,6 +1891,7 @@ impl SimpleComponent for App {
             fullscreen: false,
             slideshow: None,
             cursor_timer: None,
+            cursor_hidden: false,
             store: store.clone(),
             pending_goto: None,
             work: WorkDir::default(),
@@ -1947,11 +2067,7 @@ impl SimpleComponent for App {
             ("preferences", || AppMsg::Preferences, &["<Control>comma"]),
             ("fullscreen", || AppMsg::ToggleFullscreen, &["F11"]),
             ("slideshow", || AppMsg::ToggleSlideshow, &["F5"]),
-            (
-                "leave-presentation",
-                || AppMsg::LeavePresentation,
-                &["Escape"],
-            ),
+            ("leave-presentation", || AppMsg::LeavePresentation, &[]),
             ("about", || AppMsg::About, &[]),
             (
                 "shortcuts",
@@ -1965,13 +2081,54 @@ impl SimpleComponent for App {
             ("export-image-pdf", || AppMsg::ExportImagePdfDialog, &[]),
         ];
         let app = relm4::main_application();
+        // Application accelerators run before the focused widget sees the key, so a plain
+        // key such as Backspace or Space would never reach a text entry. Those go through
+        // a shortcut controller that steps aside while the user is typing or in a dialog.
+        let plain_keys = gtk::ShortcutController::new();
+        plain_keys.set_propagation_phase(gtk::PropagationPhase::Capture);
         for &(name, make_msg, accels) in nav_actions {
             let action = gio::SimpleAction::new(name, None);
             let sender = sender.clone();
             action.connect_activate(move |_, _| sender.input(make_msg()));
             widgets.main_window.add_action(&action);
-            app.set_accels_for_action(&format!("win.{name}"), accels);
+            let (plain, chords): (Vec<&str>, Vec<&str>) =
+                accels.iter().partition(|accel| is_plain_key(accel));
+            app.set_accels_for_action(&format!("win.{name}"), &chords);
+            for accel in plain {
+                let name = name.to_owned();
+                plain_keys.add_shortcut(gtk::Shortcut::new(
+                    gtk::ShortcutTrigger::parse_string(accel),
+                    Some(gtk::CallbackAction::new(move |widget, _| {
+                        let Some(window) = widget.downcast_ref::<gtk::ApplicationWindow>() else {
+                            return glib::Propagation::Proceed;
+                        };
+                        match window.lookup_action(&name) {
+                            Some(action) if action.is_enabled() && !typing(window) => {
+                                action.activate(None);
+                                glib::Propagation::Stop
+                            }
+                            _ => glib::Propagation::Proceed,
+                        }
+                    })),
+                ));
+            }
         }
+        widgets.main_window.add_controller(plain_keys);
+
+        // Escape that nothing else wanted (the view handles it first when focused):
+        // leave fullscreen or the slideshow.
+        let escape = gtk::ShortcutController::new();
+        escape.add_shortcut(gtk::Shortcut::new(
+            gtk::ShortcutTrigger::parse_string("Escape"),
+            Some(gtk::CallbackAction::new({
+                let sender = sender.clone();
+                move |_, _| {
+                    sender.input(AppMsg::Escape);
+                    glib::Propagation::Stop
+                }
+            })),
+        ));
+        widgets.main_window.add_controller(escape);
 
         // Ctrl+F opens the search bar, but only for PDFs.
         let find_action = gio::SimpleAction::new("find", None);
@@ -2272,6 +2429,22 @@ impl SimpleComponent for App {
         }
         widgets.main_window.add_action(&export_image_action);
 
+        // `win.screenshot-to` takes a path and writes the window there as a PNG (for scripts,
+        // the screenshots in `data/screenshots` and checking the UI without a display).
+        let screenshot_action =
+            gio::SimpleAction::new("screenshot-to", Some(glib::VariantTy::STRING));
+        {
+            let window = widgets.main_window.clone();
+            screenshot_action.connect_activate(move |_, path| {
+                if let Some(path) = path.and_then(|p| p.str())
+                    && let Err(err) = screenshot(&window, path)
+                {
+                    tracing::warn!(path, "screenshot failed: {err}");
+                }
+            });
+        }
+        widgets.main_window.add_action(&screenshot_action);
+
         // `win.password` answers the password dialog without typing (for scripts and tests).
         let password_action = gio::SimpleAction::new("password", Some(glib::VariantTy::STRING));
         {
@@ -2385,6 +2558,16 @@ impl SimpleComponent for App {
             true
         });
         widgets.main_window.add_controller(drop);
+
+        // GTK puts the window's actions on D-Bus (where scripts and tests reach them) on
+        // Wayland and X11 only. Do the same on Broadway, so the UI can be driven headless.
+        if WidgetExt::display(&widgets.main_window).type_().name() == "GdkBroadwayDisplay"
+            && let (Some(bus), Some(path)) = (app.dbus_connection(), app.dbus_object_path())
+            && let Err(err) =
+                bus.export_action_group(&format!("{path}/window/1"), &widgets.main_window)
+        {
+            tracing::warn!("could not export the window actions: {err}");
+        }
 
         ComponentParts { model, widgets }
     }
@@ -2710,7 +2893,11 @@ impl App {
                 if self.edit_mode != EditMode::None {
                     self.cancel_mode(&sender);
                 } else if !self.markup_deselect() {
-                    self.clear_selection();
+                    if self.selection.is_some() {
+                        self.clear_selection();
+                    } else if self.fullscreen || self.slideshow.is_some() {
+                        sender.input(AppMsg::LeavePresentation);
+                    }
                 }
             }
             AppMsg::ToggleFullscreen => {
@@ -2762,6 +2949,7 @@ impl App {
             AppMsg::HideCursor => {
                 if self.fullscreen {
                     self.canvas.set_cursor_hidden(true);
+                    self.cursor_hidden = true;
                 }
             }
             AppMsg::LeavePresentation => {
@@ -2921,7 +3109,12 @@ impl App {
                 self.sidebar_open = !self.sidebar_open;
                 self.store.borrow_mut().state.sidebar_open = self.sidebar_open;
             }
+            AppMsg::ShowSidebar(show) => {
+                self.sidebar_open = show;
+                self.store.borrow_mut().state.sidebar_open = show;
+            }
             AppMsg::ToggleProperties => self.properties_open = !self.properties_open,
+            AppMsg::ShowProperties(show) => self.properties_open = show,
             AppMsg::Hover(hover) => self.hover = hover,
         }
     }
@@ -3003,6 +3196,41 @@ fn refresh_recent_menu(menu: &gio::Menu) {
     }
 }
 
+/// Render the window, as it is on screen, into a PNG file.
+fn screenshot(window: &adw::ApplicationWindow, path: &str) -> Result<(), String> {
+    let (width, height) = (window.width(), window.height());
+    let paintable = gtk::WidgetPaintable::new(Some(window));
+    let snapshot = gtk::Snapshot::new();
+    paintable.snapshot(&snapshot, width as f64, height as f64);
+    let node = snapshot.to_node().ok_or("the window has nothing to draw")?;
+    let renderer = window.renderer().ok_or("the window is not realized")?;
+    let bounds = gtk::graphene::Rect::new(0.0, 0.0, width as f32, height as f32);
+    renderer
+        .render_texture(node, Some(&bounds))
+        .save_to_png(path)
+        .map_err(|err| err.to_string())
+}
+
+/// Whether `accel` is a key without modifiers that text entries also use (not a function key).
+fn is_plain_key(accel: &str) -> bool {
+    !accel.starts_with('<') && !(accel.starts_with('F') && accel[1..].parse::<u8>().is_ok())
+}
+
+/// Whether keys should go to something other than the view: a text field, a dialog
+/// shown over the window, or an open menu.
+fn typing(window: &gtk::ApplicationWindow) -> bool {
+    let Some(focus) = gtk::prelude::RootExt::focus(window) else {
+        return false;
+    };
+    let in_window = focus.native().is_some_and(|native| {
+        native.upcast_ref::<gtk::Widget>() == window.upcast_ref::<gtk::Widget>()
+    });
+    focus.is::<gtk::Text>()
+        || focus.is::<gtk::TextView>()
+        || focus.ancestor(adw::Dialog::static_type()).is_some()
+        || !in_window
+}
+
 /// Give buttons that show only an icon an accessible name, taken from their tooltip, so
 /// screen readers announce "Print" instead of nothing. Called once on the finished window.
 fn label_icon_buttons(widget: &gtk::Widget) {
@@ -3018,5 +3246,20 @@ fn label_icon_buttons(widget: &gtk::Widget) {
     while let Some(current) = child {
         label_icon_buttons(&current);
         child = current.next_sibling();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_plain_key;
+
+    #[test]
+    fn plain_keys_are_those_text_entries_use() {
+        for key in ["Right", "space", "BackSpace", "Page_Down", "Home", "Escape"] {
+            assert!(is_plain_key(key), "{key}");
+        }
+        for key in ["<Control>p", "<Shift>F3", "F3", "F11", "<Alt>Return"] {
+            assert!(!is_plain_key(key), "{key}");
+        }
     }
 }

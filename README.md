@@ -24,7 +24,7 @@
 - **Pictures and PDFs in one app.** Browse a whole folder with thumbnails, zoom and pan smoothly, honour EXIF orientation, run a slideshow or go fullscreen.
 - **Light editing.** Rotate, flip, crop, resize and adjust colour, with undo and redo. Rotating a JPEG does not recompress it.
 - **Markup.** Rectangles, ellipses, arrows, lines, pen strokes, text and highlights on pictures and PDFs. PDF annotations are real annotations, so other readers can still edit them.
-- **PDF reading.** Continuous scroll, page thumbnails, table of contents, search, text selection and copy, clickable links, password-protected files.
+- **PDF reading.** Continuous scroll, page thumbnails, table of contents, search, text selection and copy, clickable links, password-protected files and document properties.
 - **PDF page management.** Rotate, delete, reorder and insert pages, merge files, export pages as a PDF or PNG.
 - **Printing** through the native GTK print dialog.
 - **Native.** Follows the GNOME HIG and works on any desktop. Preferences, keyboard shortcuts dialog and accessible names are included. Translations use gettext; Spanish ships today.
@@ -47,7 +47,7 @@ sudo tar -C / -xzf lumen-vX.Y.Z-x86_64-linux.tar.gz   # installs under /usr
 flatpak install --user lumen.flatpak
 ```
 
-The tarball needs GTK 4.16+, libadwaita 1.6+ and poppler-glib on the system.
+The tarball needs GTK 4.16+, libadwaita 1.8+ and poppler-glib 25.06+ on the system. If your distribution is older, use the Flatpak.
 
 ### Arch Linux
 
@@ -59,15 +59,15 @@ cd build-aux/arch && makepkg -si
 
 ### From source
 
-You need a C toolchain, Rust 1.92 or newer, GTK ≥ 4.16, libadwaita ≥ 1.6, poppler-glib and gettext.
+You need a C toolchain, Rust 1.92 or newer, GTK ≥ 4.16, libadwaita ≥ 1.8, poppler-glib ≥ 25.06, the GLib tools (`glib-compile-resources`) and gettext. The build checks these versions.
 
 | Distro | Command |
 |---|---|
 | Arch / CachyOS | `sudo pacman -S --needed base-devel rust gtk4 libadwaita poppler-glib gettext` |
 | Fedora | `sudo dnf install gcc cargo gtk4-devel libadwaita-devel poppler-glib-devel gettext` |
-| Debian / Ubuntu (24.04+) | `sudo apt install build-essential cargo libgtk-4-dev libadwaita-1-dev libpoppler-glib-dev gettext` |
+| Debian / Ubuntu | `sudo apt install build-essential cargo libgtk-4-dev libadwaita-1-dev libpoppler-glib-dev gettext` |
 
-On Debian and Ubuntu, the packaged Rust and libadwaita may be older than the minimums above. Use [rustup](https://rustup.rs) for Rust, and check your versions with `pkg-config --modversion gtk4 libadwaita-1`.
+These are GNOME 49-era libraries, so distributions released before late 2025 (for example Debian 13 and Ubuntu 24.04) are too old; use the Flatpak there. Check what you have with `pkg-config --modversion gtk4 libadwaita-1 poppler-glib`, and use [rustup](https://rustup.rs) if your Rust is older than 1.92.
 
 ```sh
 git clone https://github.com/ImanolGo/lumen.git
@@ -114,7 +114,7 @@ Press `Ctrl+?` in the app for the full, searchable list of shortcuts. The main o
 | `Ctrl+F` | Find in PDF |
 | `Ctrl+P` | Print |
 | `F9` | Toggle the thumbnail sidebar |
-| `F11` / `F5` | Fullscreen / slideshow |
+| `F11` / `F5`, `Esc` | Fullscreen / slideshow, leave them |
 | `Ctrl+,` | Preferences |
 
 ### Files Lumen writes
@@ -131,7 +131,7 @@ Lumen only overwrites a file you opened when you choose Save. Edits and page cha
 Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, and the docs below for how the code is organised.
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): stack, module layout, data flow, coordinate spaces
-- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): setup, debugging, translations and references
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): setup, debugging, icons, scripting and screenshots, translations
 - [docs/PLAN.md](docs/PLAN.md): the development plan and what is still open
 - [CHANGELOG.md](CHANGELOG.md)
 

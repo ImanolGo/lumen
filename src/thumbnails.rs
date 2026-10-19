@@ -17,23 +17,37 @@ const WORKERS: usize = 2;
 
 /// Pixels of a finished thumbnail, safe to move to the main thread.
 #[derive(Debug)]
-pub struct ThumbData {
-    width: i32,
-    height: i32,
-    rowstride: usize,
-    has_alpha: bool,
-    bytes: glib::Bytes,
+pub enum ThumbData {
+    Picture {
+        width: i32,
+        height: i32,
+        rowstride: usize,
+        has_alpha: bool,
+        bytes: glib::Bytes,
+    },
+    /// The first page of a PDF.
+    Page(crate::pdf::RenderedPage),
 }
 
 impl ThumbData {
     pub fn into_texture(self) -> gdk::Texture {
-        let format = if self.has_alpha {
-            gdk::MemoryFormat::R8g8b8a8
-        } else {
-            gdk::MemoryFormat::R8g8b8
-        };
-        gdk::MemoryTexture::new(self.width, self.height, format, &self.bytes, self.rowstride)
-            .upcast()
+        match self {
+            Self::Picture {
+                width,
+                height,
+                rowstride,
+                has_alpha,
+                bytes,
+            } => {
+                let format = if has_alpha {
+                    gdk::MemoryFormat::R8g8b8a8
+                } else {
+                    gdk::MemoryFormat::R8g8b8
+                };
+                gdk::MemoryTexture::new(width, height, format, &bytes, rowstride).upcast()
+            }
+            Self::Page(page) => page.into_texture(),
+        }
     }
 }
 
@@ -83,9 +97,17 @@ impl ThumbnailLoader {
 }
 
 fn render(path: &std::path::Path) -> Option<ThumbData> {
+    if path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
+    {
+        return crate::pdf::render_thumbnail(path, THUMB_SIZE)
+            .ok()
+            .map(ThumbData::Page);
+    }
     let pixbuf = Pixbuf::from_file_at_scale(path, THUMB_SIZE, THUMB_SIZE, true).ok()?;
     let pixbuf = pixbuf.apply_embedded_orientation().unwrap_or(pixbuf);
-    Some(ThumbData {
+    Some(ThumbData::Picture {
         width: pixbuf.width(),
         height: pixbuf.height(),
         rowstride: pixbuf.rowstride() as usize,

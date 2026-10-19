@@ -2,15 +2,15 @@
 
 ## System dependencies
 
-You need the GTK 4, libadwaita and poppler-glib development files (plus a C toolchain and `pkg-config`).
+You need the GTK 4, libadwaita and poppler-glib development files, plus a C toolchain, `pkg-config` and `glib-compile-resources` (it comes with the GLib development files; `build.rs` uses it to bundle the icons and stylesheet in `data/`).
 
 | Distro | Command |
 |---|---|
 | Arch / CachyOS | `sudo pacman -S --needed base-devel gtk4 libadwaita poppler-glib` |
 | Fedora | `sudo dnf install gcc gtk4-devel libadwaita-devel poppler-glib-devel` |
-| Debian / Ubuntu (24.04+) | `sudo apt install build-essential libgtk-4-dev libadwaita-1-dev libpoppler-glib-dev` |
+| Debian / Ubuntu | `sudo apt install build-essential libgtk-4-dev libadwaita-1-dev libpoppler-glib-dev` |
 
-Minimum versions: GTK ≥ 4.16, libadwaita ≥ 1.6 (the `gnome_47` feature in `Cargo.toml`), Rust ≥ 1.92.
+Minimum versions, checked at build time: GTK ≥ 4.16 (the `gnome_47` feature in `Cargo.toml`), libadwaita ≥ 1.8 (`v1_8`, for `adw::ShortcutsDialog`), poppler-glib ≥ 25.06 (`v25_6`), Rust ≥ 1.92. Older distributions (Debian 13, Ubuntu 24.04) do not have them; build the Flatpak there.
 
 Check them with:
 ```sh
@@ -35,15 +35,54 @@ cargo fmt && cargo clippy --all-targets && cargo test   # before every commit
 - **Renderer:** `GSK_RENDERER=ngl|vulkan|cairo cargo run` to rule out GPU issues.
 - **Critical warnings as panics:** `G_DEBUG=fatal-criticals cargo run` under `rust-gdb` to get a backtrace.
 
-## Install the desktop file locally (step 1.4)
+## Install locally
 
 ```sh
-cargo build --release
-install -Dm755 target/release/lumen ~/.local/bin/lumen
-install -Dm644 data/io.github.imanolgo.Lumen.desktop ~/.local/share/applications/io.github.imanolgo.Lumen.desktop
+make install PREFIX=$HOME/.local     # binary, desktop file, metainfo, icons, translations
 update-desktop-database ~/.local/share/applications
 # optional: make it the default for PDFs
 xdg-mime default io.github.imanolgo.Lumen.desktop application/pdf
+```
+
+## Icons and stylesheet
+
+The app icon lives in `data/icons/hicolor/` (SVG, symbolic SVG and PNG renditions from 16 to 512 px).
+After changing the SVG, regenerate the PNGs:
+
+```sh
+for s in 16 32 48 64 128 256 512; do
+    rsvg-convert -w $s -h $s data/icons/hicolor/scalable/apps/io.github.imanolgo.Lumen.svg \
+        -o data/icons/hicolor/${s}x${s}/apps/io.github.imanolgo.Lumen.png
+done
+```
+
+The toolbar icons (`data/icons/actions/lumen-*-symbolic.svg`) and `data/style.css` are compiled
+into the binary by `build.rs` (see `data/lumen.gresource.xml`), so they work from `cargo run`
+without installing anything. Symbolic icons must use plain fills, not strokes: GTK recolours
+fills only. Add new icons to `data/lumen.gresource.xml`.
+
+## Scripting, tests and screenshots
+
+Every window action is on the session bus, so a running Lumen can be driven from a script:
+
+```sh
+gdbus call --session --dest io.github.imanolgo.Lumen \
+    --object-path /io/github/imanolgo/Lumen/window/1 \
+    --method org.gtk.Actions.Activate screenshot-to "[<'/tmp/lumen.png'>]" "{}"
+```
+
+Besides the menu actions there are scripted ones for tests: `crop-to`, `resize-to`, `adjust-to`,
+`save-to`, `markup-draw`, `markup-text`, `markup-tool`, `page-op`, `export-pages-to`,
+`export-png-to`, `print-to-file`, `select-text`, `search`, `password` and `screenshot-to`
+(see `src/app.rs` for their arguments).
+
+`build-aux/screenshot.sh` runs Lumen headless on a Broadway display and takes a screenshot after
+applying some actions, without touching your desktop or settings. The screenshots in
+`data/screenshots/` were made with it, from synthetic files (`Mountains.png`, `Quarterly report.pdf`):
+
+```sh
+cargo build --release
+SCHEME=prefer-dark build-aux/screenshot.sh data/screenshots/image-crop.png crop -- Mountains.png
 ```
 
 ## Sample files

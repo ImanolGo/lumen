@@ -346,7 +346,7 @@ impl App {
         let (Some(old), Ok(opened)) = (&self.pdf, result) else {
             super::edit::show_error(
                 &tr("Could Not Reload the Document"),
-                "The edited document could not be opened.",
+                &tr("The edited document could not be opened."),
             );
             return;
         };
@@ -362,6 +362,12 @@ impl App {
                 .collect::<Vec<_>>(),
         );
         self.outline.set_outline(&info.outline);
+        self.properties.set_pdf(
+            &view.original,
+            &info.metadata,
+            info.n_pages,
+            info.page_sizes[0],
+        );
         self.pdf = Some(view);
         self.sync_canvas();
         self.canvas.scroll_to_page(goto);
