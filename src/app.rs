@@ -10,7 +10,7 @@ use relm4::{
 
 use crate::{
     APP_NAME,
-    document::{self, DocumentInfo, DocumentKind},
+    document::{self, DocumentInfo, DocumentKind, Opened},
     image::ImageDocument,
     widgets::LumenCanvas,
 };
@@ -39,6 +39,9 @@ pub fn open_files(files: &[gio::File]) {
 
 pub struct App {
     recent_menu: gio::Menu,
+    /// Bumped on every open request; results from older requests are dropped.
+    generation: u64,
+    loading: bool,
     document: Option<DocumentInfo>,
     image: Option<ImageDocument>,
     error: Option<String>,
@@ -50,6 +53,11 @@ pub enum AppMsg {
     OpenDialog,
     /// Open a specific file (from the dialog, CLI, and later drag-and-drop).
     Open(PathBuf),
+    /// A background load finished.
+    Loaded {
+        generation: u64,
+        result: Result<Opened, String>,
+    },
 }
 
 impl App {
@@ -61,6 +69,9 @@ impl App {
     }
 
     fn subtitle(&self) -> String {
+        if self.loading {
+            return "Loading…".to_owned();
+        }
         self.document
             .as_ref()
             .map(|d| d.summary.clone())
@@ -170,7 +181,20 @@ impl SimpleComponent for App {
                 },
 
                 #[wrap(Some)]
-                set_content = &gtk::Stack {
+                set_content = &gtk::Overlay {
+                  add_overlay = &gtk::Spinner {
+                    set_halign: gtk::Align::Center,
+                    set_valign: gtk::Align::Center,
+                    set_width_request: 48,
+                    set_height_request: 48,
+                    #[watch]
+                    set_visible: model.loading,
+                    #[watch]
+                    set_spinning: model.loading,
+                  },
+
+                  #[wrap(Some)]
+                  set_child = &gtk::Stack {
                     add_named[Some("empty")] = &adw::StatusPage {
                         #[watch]
                         set_icon_name: Some(model.status_icon()),
@@ -191,6 +215,7 @@ impl SimpleComponent for App {
 
                     #[watch]
                     set_visible_child_name: model.page(),
+                  },
                 },
             },
         }
@@ -207,6 +232,8 @@ impl SimpleComponent for App {
         refresh_recent_menu(&recent_menu);
         let model = App {
             recent_menu: recent_menu.clone(),
+            generation: 0,
+            loading: false,
             document: None,
             image: None,
             error: None,
@@ -271,30 +298,40 @@ impl SimpleComponent for App {
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
         match msg {
             AppMsg::OpenDialog => Self::show_open_dialog(sender),
-            AppMsg::Open(path) => match document::probe(&path) {
-                Ok(info) => {
-                    tracing::info!(path = %info.path.display(), kind = ?info.kind, "opened");
-                    self.error = None;
-                    self.image = None;
-                    if info.kind == DocumentKind::Image {
-                        match ImageDocument::load(&info.path) {
-                            Ok(image) => self.image = Some(image),
-                            Err(err) => self.error = Some(format!("{err:#}")),
-                        }
-                    }
-                    if self.error.is_none() {
+            AppMsg::Open(path) => {
+                self.generation += 1;
+                self.loading = true;
+                let generation = self.generation;
+                relm4::spawn_blocking(move || {
+                    let result = document::open(&path).map_err(|err| {
+                        tracing::warn!(path = %path.display(), "open failed: {err:#}");
+                        format!("{err:#}")
+                    });
+                    sender.input(AppMsg::Loaded { generation, result });
+                });
+            }
+            AppMsg::Loaded { generation, result } => {
+                if generation != self.generation {
+                    return;
+                }
+                self.loading = false;
+                match result {
+                    Ok(opened) => {
+                        let info = opened.info;
+                        tracing::info!(path = %info.path.display(), kind = ?info.kind, "opened");
                         gtk::RecentManager::default().add_item(&gio::File::for_path(&info.path).uri());
                         refresh_recent_menu(&self.recent_menu);
+                        self.error = None;
+                        self.image = opened.image;
+                        self.document = Some(info);
                     }
-                    self.document = Some(info);
+                    Err(err) => {
+                        self.document = None;
+                        self.image = None;
+                        self.error = Some(err);
+                    }
                 }
-                Err(err) => {
-                    tracing::warn!(path = %path.display(), "open failed: {err:#}");
-                    self.document = None;
-                    self.image = None;
-                    self.error = Some(format!("{err:#}"));
-                }
-            },
+            }
         }
     }
 }

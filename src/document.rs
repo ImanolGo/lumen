@@ -1,13 +1,13 @@
 //! Toolkit-light document loading.
 //!
-//! Step 0 only *probes* a file (kind + a short summary) to prove the image
-//! and PDF stacks are wired up. Phases 1 and 2 grow this into real
-//! `ImageDocument` / `PdfDocument` types.
+//! Detects what a file is and decodes it. Phase 2 adds a real `PdfDocument`.
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use relm4::gtk::{gdk, gio, prelude::*};
+use relm4::gtk::{gio, prelude::*};
+
+use crate::image::ImageDocument;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DocumentKind {
@@ -62,27 +62,40 @@ pub fn detect_kind(path: &Path) -> Result<DocumentKind> {
     }
 }
 
-pub fn probe(path: &Path) -> Result<DocumentInfo> {
+/// A decoded file, ready to show.
+#[derive(Debug)]
+pub struct Opened {
+    pub info: DocumentInfo,
+    pub image: Option<ImageDocument>,
+}
+
+/// Detect, decode and summarize `path`. Blocking: call it off the main thread.
+pub fn open(path: &Path) -> Result<Opened> {
     let kind = detect_kind(path)?;
-    let summary = match kind {
+    let (summary, image) = match kind {
         DocumentKind::Image => {
-            let texture = gdk::Texture::from_filename(path).context("failed to decode image")?;
-            format!("{} × {} px", texture.width(), texture.height())
+            let image = ImageDocument::load(path)?;
+            let summary = format!("{} × {} px", image.texture.width(), image.texture.height());
+            (summary, Some(image))
         }
         DocumentKind::Pdf => {
             let uri = gio::File::for_path(path).uri();
             let doc = poppler::Document::from_file(&uri, None).context("failed to open PDF")?;
-            match doc.n_pages() {
+            let summary = match doc.n_pages() {
                 1 => "1 page".to_owned(),
                 n => format!("{n} pages"),
-            }
+            };
+            (summary, None)
         }
     };
 
-    Ok(DocumentInfo {
-        path: path.to_owned(),
-        kind,
-        summary,
+    Ok(Opened {
+        info: DocumentInfo {
+            path: path.to_owned(),
+            kind,
+            summary,
+        },
+        image,
     })
 }
 

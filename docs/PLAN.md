@@ -73,7 +73,7 @@ Goal of the phase: Lumen replaces your current image viewer for everyday use.
   - A recent-files menu (`gtk::RecentManager`).
 - **Done when:** double-clicking a PNG in Nautilus or Dolphin (with Lumen chosen) opens it; dropping a file works.
 
-### 1.5 Load off the main thread 🟡 🧠 async in GTK
+### 1.5 ✅ Load off the main thread 🟡 🧠 async in GTK
 **Goal:** no UI freeze on a 50 MP JPEG.
 - Tasks
   - Decode with `gio::spawn_blocking` (or `relm4::spawn` + a `oneshot` channel) and send the result back as a message.
