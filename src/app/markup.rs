@@ -66,9 +66,9 @@ impl App {
     }
 
     /// Markup applies to images and PDFs, but not while a crop or colour tool is open.
+    /// Markup on a picture is saved by editing its pixels, so it needs an editable format.
     pub(super) fn can_markup(&self) -> bool {
-        (self.image.is_some() || self.pdf.is_some())
-            && self.edit_mode == super::edit::EditMode::None
+        (self.pdf.is_some() || self.edit.is_some()) && self.edit_mode == super::edit::EditMode::None
     }
 
     /// How the canvas should treat the pointer.

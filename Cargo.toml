@@ -21,7 +21,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 natord = "1.0.9"
 kamadak-exif = "0.6.1"
-image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp", "tiff"] }
 little_exif = "0.6.23"
 lopdf = "0.45.0"
 cairo-rs = { version = "0.22", features = ["pdf", "png"] }

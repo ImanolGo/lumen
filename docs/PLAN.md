@@ -238,7 +238,7 @@ This is the heart of "Preview-like". **Design the model first, UI second.**
 - Tasks: drag a PDF or image onto the sidebar to insert its pages; "Insert page from file"; images become pages.
 ### 6.3 ✅ Export 🟢
 - Tasks: export selected pages as a new PDF, export a page as PNG, "Export as PDF" for images.
-- **Notes:** page changes write a working copy of the PDF with `lopdf` after every step; the copies are the undo history and the original is only replaced on save. Saving a rearranged password-protected PDF writes it without the password.
+- **Notes:** page changes write a working copy of the PDF with `lopdf` after every step; the copies are the undo history and the original is only replaced on save. Saving a rearranged password-protected PDF writes it without the password (lopdf cannot encrypt), so Lumen asks first; saving only annotations keeps the password, because Poppler re-encrypts.
 
 ---
 

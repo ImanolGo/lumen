@@ -351,8 +351,10 @@ impl App {
             return;
         };
         let Some(info) = opened.pdf else { return };
-        let original = old.original.clone();
-        let view = self.make_pdf_view(&path, original, &info, sender);
+        let (original, protected) = (old.original.clone(), old.protected);
+        let mut view = self.make_pdf_view(&path, original, &info, sender);
+        // The working copy opens without a password; the file the user opened did not.
+        view.protected = protected;
         self.page_strip.set_document(
             &view
                 .layout

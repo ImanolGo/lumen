@@ -32,6 +32,12 @@ pub enum Format {
     WebP,
 }
 
+/// Whether the pixels of the picture at `path` can be read back for editing. Viewing goes
+/// through GTK's loaders and accepts more (SVG, AVIF, HEIF…), but those cannot be edited.
+pub fn can_edit(path: &Path) -> bool {
+    image::ImageFormat::from_path(path).is_ok_and(|format| format.reading_enabled())
+}
+
 impl Format {
     /// The format for a file name, from its extension.
     pub fn from_path(path: &Path) -> Option<Self> {
@@ -185,6 +191,16 @@ fn rotate_stack(ops: &[crate::edit::EditOp]) -> EditStack {
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
+
+    #[test]
+    fn only_formats_the_image_crate_reads_are_editable() {
+        for name in ["a.jpg", "a.PNG", "a.webp", "a.gif", "a.bmp", "a.tiff"] {
+            assert!(can_edit(Path::new(name)), "{name}");
+        }
+        for name in ["a.svg", "a.avif", "a.heic", "a.pdf", "a"] {
+            assert!(!can_edit(Path::new(name)), "{name}");
+        }
+    }
 
     use image::{DynamicImage, Rgb, RgbImage};
 

@@ -83,6 +83,9 @@ struct Selection {
 struct PdfView {
     /// The file the user opened; saving writes here. `source` is the working copy being shown.
     original: PathBuf,
+    /// The original needed a password. Annotations are saved with its protection, but a
+    /// rearranged working copy is written without it.
+    protected: bool,
     n_pages: usize,
     has_outline: bool,
     layout: Rc<PageLayout>,
@@ -172,6 +175,8 @@ pub struct App {
     overwrite_ok: HashSet<PathBuf>,
     /// What to do once a save the user asked for has finished.
     after_save: Option<Pending>,
+    /// The user agreed to save the open PDF without its password.
+    unprotected_ok: bool,
     saving: bool,
     markup: MarkupState,
     /// When the load being waited for began, to report how long it took.
@@ -309,6 +314,10 @@ pub enum AppMsg {
     SaveTo {
         dest: PathBuf,
         format: Format,
+    },
+    /// The user agreed to save a rearranged, password-protected PDF without its password.
+    SaveUnprotected {
+        dest: PathBuf,
     },
     Saved {
         dest: PathBuf,
@@ -857,6 +866,7 @@ impl App {
         let source = PdfSource::new(path, pdf_info.password.as_deref());
         PdfView {
             original,
+            protected: pdf_info.password.is_some(),
             source: source.clone(),
             n_pages: pdf_info.n_pages,
             has_outline: !pdf_info.outline.is_empty(),
@@ -944,6 +954,7 @@ impl App {
             SidebarMode::Files
         };
         self.load_markup(opened_annotations);
+        self.unprotected_ok = false;
         self.pending_goto = None;
         if self.store.borrow().settings.remember_state
             && let Some(pdf) = &self.pdf
@@ -1176,7 +1187,7 @@ impl SimpleComponent for App {
                         set_tooltip_text: Some(&tr("Edit")),
                         set_menu_model: Some(&edit_menu),
                         #[watch]
-                        set_visible: model.image.is_some(),
+                        set_visible: model.image.is_some() && model.edit.is_some(),
                     },
 
                     pack_end = &gtk::ToggleButton {
@@ -1185,7 +1196,7 @@ impl SimpleComponent for App {
                         #[watch]
                         set_active: model.markup.open,
                         #[watch]
-                        set_visible: model.has_document(),
+                        set_visible: model.pdf.is_some() || model.edit.is_some(),
                         connect_clicked[sender] => move |_| sender.input(AppMsg::ToggleMarkup),
                     },
 
@@ -1884,6 +1895,7 @@ impl SimpleComponent for App {
             dirty: dirty.clone(),
             overwrite_ok: HashSet::new(),
             after_save: None,
+            unprotected_ok: false,
             saving: false,
             markup: MarkupState::default(),
             load_started: None,
@@ -3032,6 +3044,10 @@ impl App {
             AppMsg::SaveCancelled => self.after_save = None,
             AppMsg::SaveAs => self.save_as(&sender),
             AppMsg::SaveTo { dest, format } => self.start_save(dest, format, &sender),
+            AppMsg::SaveUnprotected { dest } => {
+                self.unprotected_ok = true;
+                self.start_save(dest, Format::Png, &sender);
+            }
             AppMsg::Saved { dest, result } => self.saved(dest, result, &sender),
             AppMsg::CloseRequested => {
                 if self.guard(Pending::Close, &sender) {

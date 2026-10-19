@@ -92,7 +92,7 @@ lumen                      # empty window, Ctrl+O to open
 lumen photo.jpg report.pdf # open files directly
 ```
 
-Lumen registers itself for PDF, PNG, JPEG, GIF, WebP, BMP, TIFF, SVG, AVIF and HEIF. To make it the default PDF viewer:
+Lumen registers itself for PDF, PNG, JPEG, GIF, WebP, BMP, TIFF, SVG, AVIF and HEIF. All of them can be viewed (SVG, AVIF and HEIF need the matching gdk-pixbuf loaders); JPEG, PNG, WebP, GIF, BMP and TIFF can also be edited and marked up. Edits are saved in place for JPEG, PNG and WebP, and as a copy for the others. Animated GIFs show their first frame. To make it the default PDF viewer:
 
 ```sh
 xdg-mime default io.github.imanolgo.Lumen.desktop application/pdf

@@ -134,9 +134,14 @@ impl App {
         }
     }
 
-    /// Start a fresh session for a newly opened image (or none, for other documents).
+    /// Start a fresh session for a newly opened image (or none, for other documents and
+    /// for pictures in a format that cannot be edited).
     pub(super) fn reset_edit_session(&mut self) {
-        self.edit = self.image.as_ref().map(|image| EditSession {
+        let editable = self
+            .image
+            .as_ref()
+            .filter(|image| crate::save::can_edit(&image.path));
+        self.edit = editable.map(|image| EditSession {
             path: image.path.clone(),
             base: image.orientation,
             stack: EditStack::default(),
@@ -395,6 +400,11 @@ impl App {
         let Some(path) = self.document_path() else {
             return;
         };
+        // A picture in a format Lumen reads but cannot write (GIF, BMP, TIFF) is saved as a copy.
+        if self.pdf.is_none() && Format::from_path(&path).is_none() {
+            self.save_as(sender);
+            return;
+        }
         if self.overwrite_ok.contains(&path) {
             self.start_save(
                 path.clone(),
@@ -478,6 +488,18 @@ impl App {
     ) {
         // A PDF: write the annotations into a copy of the file.
         if let Some(pdf) = &self.pdf {
+            // Rearranged pages are written by lopdf, which cannot encrypt: say so first.
+            if pdf.protected && pdf.source.path != pdf.original && !self.unprotected_ok {
+                let sender = sender.clone();
+                confirm_unprotected(&file_name(&pdf.original), move |agreed| {
+                    sender.input(if agreed {
+                        AppMsg::SaveUnprotected { dest }
+                    } else {
+                        AppMsg::SaveCancelled
+                    })
+                });
+                return;
+            }
             let source = pdf.source.clone();
             let layers: std::collections::BTreeMap<_, _> = self
                 .markup
@@ -666,6 +688,32 @@ enum OverwriteChoice {
     Replace,
     SaveCopy,
     Cancel,
+}
+
+/// Warn that a rearranged, password-protected PDF will be saved without its password.
+fn confirm_unprotected(name: &str, then: impl FnOnce(bool) + 'static) {
+    let dialog = adw::AlertDialog::new(
+        Some(&tr("Save Without Password?")),
+        Some(&tr_fmt(
+            "“{name}” is protected with a password. After its pages have been rearranged, Lumen can only save it without the password, so anyone will be able to open the saved file.",
+            &[("name", name)],
+        )),
+    );
+    crate::i18n::add_responses(
+        &dialog,
+        &[
+            ("cancel", crate::i18n::n_("_Cancel")),
+            ("save", crate::i18n::n_("Save _Without Password")),
+        ],
+    );
+    dialog.set_response_appearance("save", adw::ResponseAppearance::Destructive);
+    dialog.set_default_response(Some("cancel"));
+    dialog.set_close_response("cancel");
+    dialog.choose(
+        main_window().as_ref(),
+        gio::Cancellable::NONE,
+        move |response| then(response == "save"),
+    );
 }
 
 fn confirm_overwrite(name: &str, then: impl FnOnce(OverwriteChoice) + 'static) {
