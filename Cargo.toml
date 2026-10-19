@@ -13,7 +13,7 @@ authors = ["Imanol Gomez"]
 relm4 = { version = "0.11", features = ["libadwaita", "gnome_47"] }
 
 # PDF rendering (GPL — this is why Lumen is GPL-3.0-or-later).
-poppler-rs = "0.26"
+poppler-rs = { version = "0.26", features = ["v25_6"] }
 
 # Errors and logging
 anyhow = "1"

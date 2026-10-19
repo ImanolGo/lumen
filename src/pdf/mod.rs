@@ -5,6 +5,7 @@
 
 mod cache;
 pub mod layout;
+pub mod annots;
 mod links;
 mod outline;
 mod search;
@@ -38,6 +39,8 @@ pub struct PdfInfo {
     pub outline: Vec<std::sync::Arc<OutlineItem>>,
     /// The password that opened it, so workers can open it too.
     pub password: Option<String>,
+    /// Annotations the file already holds that Lumen can edit, per page.
+    pub annotations: std::collections::BTreeMap<usize, crate::annotate::AnnotationLayer>,
 }
 
 /// A rendered page: premultiplied BGRA pixels, safe to move between threads.
@@ -136,11 +139,13 @@ pub fn load_info(source: &PdfSource) -> Result<PdfInfo, PdfError> {
         })
         .collect();
     let outline = outline::read_outline(&doc, &page_sizes);
+    let annotations = annots::read_all(&doc, &page_sizes);
     Ok(PdfInfo {
         n_pages,
         page_sizes,
         outline,
         password: source.password.clone(),
+        annotations,
     })
 }
 
@@ -158,6 +163,8 @@ fn render_page(doc: &poppler::Document, index: usize, scale: f64) -> Result<Rend
     let page = doc
         .page(index as i32)
         .with_context(|| format!("page {} does not exist", index + 1))?;
+    // Lumen draws the annotations it edits itself, on top of the page.
+    annots::hide_supported(&page);
     let (w, h) = page.size();
 
     let scale = effective_scale((w, h), scale);
