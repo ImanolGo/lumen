@@ -48,6 +48,8 @@ cargo run -- path/to/file.pdf   # open a file directly
 |---|---|
 | `Ctrl+O` | Open |
 | `Ctrl+W` | Close window |
+| `←` / `→`, `Backspace` / `Space` | Previous / next file in the folder |
+| `F9` | Toggle the thumbnail sidebar |
 | `Ctrl+=` / `Ctrl+-` | Zoom in / out |
 | `Ctrl+0` / `Ctrl+1` | Best fit / 100 % |
 | `Ctrl`+scroll | Zoom around the cursor |

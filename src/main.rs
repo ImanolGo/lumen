@@ -1,6 +1,8 @@
 mod app;
 mod document;
+mod folder;
 mod image;
+mod thumbnails;
 mod widgets;
 
 use std::time::Duration;

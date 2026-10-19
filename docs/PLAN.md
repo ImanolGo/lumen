@@ -81,7 +81,7 @@ Goal of the phase: Lumen replaces your current image viewer for everyday use.
 - Hints: Relm4 *Commands* (`Component::update_cmd`) are designed for exactly this.
 - **Done when:** opening a huge image keeps the window responsive.
 
-### 1.6 Browse the folder 🟡
+### 1.6 ✅ Browse the folder 🟡
 **Goal:** ←/→ go to the previous or next image in the same directory.
 - Tasks
   - `ImageList` sorted naturally (`photo2` < `photo10`; there's the `natord` crate), filtered to supported MIME types.
