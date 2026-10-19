@@ -8,7 +8,7 @@
 #   build-aux/screenshot.sh shot.png markup "markup-tool=<'arrow'>" -- photo.png
 #
 # Environment: LUMEN_BIN (default target/release/lumen), SCHEME (prefer-light or
-# prefer-dark), WIN_W and WIN_H (window size; Broadway's screen is 1024×768).
+# prefer-dark), WIN_W and WIN_H (window size, at most 1024×768 here).
 # Needs gtk4-broadwayd (part of GTK), chromium and gdbus. Run from the repository root.
 set -eu
 
@@ -43,7 +43,7 @@ display=:${BROADWAY_NUMBER:-7}
 port=$((8080 + ${BROADWAY_NUMBER:-7}))
 gtk4-broadwayd "$display" >/dev/null 2>&1 & pids+=($!)
 sleep 0.5
-chromium --headless=new --no-sandbox --disable-gpu --user-data-dir="$work/chromium" \
+chromium --headless=new --no-sandbox --disable-gpu --window-size=1600,1100 --user-data-dir="$work/chromium" \
     "http://127.0.0.1:$port/" >/dev/null 2>&1 & pids+=($!)
 sleep 2
 GDK_BACKEND=broadway BROADWAY_DISPLAY=$display ADW_DEBUG_COLOR_SCHEME=${SCHEME:-prefer-light} \

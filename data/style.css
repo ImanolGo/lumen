@@ -26,3 +26,35 @@
   font-feature-settings: "tnum";
   padding-right: 6px;
 }
+
+/* Page thumbnails in the sidebar: plain pages with a thin edge, and a ring around the
+   selected ones instead of a highlighted row. */
+listview.thumbnail-strip {
+  background: none;
+  padding: 6px 0;
+}
+
+listview.thumbnail-strip > row,
+listview.thumbnail-strip > row:hover,
+listview.thumbnail-strip > row:selected {
+  background: none;
+}
+
+.page-thumb {
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px alpha(currentColor, 0.12), 0 1px 3px alpha(black, 0.15);
+  transition: box-shadow 150ms ease-out;
+}
+
+listview.thumbnail-strip > row:hover .page-thumb {
+  box-shadow: 0 0 0 1px alpha(currentColor, 0.3), 0 1px 3px alpha(black, 0.15);
+}
+
+listview.thumbnail-strip > row:selected .page-thumb {
+  box-shadow: 0 0 0 3px var(--accent-bg-color);
+}
+
+listview.thumbnail-strip > row:selected label {
+  color: var(--accent-color);
+  font-weight: bold;
+}

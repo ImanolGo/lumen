@@ -85,7 +85,7 @@ impl PageStrip {
                 let picture = gtk::Picture::builder()
                     .content_fit(gtk::ContentFit::Contain)
                     .halign(gtk::Align::Center)
-                    .css_classes(["card"])
+                    .css_classes(["page-thumb"])
                     .build();
                 let label = gtk::Label::builder().css_classes(["caption"]).build();
                 let content = gtk::Box::builder()
@@ -201,7 +201,7 @@ impl PageStrip {
         let list = gtk::ListView::builder()
             .model(&selection)
             .factory(&factory)
-            .css_classes(["navigation-sidebar"])
+            .css_classes(["thumbnail-strip"])
             .build();
 
         // Picking exactly one page shows it; a bigger selection is left for page operations.

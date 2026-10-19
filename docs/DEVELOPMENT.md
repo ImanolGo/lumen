@@ -72,7 +72,7 @@ gdbus call --session --dest io.github.imanolgo.Lumen \
 ```
 
 Besides the menu actions there are scripted ones for tests: `crop-to`, `resize-to`, `adjust-to`,
-`save-to`, `add-files`, `markup-draw`, `markup-text`, `markup-tool`, `page-op`, `export-pages-to`,
+`save-to`, `add-files`, `markup-draw`, `markup-text`, `markup-tool`, `markup-color`, `markup-size`, `page-op`, `export-pages-to`,
 `export-png-to`, `print-to-file`, `select-text`, `search`, `password` and `screenshot-to`
 (see `src/app.rs` for their arguments).
 

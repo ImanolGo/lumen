@@ -157,7 +157,12 @@ pub struct App {
     generation: u64,
     loading: bool,
     sidebar_open: bool,
-    hover: bool,
+    /// The floating controls are awake: something happened recently (see `wake_controls`).
+    controls_awake: bool,
+    /// Identifies the latest wake-up; older idle timers are ignored.
+    controls_ticket: u64,
+    /// How many of the floating controls the pointer is over (they stay while it is).
+    controls_hovered: u32,
     /// Decoded neighbours of the current file, for instant switching.
     cache: Vec<(PathBuf, Opened)>,
     preloading: HashSet<PathBuf>,
@@ -203,6 +208,8 @@ pub struct App {
     /// Files still to insert, and the page the next one goes in front of.
     insert_queue: Vec<PathBuf>,
     insert_at: usize,
+    /// The colour the style button shows, shared with the circles that draw it.
+    style_color: Rc<Cell<annotate::Color>>,
     /// Index into `CropAspect::CHOICES`.
     crop_choice: usize,
     canvas: LumenCanvas,
@@ -378,8 +385,10 @@ pub enum AppMsg {
     ToggleMarkup,
     SetTool(Tool),
     SetColor(annotate::Color),
-    SetWidth(f64),
-    SetFontSize(f64),
+    /// The size slider: text size for the Text tool, line width for the others.
+    SetSize(f64),
+    /// Pick a colour that is not among the swatches.
+    CustomColor,
     MarkupDelete,
     MarkupNudge(f64, f64),
     MarkupText {
@@ -412,67 +421,39 @@ pub enum AppMsg {
     ShowSidebar(bool),
     ToggleProperties,
     ShowProperties(bool),
+    /// The pointer entered (true) or left the view.
     Hover(bool),
+    /// The pointer entered (true) or left one of the floating controls.
+    ControlsHover(bool),
+    /// Nothing happened for a while since wake-up `ticket`.
+    ControlsIdle(u64),
 }
 
 impl App {
+    /// The file name, after a dot while it has unsaved changes.
     fn title(&self) -> String {
-        self.document
-            .as_ref()
-            .map(DocumentInfo::file_name)
-            .unwrap_or_else(|| APP_NAME.to_owned())
+        match &self.document {
+            Some(document) if self.is_dirty() => format!("• {}", document.file_name()),
+            Some(document) => document.file_name(),
+            None => APP_NAME.to_owned(),
+        }
     }
 
+    /// Where the file is among the ones being browsed. The page of a PDF is in the
+    /// floating controls, and the size of a picture in its properties.
     fn subtitle(&self) -> String {
         if self.loading {
-            return tr("Loading…");
-        }
-        let summary = match (&self.pdf, &self.document) {
-            (Some(pdf), _) => {
-                let edited = if self.markup.pdf_dirty {
-                    tr(" · edited")
-                } else {
-                    String::new()
-                };
-                let position = tr_fmt(
-                    "Page {page} of {total}",
-                    &[
-                        ("page", &(pdf.page + 1).to_string()),
-                        ("total", &pdf.n_pages.to_string()),
-                    ],
-                );
-                format!("{position}{edited}")
-            }
-            // An edited image can have a different size from the file's.
-            (None, Some(_)) if self.shown_image().is_some() => {
-                let (w, h) = self.shown_image().map_or((0, 0), |i| i.display_size());
-                let edited = if self.is_dirty() {
-                    tr(" · edited")
-                } else {
-                    String::new()
-                };
-                format!(
-                    "{}{edited}",
-                    tr_fmt(
-                        "{width} × {height} px",
-                        &[("width", &w.to_string()), ("height", &h.to_string())]
-                    )
-                )
-            }
-            (None, Some(d)) => d.summary.clone(),
-            (None, None) => String::new(),
-        };
-        if self.list.len() > 1 {
+            tr("Loading…")
+        } else if self.list.len() > 1 {
             tr_fmt(
-                "{index} of {total} · {summary}",
+                "{index} of {total}",
                 &[
                     ("index", &(self.index + 1).to_string()),
                     ("total", &self.list.len().to_string()),
-                    ("summary", &summary),
                 ],
             )
         } else {
-            summary
+            String::new()
         }
     }
 
@@ -563,10 +544,22 @@ impl App {
         self.sidebar_open && self.sidebar_available()
     }
 
-    /// Whether the floating controls over the view are shown: while the pointer is over
-    /// it, and not once the pointer has been hidden in fullscreen.
+    /// Whether the floating controls over the view are shown: for a moment after
+    /// something happens, and while the pointer is on them.
     fn controls_shown(&self) -> bool {
-        self.hover && !self.cursor_hidden && self.has_document()
+        (self.controls_awake || self.controls_hovered > 0)
+            && !self.cursor_hidden
+            && self.has_document()
+    }
+
+    /// Show the floating controls, and hide them again if nothing else happens.
+    fn wake_controls(&mut self, sender: &ComponentSender<Self>) {
+        self.controls_awake = true;
+        self.controls_ticket += 1;
+        let (ticket, sender) = (self.controls_ticket, sender.clone());
+        glib::timeout_add_local_once(std::time::Duration::from_secs(3), move || {
+            sender.input(AppMsg::ControlsIdle(ticket));
+        });
     }
 
     fn zoom_text(&self) -> String {
@@ -991,6 +984,7 @@ impl App {
         self.clear_selection();
         self.restart_search();
         self.preload_neighbours(sender);
+        self.wake_controls(sender);
     }
 
     /// Decode the files around the current one and drop the ones that are now far away.
@@ -1286,7 +1280,8 @@ impl SimpleComponent for App {
                 },
 
                 add_top_bar = &gtk::Box {
-                    set_spacing: 12,
+                    set_spacing: 6,
+                    set_halign: gtk::Align::Center,
                     add_css_class: "toolbar",
                     #[watch]
                     set_visible: model.markup.open,
@@ -1353,30 +1348,67 @@ impl SimpleComponent for App {
 
                     gtk::Separator {},
 
-                    #[local_ref]
-                    color_button -> gtk::ColorDialogButton {
-                        set_tooltip_text: Some(&tr("Colour")),
+                    #[name = "style_button"]
+                    gtk::MenuButton {
+                        set_tooltip_text: Some(&tr("Colour and Size")),
+                        set_always_show_arrow: true,
+
+                        #[wrap(Some)]
+                        set_popover = &gtk::Popover {
+                            #[wrap(Some)]
+                            set_child = &gtk::Box {
+                                set_orientation: gtk::Orientation::Vertical,
+                                set_spacing: 12,
+                                set_margin_all: 6,
+
+                                #[local_ref]
+                                swatches -> gtk::Grid {
+                                    set_row_spacing: 6,
+                                    set_column_spacing: 6,
+                                    set_halign: gtk::Align::Center,
+                                },
+
+                                gtk::Button {
+                                    set_label: &tr("Custom Colour…"),
+                                    add_css_class: "flat",
+                                    connect_clicked[sender] => move |_| sender.input(AppMsg::CustomColor),
+                                },
+
+                                gtk::Box {
+                                    set_orientation: gtk::Orientation::Vertical,
+                                    set_spacing: 2,
+                                    #[watch]
+                                    set_visible: model.markup_has_size(),
+
+                                    gtk::Label {
+                                        set_halign: gtk::Align::Start,
+                                        set_margin_start: 6,
+                                        add_css_class: "dim-label",
+                                        add_css_class: "caption-heading",
+                                        #[watch]
+                                        set_label: &model.markup_size_label(),
+                                    },
+                                    gtk::Scale {
+                                        set_width_request: 220,
+                                        set_draw_value: true,
+                                        set_digits: 0,
+                                        set_value_pos: gtk::PositionType::Right,
+                                        #[watch]
+                                        #[block_signal(size_changed)]
+                                        set_range: (model.markup_size_range().0, model.markup_size_range().1),
+                                        #[watch]
+                                        #[block_signal(size_changed)]
+                                        set_value: model.markup_size(),
+                                        connect_value_changed[sender] => move |scale| {
+                                            sender.input(AppMsg::SetSize(scale.value().round()));
+                                        } @size_changed,
+                                    },
+                                },
+                            },
+                        },
                     },
 
-                    gtk::Label { set_label: &tr("Width"), add_css_class: "dim-label" },
-                    gtk::SpinButton {
-                        set_adjustment: &gtk::Adjustment::new(3.0, 1.0, 40.0, 1.0, 5.0, 0.0),
-                        set_tooltip_text: Some(&tr("Line width")),
-                        #[watch]
-                        set_value: model.markup.editor.style.width,
-                        connect_value_changed[sender] => move |spin| sender.input(AppMsg::SetWidth(spin.value())),
-                    },
-
-                    gtk::Label { set_label: &tr("Text size"), add_css_class: "dim-label" },
-                    gtk::SpinButton {
-                        set_adjustment: &gtk::Adjustment::new(18.0, 6.0, 200.0, 1.0, 6.0, 0.0),
-                        set_tooltip_text: Some(&tr("Text size")),
-                        #[watch]
-                        set_value: model.markup.editor.style.font_size,
-                        connect_value_changed[sender] => move |spin| sender.input(AppMsg::SetFontSize(spin.value())),
-                    },
-
-                    gtk::Box { set_hexpand: true },
+                    gtk::Separator {},
 
                     gtk::Button {
                         set_icon_name: "edit-delete-symbolic",
@@ -1481,12 +1513,13 @@ impl SimpleComponent for App {
                                 gtk::Box {
                                     add_css_class: "linked",
                                     set_margin_all: 6,
-                                    set_homogeneous: true,
+                                    set_halign: gtk::Align::Center,
                                     #[watch]
                                     set_visible: model.sidebar_switchable(),
 
                                     gtk::ToggleButton {
-                                        set_label: &tr("Files"),
+                                        set_icon_name: "folder-pictures-symbolic",
+                                        set_tooltip_text: Some(&tr("Files")),
                                         #[watch]
                                         set_visible: model.list.len() > 1,
                                         #[watch]
@@ -1494,13 +1527,15 @@ impl SimpleComponent for App {
                                         connect_clicked[sender] => move |_| sender.input(AppMsg::SidebarMode(SidebarMode::Files)),
                                     },
                                     gtk::ToggleButton {
-                                        set_label: &tr("Pages"),
+                                        set_icon_name: "view-paged-symbolic",
+                                        set_tooltip_text: Some(&tr("Pages")),
                                         #[watch]
                                         set_active: model.mode() == SidebarMode::Pages,
                                         connect_clicked[sender] => move |_| sender.input(AppMsg::SidebarMode(SidebarMode::Pages)),
                                     },
                                     gtk::ToggleButton {
-                                        set_label: &tr("Outline"),
+                                        set_icon_name: "view-list-bullet-symbolic",
+                                        set_tooltip_text: Some(&tr("Outline")),
                                         #[watch]
                                         set_visible: model.has_outline(),
                                         #[watch]
@@ -1573,6 +1608,7 @@ impl SimpleComponent for App {
                             #[watch]
                             set_reveal_child: model.controls_shown() && model.can_go_prev(),
                             #[wrap(Some)]
+                            #[name = "prev_button"]
                             set_child = &gtk::Button {
                                 set_icon_name: "go-previous-symbolic",
                                 set_tooltip_text: Some(&tr("Previous (Left)")),
@@ -1590,6 +1626,7 @@ impl SimpleComponent for App {
                             #[watch]
                             set_reveal_child: model.controls_shown() && model.can_go_next(),
                             #[wrap(Some)]
+                            #[name = "next_button"]
                             set_child = &gtk::Button {
                                 set_icon_name: "go-next-symbolic",
                                 set_tooltip_text: Some(&tr("Next (Right)")),
@@ -1608,6 +1645,7 @@ impl SimpleComponent for App {
                             #[watch]
                             set_reveal_child: model.controls_shown() && model.edit_mode == EditMode::None,
                             #[wrap(Some)]
+                            #[name = "view_controls"]
                             set_child = &gtk::Box {
                                 set_margin_all: 18,
                                 add_css_class: "osd",
@@ -1697,6 +1735,20 @@ impl SimpleComponent for App {
     }
 
     fn post_view() {
+        let color = model.markup_color();
+        if model.style_color.get() != color {
+            model.style_color.set(color);
+            if let Some(dot) = widgets.style_button.child() {
+                dot.queue_draw();
+            }
+            let mut child = widgets.swatches.first_child();
+            while let Some(button) = child {
+                if let Some(circle) = button.first_child() {
+                    circle.queue_draw();
+                }
+                child = button.next_sibling();
+            }
+        }
         // Grey out menu items and shortcuts that do not apply right now.
         let states = [
             ("undo", model.can_undo()),
@@ -1900,7 +1952,9 @@ impl SimpleComponent for App {
             sidebar_open: store.borrow().settings.remember_state
                 && store.borrow().state.sidebar_open
                 || !store.borrow().settings.remember_state,
-            hover: false,
+            controls_awake: false,
+            controls_ticket: 0,
+            controls_hovered: 0,
             cache: Vec::new(),
             preloading: HashSet::new(),
             awaiting: None,
@@ -1936,25 +1990,25 @@ impl SimpleComponent for App {
             insert_queue: Vec::new(),
             insert_at: 0,
             crop_choice: 0,
+            style_color: Rc::new(Cell::new(annotate::Style::default().stroke)),
             error: None,
         };
         model.apply_settings();
         let model_canvas = model.canvas.clone();
         let model_markup_store = model.markup.store.clone();
-        let color_button = gtk::ColorDialogButton::new(Some(gtk::ColorDialog::new()));
-        color_button.set_rgba(&gdk::RGBA::new(0.9, 0.1, 0.1, 1.0));
-        color_button.connect_rgba_notify({
-            let sender = sender.clone();
-            move |button| {
-                let c = button.rgba();
-                sender.input(AppMsg::SetColor(annotate::Color::rgba(
-                    c.red(),
-                    c.green(),
-                    c.blue(),
-                    c.alpha(),
-                )));
-            }
-        });
+        // The style button shows the current colour; the swatches ring the one in use.
+        let color_dot = color_circle(None, &model.style_color, 16);
+        let swatches = gtk::Grid::new();
+        for (i, (name, color)) in markup::SWATCHES.iter().enumerate() {
+            let button = gtk::Button::builder()
+                .child(&color_circle(Some(*color), &model.style_color, 28))
+                .tooltip_text(tr(name))
+                .css_classes(["flat", "circular"])
+                .build();
+            let (sender, color) = (sender.clone(), *color);
+            button.connect_clicked(move |_| sender.input(AppMsg::SetColor(color)));
+            swatches.attach(&button, (i % 4) as i32, (i / 4) as i32, 1, 1);
+        }
         let sidebar_stack = model.sidebar_stack.clone();
         sidebar_stack.add_named(model.strip.root(), Some("files"));
         sidebar_stack.add_named(model.page_strip.root(), Some("pages"));
@@ -1967,6 +2021,7 @@ impl SimpleComponent for App {
         if let Some(started) = crate::STARTED.get() {
             tracing::info!(ms = started.elapsed().as_millis() as u64, "window built");
         }
+        widgets.style_button.set_child(Some(&color_dot));
         label_icon_buttons(widgets.main_window.upcast_ref());
         for (entry, label) in [
             (
@@ -2365,6 +2420,35 @@ impl SimpleComponent for App {
             });
         }
         widgets.main_window.add_action(&tool_action);
+        // `win.markup-color` takes a colour such as "#e5a50a"; `win.markup-size` the slider value.
+        let color_action = gio::SimpleAction::new("markup-color", Some(glib::VariantTy::STRING));
+        {
+            let sender = sender.clone();
+            color_action.connect_activate(move |_, text| {
+                if let Some(c) = text
+                    .and_then(|t| t.str())
+                    .and_then(|t| gdk::RGBA::parse(t).ok())
+                {
+                    sender.input(AppMsg::SetColor(annotate::Color::rgba(
+                        c.red(),
+                        c.green(),
+                        c.blue(),
+                        c.alpha(),
+                    )));
+                }
+            });
+        }
+        widgets.main_window.add_action(&color_action);
+        let size_action = gio::SimpleAction::new("markup-size", Some(glib::VariantTy::DOUBLE));
+        {
+            let sender = sender.clone();
+            size_action.connect_activate(move |_, size| {
+                if let Some(size) = size.and_then(|s| s.get::<f64>()) {
+                    sender.input(AppMsg::SetSize(size));
+                }
+            });
+        }
+        widgets.main_window.add_action(&size_action);
         let text_action = gio::SimpleAction::new(
             "markup-text",
             Some(&<(u32, f64, f64, String)>::static_variant_type()),
@@ -2550,13 +2634,32 @@ impl SimpleComponent for App {
         let leave_sender = sender.clone();
         motion.connect_leave(move |_| leave_sender.input(AppMsg::Hover(false)));
         widgets.overlay.add_controller(motion);
+        for control in [
+            widgets.view_controls.upcast_ref::<gtk::Widget>(),
+            widgets.prev_button.upcast_ref(),
+            widgets.next_button.upcast_ref(),
+        ] {
+            let motion = gtk::EventControllerMotion::new();
+            let enter_sender = sender.clone();
+            motion.connect_enter(move |_, _, _| enter_sender.input(AppMsg::ControlsHover(true)));
+            let leave_sender = sender.clone();
+            motion.connect_leave(move |_| leave_sender.input(AppMsg::ControlsHover(false)));
+            control.add_controller(motion);
+        }
 
         // Any pointer movement brings the cursor back in fullscreen.
         let pointer = gtk::EventControllerMotion::new();
         pointer.set_propagation_phase(gtk::PropagationPhase::Capture);
         pointer.connect_motion({
             let sender = sender.clone();
-            move |_, _, _| sender.input(AppMsg::PointerMoved)
+            // Every message updates the whole view, so a few per second are plenty.
+            let last = Cell::new(std::time::Instant::now() - std::time::Duration::from_secs(1));
+            move |_, _, _| {
+                if last.get().elapsed() >= std::time::Duration::from_millis(200) {
+                    last.set(std::time::Instant::now());
+                    sender.input(AppMsg::PointerMoved);
+                }
+            }
         });
         widgets.main_window.add_controller(pointer);
 
@@ -2761,6 +2864,13 @@ impl App {
                 if let Some(page) = self.pending_goto.take() {
                     self.canvas.scroll_to_page(page);
                 }
+                let page_changed = self
+                    .pdf
+                    .as_ref()
+                    .is_some_and(|p| p.page != info.current_page);
+                if zoom_changed || page_changed {
+                    self.wake_controls(&sender);
+                }
                 if let Some(pdf) = &mut self.pdf {
                     // `goto_page` has already moved `pdf.page`, so compare with what was remembered.
                     let mut store = self.store.borrow_mut();
@@ -2841,9 +2951,13 @@ impl App {
             AppMsg::PageBy(delta) => {
                 if let Some(pdf) = &self.pdf {
                     self.goto_page(pdf.page.saturating_add_signed(delta));
+                    self.wake_controls(&sender);
                 }
             }
-            AppMsg::GotoPage(page) => self.goto_page(page),
+            AppMsg::GotoPage(page) => {
+                self.goto_page(page);
+                self.wake_controls(&sender);
+            }
             AppMsg::GotoPageText(text) => {
                 if let Ok(page) = text.trim().parse::<usize>() {
                     self.goto_page(page.saturating_sub(1));
@@ -2999,6 +3113,7 @@ impl App {
                 }
             }
             AppMsg::PointerMoved => {
+                self.wake_controls(&sender);
                 if self.fullscreen {
                     self.restart_cursor_timer(&sender);
                 }
@@ -3063,9 +3178,33 @@ impl App {
                     self.set_markup_style(|style| style.stroke = color, &sender);
                 }
             }
-            AppMsg::SetWidth(width) => self.set_markup_style(|style| style.width = width, &sender),
-            AppMsg::SetFontSize(size) => {
-                self.set_markup_style(|style| style.font_size = size, &sender)
+            AppMsg::SetSize(size) => {
+                if self.markup.editor.tool == Tool::Text {
+                    self.set_markup_style(|style| style.font_size = size, &sender)
+                } else {
+                    self.set_markup_style(|style| style.width = size, &sender)
+                }
+            }
+            AppMsg::CustomColor => {
+                let current = self.markup_color();
+                let parent = relm4::main_application().active_window();
+                let sender = sender.clone();
+                gtk::ColorDialog::new().choose_rgba(
+                    parent.as_ref(),
+                    Some(&gdk::RGBA::new(current.r, current.g, current.b, current.a)),
+                    gio::Cancellable::NONE,
+                    move |result| {
+                        // Cancelling is reported as an error; nothing to do then.
+                        if let Ok(c) = result {
+                            sender.input(AppMsg::SetColor(annotate::Color::rgba(
+                                c.red(),
+                                c.green(),
+                                c.blue(),
+                                c.alpha(),
+                            )));
+                        }
+                    },
+                );
             }
             AppMsg::MarkupDelete => self.markup_delete(&sender),
             AppMsg::MarkupNudge(dx, dy) => {
@@ -3176,7 +3315,17 @@ impl App {
             }
             AppMsg::ToggleProperties => self.properties_open = !self.properties_open,
             AppMsg::ShowProperties(show) => self.properties_open = show,
-            AppMsg::Hover(hover) => self.hover = hover,
+            AppMsg::Hover(true) => self.wake_controls(&sender),
+            AppMsg::Hover(false) => self.controls_awake = false,
+            AppMsg::ControlsHover(true) => self.controls_hovered += 1,
+            AppMsg::ControlsHover(false) => {
+                self.controls_hovered = self.controls_hovered.saturating_sub(1)
+            }
+            AppMsg::ControlsIdle(ticket) => {
+                if ticket == self.controls_ticket {
+                    self.controls_awake = false;
+                }
+            }
         }
     }
 }
@@ -3255,6 +3404,48 @@ fn refresh_recent_menu(menu: &gio::Menu) {
         // No such action, so the entry shows up disabled.
         menu.append(Some(&tr("No Recent Files")), Some("win.none"));
     }
+}
+
+/// A circle of `color` (or of the shared current colour, for `None`), `size` pixels wide.
+/// A fixed colour gets a ring around it while it is the current one.
+fn color_circle(
+    color: Option<annotate::Color>,
+    current: &Rc<Cell<annotate::Color>>,
+    size: i32,
+) -> gtk::DrawingArea {
+    let area = gtk::DrawingArea::builder()
+        .content_width(size)
+        .content_height(size)
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
+        .build();
+    let current = Rc::clone(current);
+    area.set_draw_func(move |area, cr, w, h| {
+        let shown = color.unwrap_or_else(|| current.get());
+        let (cx, cy) = (w as f64 / 2.0, h as f64 / 2.0);
+        let ring = color.is_some_and(|c| c == current.get());
+        let radius = cx.min(cy) - if color.is_some() { 4.0 } else { 1.0 };
+        cr.arc(cx, cy, radius, 0.0, std::f64::consts::TAU);
+        cr.set_source_rgba(
+            shown.r as f64,
+            shown.g as f64,
+            shown.b as f64,
+            shown.a as f64,
+        );
+        let _ = cr.fill_preserve();
+        // A faint edge, so white and black still read on any background.
+        let fg = area.color();
+        cr.set_source_rgba(fg.red() as f64, fg.green() as f64, fg.blue() as f64, 0.2);
+        cr.set_line_width(1.0);
+        let _ = cr.stroke();
+        if ring {
+            cr.arc(cx, cy, radius + 2.5, 0.0, std::f64::consts::TAU);
+            cr.set_source_rgba(fg.red() as f64, fg.green() as f64, fg.blue() as f64, 0.9);
+            cr.set_line_width(2.0);
+            let _ = cr.stroke();
+        }
+    });
+    area
 }
 
 /// Render the window, as it is on screen, into a PNG file.

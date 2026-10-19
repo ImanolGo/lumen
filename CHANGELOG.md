@@ -16,7 +16,7 @@ First release.
 - Image viewing with zoom, pan and EXIF orientation. Lumen shows the files you open (or every picture and PDF in a folder you open), and files or folders dropped onto the window are added to them.
 - PDF viewing with continuous scroll, thumbnails, outline, search, text selection, links and password support.
 - Rotate, flip, crop, resize and colour adjustment with undo; lossless JPEG rotation.
-- Markup on pictures and PDFs: shapes, arrows, lines, pen, text and highlights.
+- Markup on pictures and PDFs: shapes, arrows, lines, pen, text and highlights, in Lumen's amber and yellow by default, with eight swatches, a custom colour and one size slider in a popover.
 - PDF page management: reorder, rotate, delete, insert, merge and export.
 - Printing, fullscreen and slideshow.
 - Preferences, remembered window state, keyboard shortcuts dialog and accessible names.

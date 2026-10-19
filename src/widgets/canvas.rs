@@ -853,6 +853,8 @@ impl LumenCanvas {
                     .then(|| canvas.doc_point_at(x, y))
                     .flatten();
                 let Some((page, point)) = hit else {
+                    // Denying ends the gesture at once; the `drag-end` that follows is not a release.
+                    start.set((usize::MAX, 0.0, 0.0));
                     gesture.set_state(gtk::EventSequenceState::Denied);
                     return;
                 };
@@ -887,6 +889,9 @@ impl LumenCanvas {
             start,
             move |_, dx, dy| {
                 let (page, x, y) = start.get();
+                if page == usize::MAX {
+                    return;
+                }
                 if let Some(point) = canvas.doc_point(page, x + dx, y + dy) {
                     canvas.emit_markup(MarkupEvent::Release(point));
                 }
@@ -1081,12 +1086,17 @@ impl LumenCanvas {
             self,
             move |gesture, x, y| {
                 let grab = canvas.crop_grab_at(x, y);
-                let mut crop = canvas.imp().crop.borrow_mut();
-                match (crop.as_mut(), grab) {
-                    (Some(state), Some(grab)) => state.drag = Some((grab, state.rect)),
-                    _ => {
-                        gesture.set_state(gtk::EventSequenceState::Denied);
+                let grabbed = match (canvas.imp().crop.borrow_mut().as_mut(), grab) {
+                    (Some(state), Some(grab)) => {
+                        state.drag = Some((grab, state.rect));
+                        true
                     }
+                    _ => false,
+                };
+                // Denying ends the gesture there and then, and `drag-end` borrows the crop
+                // state again: the borrow above must be over by now, or the app aborts.
+                if !grabbed {
+                    gesture.set_state(gtk::EventSequenceState::Denied);
                 }
             }
         ));

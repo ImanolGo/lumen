@@ -96,7 +96,10 @@ impl Color {
     }
 
     pub const RED: Self = Self::rgba(0.9, 0.1, 0.1, 1.0);
-    pub const YELLOW: Self = Self::rgba(1.0, 0.9, 0.0, 1.0);
+    /// The highlighter: the yellow of Lumen's icon.
+    pub const YELLOW: Self = Self::rgba(0.965, 0.827, 0.176, 1.0);
+    /// The default for shapes, lines and text: the amber of Lumen's icon.
+    pub const AMBER: Self = Self::rgba(0.898, 0.647, 0.039, 1.0);
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -112,7 +115,7 @@ pub struct Style {
 impl Default for Style {
     fn default() -> Self {
         Self {
-            stroke: Color::RED,
+            stroke: Color::AMBER,
             fill: None,
             width: 3.0,
             font_size: 18.0,
