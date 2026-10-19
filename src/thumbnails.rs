@@ -12,7 +12,7 @@ use std::{
 
 use relm4::gtk::{gdk, gdk_pixbuf::Pixbuf, glib, prelude::*};
 
-pub const THUMB_SIZE: i32 = 128;
+pub const THUMB_SIZE: i32 = 144;
 const WORKERS: usize = 2;
 
 /// Pixels of a finished thumbnail, safe to move to the main thread.

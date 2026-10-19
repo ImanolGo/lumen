@@ -13,7 +13,7 @@ use crate::thumbnails::THUMB_SIZE;
 pub struct FileStrip {
     root: gtk::ScrolledWindow,
     list: gtk::ListBox,
-    images: RefCell<HashMap<PathBuf, gtk::Image>>,
+    images: RefCell<HashMap<PathBuf, (gtk::Stack, gtk::Picture)>>,
 }
 
 impl FileStrip {
@@ -79,14 +79,14 @@ impl FileStrip {
     }
 
     pub fn set_thumbnail(&self, path: &Path, texture: &gdk::Texture) {
-        if let Some(image) = self.images.borrow().get(path) {
-            image.set_pixel_size(-1);
-            image.set_paintable(Some(texture));
+        if let Some((stack, picture)) = self.images.borrow().get(path) {
+            picture.set_paintable(Some(texture));
+            stack.set_visible_child_name("thumb");
         }
     }
 }
 
-fn build_row(path: &Path) -> (gtk::ListBoxRow, gtk::Image) {
+fn build_row(path: &Path) -> (gtk::ListBoxRow, (gtk::Stack, gtk::Picture)) {
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -100,18 +100,20 @@ fn build_row(path: &Path) -> (gtk::ListBoxRow, gtk::Image) {
         "image-x-generic-symbolic"
     };
 
-    let image = gtk::Image::builder()
-        .icon_name(icon)
-        .pixel_size(48)
-        .hexpand(true)
-        .vexpand(true)
+    // The icon stands in until the thumbnail arrives. A `GtkImage` would draw
+    // the paintable at icon size, so the thumbnail uses a `GtkPicture`.
+    let icon = gtk::Image::builder().icon_name(icon).pixel_size(48).build();
+    let picture = gtk::Picture::builder()
+        .content_fit(gtk::ContentFit::Contain)
+        .can_shrink(true)
         .build();
-    let frame = gtk::Box::builder()
+    let frame = gtk::Stack::builder()
         .width_request(THUMB_SIZE)
         .height_request(THUMB_SIZE * 3 / 4)
         .halign(gtk::Align::Center)
         .build();
-    frame.append(&image);
+    frame.add_named(&icon, Some("icon"));
+    frame.add_named(&picture, Some("thumb"));
 
     let label = gtk::Label::builder()
         .label(&name)
@@ -133,5 +135,5 @@ fn build_row(path: &Path) -> (gtk::ListBoxRow, gtk::Image) {
         .child(&content)
         .tooltip_text(&name)
         .build();
-    (row, image)
+    (row, (frame, picture))
 }
