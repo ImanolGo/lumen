@@ -42,6 +42,14 @@ cargo run                       # empty window, Ctrl+O to open
 cargo run -- path/to/file.pdf   # open a file directly
 ```
 
+## Installing
+
+```sh
+make install PREFIX=$HOME/.local   # or: sudo make install
+```
+
+A Flatpak manifest is in `build-aux/flatpak/`, and an Arch `PKGBUILD` in `build-aux/arch/`.
+
 ## Keyboard shortcuts
 
 | Shortcut | Action |

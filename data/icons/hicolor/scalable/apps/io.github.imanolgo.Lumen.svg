@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#62a0ea"/>
+      <stop offset="1" stop-color="#1a5fb4"/>
+    </linearGradient>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#99c1f1"/>
+      <stop offset="1" stop-color="#dbeafe"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#0b2d63" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="url(#bg)"/>
+  <!-- a sheet of paper holding a picture and two lines of text -->
+  <g filter="url(#shadow)">
+    <rect x="26" y="20" width="76" height="90" rx="9" fill="#ffffff"/>
+  </g>
+  <rect x="34" y="29" width="60" height="42" rx="5" fill="url(#sky)"/>
+  <circle cx="79" cy="42" r="7" fill="#f6d32d"/>
+  <path d="M34 71 L52 47 L63 61 L72 52 L94 71 Z" fill="#5e7ea8"/>
+  <path d="M34 71 L47 56 L58 71 Z" fill="#33567f"/>
+  <rect x="34" y="80" width="60" height="6" rx="3" fill="#c0bfbc"/>
+  <rect x="34" y="92" width="38" height="6" rx="3" fill="#deddda"/>
+  <!-- a glint of light -->
+  <path d="M100 14 L103 24 L113 27 L103 30 L100 40 L97 30 L87 27 L97 24 Z" fill="#ffffff" opacity="0.85"/>
+</svg>

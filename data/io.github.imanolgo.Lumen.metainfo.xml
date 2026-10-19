@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.imanolgo.Lumen</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Lumen</name>
+  <summary>View, edit and annotate pictures and PDFs</summary>
+  <developer id="io.github.imanolgo">
+    <name>Imanol Gomez</name>
+  </developer>
+  <description>
+    <p>
+      Lumen is a fast viewer for pictures and PDF documents with the light editing and markup you
+      reach for every day, in one native GNOME-style app.
+    </p>
+    <ul>
+      <li>Open huge pictures and long PDFs without waiting: pages and pictures load in the background.</li>
+      <li>Browse a whole folder, see thumbnails, zoom and pan smoothly.</li>
+      <li>Rotate, flip, crop, resize and adjust colour, with undo. Rotating a JPEG does not recompress it.</li>
+      <li>Mark up pictures and PDFs with shapes, arrows, text, pen strokes and highlights. PDF annotations stay editable in other readers.</li>
+      <li>Search PDF text, select and copy it, follow links and open the table of contents.</li>
+      <li>Rearrange PDFs: rotate, delete, reorder and insert pages, merge files, export pages.</li>
+      <li>Print through the native print dialog, run a slideshow, work in fullscreen.</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.imanolgo.Lumen.desktop</launchable>
+  <url type="homepage">https://github.com/ImanolGo/lumen</url>
+  <url type="bugtracker">https://github.com/ImanolGo/lumen/issues</url>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Mark up a picture with shapes, arrows and text</caption>
+      <image type="source">https://raw.githubusercontent.com/ImanolGo/lumen/main/data/screenshots/image-markup.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Annotate a PDF, with page thumbnails alongside</caption>
+      <image type="source">https://raw.githubusercontent.com/ImanolGo/lumen/main/data/screenshots/pdf-annotations.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Crop with draggable handles and aspect ratios</caption>
+      <image type="source">https://raw.githubusercontent.com/ImanolGo/lumen/main/data/screenshots/image-crop.png</image>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1"/>
+  <provides>
+    <binary>lumen</binary>
+  </provides>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+    <control>touch</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+  <categories>
+    <category>Graphics</category>
+    <category>Viewer</category>
+  </categories>
+  <keywords>
+    <keyword>image</keyword>
+    <keyword>picture</keyword>
+    <keyword>photo</keyword>
+    <keyword>pdf</keyword>
+    <keyword>annotate</keyword>
+    <keyword>viewer</keyword>
+  </keywords>
+  <translation type="gettext">lumen</translation>
+  <releases>
+    <release version="0.1.0" date="2026-10-19">
+      <description>
+        <p>First release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

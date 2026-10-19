@@ -2,9 +2,9 @@
 Type=Application
 Name=Lumen
 GenericName=Image and PDF Viewer
-Comment=View and annotate pictures and PDF documents
+Comment=View, edit and annotate pictures and PDF documents
 Exec=lumen %F
-Icon=image-x-generic
+Icon=io.github.imanolgo.Lumen
 Terminal=false
 Categories=Graphics;Viewer;GTK;
 MimeType=application/pdf;image/png;image/jpeg;image/gif;image/webp;image/bmp;image/tiff;image/svg+xml;image/avif;image/heif;
