@@ -12,7 +12,11 @@ use crate::{
     APP_NAME,
     document::{self, DocumentInfo, DocumentKind},
     image::ImageDocument,
+    widgets::LumenCanvas,
 };
+
+/// Action name, canvas handler and keyboard accelerators.
+type ViewAction<'a> = (&'a str, fn(&LumenCanvas), &'a [&'a str]);
 
 pub struct App {
     document: Option<DocumentInfo>,
@@ -150,10 +154,10 @@ impl SimpleComponent for App {
                         set_description: Some(&model.status_description()),
                     },
 
-                    add_named[Some("image")] = &gtk::Picture {
-                        set_content_fit: gtk::ContentFit::Contain,
+                    #[name = "canvas"]
+                    add_named[Some("image")] = &LumenCanvas::default() {
                         #[watch]
-                        set_paintable: model.image.as_ref().map(|i| &i.texture),
+                        set_texture: model.image.as_ref().map(|i| &i.texture),
                     },
 
                     #[watch]
@@ -181,7 +185,21 @@ impl SimpleComponent for App {
         open_action.connect_activate(move |_, _| open_sender.input(AppMsg::OpenDialog));
         widgets.main_window.add_action(&open_action);
 
+        let canvas = &widgets.canvas;
+        let view_actions: [ViewAction; 4] = [
+            ("zoom-in", LumenCanvas::zoom_in, &["<Control>plus", "<Control>equal"]),
+            ("zoom-out", LumenCanvas::zoom_out, &["<Control>minus"]),
+            ("best-fit", LumenCanvas::best_fit, &["<Control>0"]),
+            ("actual-size", LumenCanvas::actual_size, &["<Control>1"]),
+        ];
         let app = relm4::main_application();
+        for (name, handler, accels) in view_actions {
+            let action = gio::SimpleAction::new(name, None);
+            let canvas = canvas.clone();
+            action.connect_activate(move |_, _| handler(&canvas));
+            widgets.main_window.add_action(&action);
+            app.set_accels_for_action(&format!("win.{name}"), accels);
+        }
         app.set_accels_for_action("win.open", &["<Control>o"]);
         app.set_accels_for_action("window.close", &["<Control>w"]);
 

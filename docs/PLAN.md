@@ -33,7 +33,7 @@ something you can **see working**, and should be its own commit (or PR).
 
 Goal of the phase: Lumen replaces your current image viewer for everyday use.
 
-### 1.1 Show the image 🟢
+### 1.1 ✅ Show the image 🟢
 **Goal:** opening a picture displays it, fitted to the window.
 - Tasks
   - Add `src/image/mod.rs` with an `ImageDocument { path, texture: gdk::Texture }`.
@@ -42,7 +42,7 @@ Goal of the phase: Lumen replaces your current image viewer for everyday use.
 - Hints: `gdk::Texture::from_filename`, `gtk::Picture::set_paintable`. Keep the status page for the empty state and for errors.
 - **Done when:** `cargo run -- photo.jpg` shows the photo; resizing the window rescales it.
 
-### 1.2 Custom canvas widget with zoom 🟠 🧠 GObject subclassing, `GtkSnapshot`
+### 1.2 ✅ Custom canvas widget with zoom 🟠 🧠 GObject subclassing, `GtkSnapshot`
 **Goal:** zoom in and out around the cursor.
 `gtk::Picture` can't zoom, so you build the widget that *everything* later (PDF pages, annotations) will draw on.
 - Tasks

@@ -1,6 +1,7 @@
 mod app;
 mod document;
 mod image;
+mod widgets;
 
 use std::path::PathBuf;
 
