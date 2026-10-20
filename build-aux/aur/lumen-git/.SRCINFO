@@ -16,6 +16,8 @@ pkgbase = lumen-git
 	depends = poppler-glib>=25.06
 	depends = glib2
 	depends = cairo
+	depends = glycin
+	depends = libseccomp
 	provides = lumen
 	conflicts = lumen
 	source = lumen::git+https://github.com/ImanolGo/lumen.git

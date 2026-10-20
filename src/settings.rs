@@ -106,7 +106,7 @@ impl SavedState {
 }
 
 /// Read a TOML file, falling back to the default for anything wrong with it.
-fn load<T: Default + for<'de> Deserialize<'de>>(path: &Path) -> T {
+pub(crate) fn load<T: Default + for<'de> Deserialize<'de>>(path: &Path) -> T {
     let Ok(text) = fs::read_to_string(path) else {
         return T::default();
     };
@@ -117,7 +117,7 @@ fn load<T: Default + for<'de> Deserialize<'de>>(path: &Path) -> T {
 }
 
 /// Write a TOML file atomically (a crash mid-write must not leave half a file).
-fn save<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
+pub(crate) fn save<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }

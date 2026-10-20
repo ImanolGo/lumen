@@ -4,7 +4,7 @@
 # so Ubuntu 26.04 or later, or Debian testing.
 #
 #   sudo apt install build-essential dpkg-dev gettext libgtk-4-dev libadwaita-1-dev \
-#       libpoppler-glib-dev          # plus Rust 1.92 or newer, e.g. from rustup
+#       libpoppler-glib-dev libseccomp-dev   # plus Rust 1.93 or newer, e.g. from rustup
 #   build-aux/debian/build-deb.sh    # writes lumen_<version>-1_<arch>.deb
 #
 # The package's dependencies are worked out by dpkg-shlibdeps from the libraries the
@@ -52,6 +52,7 @@ Architecture: $arch
 Maintainer: Imanol Gomez <imanol@steinergomez.com>
 Installed-Size: $(du -sk "$stage/usr" | cut -f1)
 Depends: $depends
+Recommends: glycin-loaders
 Section: graphics
 Priority: optional
 Homepage: https://github.com/ImanolGo/lumen

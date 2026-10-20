@@ -18,6 +18,8 @@
       <li>Open pictures one by one or a whole folder, drop in more from anywhere, see thumbnails, zoom and pan smoothly.</li>
       <li>Rotate, flip, crop, resize and adjust colour, with undo. Rotating a JPEG does not recompress it.</li>
       <li>Mark up pictures and PDFs with shapes, arrows, text, pen strokes and highlights. PDF annotations stay editable in other readers.</li>
+      <li>Fill in PDF forms and sign documents with a signature you draw once.</li>
+      <li>Open HEIC, AVIF, JPEG XL and animated pictures, decoded in a sandbox so files from anywhere are safe to open.</li>
       <li>Search PDF text, select and copy it, follow links and open the table of contents.</li>
       <li>Rearrange PDFs: rotate, delete, reorder and insert pages, merge files, export pages.</li>
       <li>Print through the native print dialog, run a slideshow, work in fullscreen.</li>
@@ -30,6 +32,10 @@
     <screenshot type="default">
       <caption>Mark up a picture with shapes, arrows and text</caption>
       <image type="source">https://raw.githubusercontent.com/ImanolGo/lumen/main/data/screenshots/image-markup.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Fill in and sign a PDF form</caption>
+      <image type="source">https://raw.githubusercontent.com/ImanolGo/lumen/main/data/screenshots/pdf-forms.png</image>
     </screenshot>
     <screenshot>
       <caption>Annotate a PDF, with page thumbnails alongside</caption>

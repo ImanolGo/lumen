@@ -209,8 +209,13 @@ unsafe fn read_annot(annot: *mut ffi::PopplerAnnot, page_height: f64, layer: &mu
                         layer.add(Shape::Line(shaft[0], shaft[shaft.len() - 1]), style);
                     }
                     _ => {
-                        for path in paths.into_iter().filter(|p| !p.is_empty()) {
-                            layer.add(Shape::Freehand(path), style.clone());
+                        let mut paths: Vec<_> =
+                            paths.into_iter().filter(|p| !p.is_empty()).collect();
+                        // Strokes drawn together (a signature) stay one annotation.
+                        if paths.len() > 1 {
+                            layer.add(Shape::Ink(paths), style);
+                        } else if let Some(path) = paths.pop() {
+                            layer.add(Shape::Freehand(path), style);
                         }
                     }
                 }
@@ -326,6 +331,12 @@ pub fn write(
         }
     }
 
+    save(&doc, dest)
+}
+
+/// Write `doc`, with any changes made to it, to `dest`. Poppler keeps its encryption.
+/// The caller holds the Poppler lock.
+pub(super) fn save(doc: &Document, dest: &Path) -> Result<()> {
     let uri = glib::filename_to_uri(dest, None).context("cannot make a URI for the output file")?;
     let uri = CString::new(uri.as_str())?;
     let mut error = ptr::null_mut();
@@ -390,6 +401,11 @@ unsafe fn add_annotation(doc: &Document, page: &Page, a: &Annotation, height: f6
                 let paths = vec![points.clone()];
                 let annot = ink(doc_ptr, &paths, height, a.style.width, None);
                 strokes = Some(paths);
+                annot
+            }
+            Shape::Ink(paths) => {
+                let annot = ink(doc_ptr, paths, height, a.style.width, None);
+                strokes = Some(paths.clone());
                 annot
             }
             Shape::Text { bounds, text } => {
@@ -571,6 +587,21 @@ mod tests {
             },
             solid(blue),
         );
+        // A signature: several strokes that stay one annotation.
+        layer.add(
+            Shape::Ink(vec![
+                vec![
+                    Point::new(300.0, 250.0),
+                    Point::new(330.0, 220.0),
+                    Point::new(360.0, 250.0),
+                ],
+                vec![Point::new(310.0, 240.0), Point::new(350.0, 238.0)],
+            ]),
+            Style {
+                fill: None,
+                ..solid(blue)
+            },
+        );
         layer.add(
             Shape::Highlight(vec![
                 Rect::new(72.0, 180.0, 100.0, 14.0),
@@ -593,7 +624,7 @@ mod tests {
         let info = load_info(&PdfSource::new(&dest, None)).expect("reopens");
         let layer = info.annotations.get(&0).expect("annotations on page 1");
         let shapes: Vec<&Shape> = layer.items.iter().map(|a| &a.shape).collect();
-        assert_eq!(shapes.len(), 7, "{shapes:#?}");
+        assert_eq!(shapes.len(), 8, "{shapes:#?}");
 
         let find = |f: fn(&&Shape) -> bool| {
             layer
@@ -648,6 +679,13 @@ mod tests {
             (points[1].y - 60.0).abs() < 0.5,
             "y is measured from the top: {points:?}"
         );
+
+        let ink = find(|s| matches!(s, Shape::Ink(_)));
+        let Shape::Ink(strokes) = &ink.shape else {
+            unreachable!()
+        };
+        assert_eq!(strokes.len(), 2);
+        assert!((strokes[0][1].y - 220.0).abs() < 0.5, "{strokes:?}");
 
         let text = find(|s| matches!(s, Shape::Text { .. }));
         let Shape::Text { text: t, bounds } = &text.shape else {
@@ -718,12 +756,12 @@ mod tests {
     fn rewriting_replaces_instead_of_duplicating() {
         let first = scratch("rewrite1");
         write(&fixture(), &sample_layers(), &first).unwrap();
-        // Read them back, write again from what was read: still seven, not fourteen.
+        // Read them back, write again from what was read: still eight, not sixteen.
         let info = load_info(&PdfSource::new(&first, None)).unwrap();
         let second = scratch("rewrite2");
         write(&PdfSource::new(&first, None), &info.annotations, &second).unwrap();
         let again = load_info(&PdfSource::new(&second, None)).unwrap();
-        assert_eq!(again.annotations[&0].items.len(), 7);
+        assert_eq!(again.annotations[&0].items.len(), 8);
 
         // Deleting everything removes them from the file.
         let cleared = scratch("rewrite3");

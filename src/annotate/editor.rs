@@ -267,7 +267,8 @@ impl Editor {
                                 points.push(p);
                             }
                         }
-                        Shape::Text { .. } => {}
+                        // Only placed whole (a signature), never dragged out.
+                        Shape::Text { .. } | Shape::Ink(_) => {}
                     }
                 }
             }
@@ -454,6 +455,18 @@ impl Editor {
         }
     }
 
+    /// Add `shape` to `page` in `style` and select it, ready to be moved or resized.
+    pub fn place(&mut self, store: &mut Store, page: usize, shape: Shape, style: Style) -> Outcome {
+        let id = store.pages.layer_mut(page).add(shape, style);
+        store.selection = Some(Selection { page, id });
+        self.tool = Tool::Select;
+        Outcome {
+            redraw: true,
+            committed: true,
+            ..Outcome::default()
+        }
+    }
+
     /// Add a highlight over `rects` at once (for text selected in a PDF).
     pub fn add_highlight(&mut self, store: &mut Store, page: usize, rects: Vec<Rect>) -> Outcome {
         if rects.is_empty() {
@@ -508,6 +521,7 @@ fn is_substantial(shape: &Shape) -> bool {
         Shape::Highlight(rects) => rects.iter().any(|r| r.w >= MIN_DRAG && r.h >= MIN_DRAG),
         Shape::Line(a, b) | Shape::Arrow(a, b) => (a.x - b.x).hypot(a.y - b.y) >= MIN_DRAG,
         Shape::Freehand(points) => points.len() >= 2,
+        Shape::Ink(strokes) => !strokes.is_empty(),
         Shape::Text { .. } => true,
     }
 }

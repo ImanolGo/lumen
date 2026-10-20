@@ -179,7 +179,7 @@ impl App {
     }
 
     /// Act on what an editing step asked for.
-    fn finish_markup(&mut self, outcome: Outcome, sender: &ComponentSender<App>) {
+    pub(super) fn finish_markup(&mut self, outcome: Outcome, sender: &ComponentSender<App>) {
         if outcome.committed {
             self.commit_markup(sender);
         }

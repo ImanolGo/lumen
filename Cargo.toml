@@ -2,7 +2,7 @@
 name = "lumen"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.92"
+rust-version = "1.93"
 description = "A fast, Preview-like image and PDF viewer for Linux"
 license = "GPL-3.0-or-later"
 authors = ["Imanol Gomez"]
@@ -29,6 +29,8 @@ serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.1.8"
 libadwaita = { version = "0.9", features = ["v1_8"] }
 gettext-rs = { version = "0.8.0", features = ["gettext-system"] }
+glycin = { version = "4", features = ["gdk4"] }
+futures-lite = "2"
 
 [profile.release]
 lto = "thin"

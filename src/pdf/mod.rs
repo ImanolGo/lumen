@@ -6,6 +6,7 @@
 pub mod annots;
 mod cache;
 pub mod compose;
+pub mod forms;
 pub mod layout;
 mod links;
 mod outline;
@@ -20,6 +21,7 @@ use anyhow::{Context, Result};
 use relm4::gtk::{cairo, gdk, gio, glib, prelude::*};
 
 pub use cache::PageCache;
+pub use forms::{FieldKind, FieldValue, FormField};
 pub use layout::PageLayout;
 pub use links::{Link, LinkTarget, LinkWorker, LinksLoaded, NamedAction, is_safe_uri};
 pub use outline::{OutlineItem, OutlineTarget};
@@ -44,6 +46,8 @@ pub struct PdfInfo {
     /// Annotations the file already holds that Lumen can edit, per page.
     pub annotations: std::collections::BTreeMap<usize, crate::annotate::AnnotationLayer>,
     pub metadata: PdfMetadata,
+    /// Form fields, per page (only pages that have some).
+    pub forms: std::collections::BTreeMap<usize, Vec<FormField>>,
 }
 
 /// What the document says about itself, for the properties panel. Fields the file
@@ -184,6 +188,7 @@ pub fn load_info(source: &PdfSource) -> Result<PdfInfo, PdfError> {
         password: source.password.clone(),
         annotations,
         metadata: PdfMetadata::read(&doc),
+        forms: forms::read_all(&doc),
     })
 }
 

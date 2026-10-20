@@ -1,10 +1,12 @@
 //! Root Relm4 component: the main window.
 
 mod edit;
+mod forms;
 mod markup;
 mod pages;
 mod prefs;
 mod shortcuts;
+mod signature;
 
 use crate::i18n::{tr, tr_fmt};
 use std::{
@@ -208,6 +210,11 @@ pub struct App {
     /// Files still to insert, and the page the next one goes in front of.
     insert_queue: Vec<PathBuf>,
     insert_at: usize,
+    /// Saved signatures, and the toolbar button whose menu lists them.
+    signatures: crate::signatures::Signatures,
+    signature_button: gtk::MenuButton,
+    /// A signature field that was clicked: the next signature placed goes into it.
+    signature_target: Option<(usize, pdf::HitRect)>,
     /// The colour the style button shows, shared with the circles that draw it.
     style_color: Rc<Cell<annotate::Color>>,
     /// Index into `CropAspect::CHOICES`.
@@ -294,6 +301,23 @@ pub enum AppMsg {
     },
     /// Put the selected text on the clipboard.
     Copy,
+    /// Stamp saved signature `index` onto the page.
+    PlaceSignature(usize),
+    /// Draw a new signature.
+    NewSignature,
+    /// A new signature was drawn (strokes in the pad's pixels).
+    SignatureDrawn(Vec<Vec<(f64, f64)>>),
+    DeleteSignature(usize),
+    /// Set a form field of the open PDF.
+    FillForm {
+        id: i32,
+        value: pdf::FieldValue,
+    },
+    /// The working copy with a form field filled in was written.
+    FormFilled {
+        out: PathBuf,
+        result: Result<(), String>,
+    },
     /// The search text changed.
     SearchChanged(String),
     Search {
@@ -946,6 +970,7 @@ impl App {
         }
         let opened_outline = opened.pdf.as_ref().map(|p| p.outline.clone());
         let opened_annotations = opened.pdf.as_ref().map(|p| p.annotations.clone());
+        let opened_forms = opened.pdf.as_ref().map(|p| p.forms.clone());
         self.pdf = opened
             .pdf
             .as_ref()
@@ -981,6 +1006,9 @@ impl App {
         self.store.borrow().save_state();
         self.document = Some(info);
         self.sync_canvas();
+        if let Some(forms) = &opened_forms {
+            self.canvas.set_forms(forms);
+        }
         self.clear_selection();
         self.restart_search();
         self.preload_neighbours(sender);
@@ -1083,7 +1111,8 @@ impl App {
     fn show_open_dialog(sender: ComponentSender<Self>) {
         let images = gtk::FileFilter::new();
         images.set_name(Some(&tr("Images")));
-        images.add_pixbuf_formats();
+        // Any picture: glycin decides what it can read.
+        images.add_mime_type("image/*");
 
         let pdfs = gtk::FileFilter::new();
         pdfs.set_name(Some(&tr("PDF Documents")));
@@ -1091,7 +1120,7 @@ impl App {
 
         let all = gtk::FileFilter::new();
         all.set_name(Some(&tr("Images and PDFs")));
-        all.add_pixbuf_formats();
+        all.add_mime_type("image/*");
         all.add_mime_type("application/pdf");
 
         let filters = gio::ListStore::new::<gtk::FileFilter>();
@@ -1407,6 +1436,9 @@ impl SimpleComponent for App {
                             },
                         },
                     },
+
+                    #[local_ref]
+                    signature_button -> gtk::MenuButton {},
 
                     gtk::Separator {},
 
@@ -1991,6 +2023,12 @@ impl SimpleComponent for App {
             insert_at: 0,
             crop_choice: 0,
             style_color: Rc::new(Cell::new(annotate::Style::default().stroke)),
+            signatures: crate::signatures::Signatures::user(),
+            signature_button: gtk::MenuButton::builder()
+                .icon_name("lumen-signature-symbolic")
+                .tooltip_text(tr("Signature"))
+                .build(),
+            signature_target: None,
             error: None,
         };
         model.apply_settings();
@@ -2009,6 +2047,8 @@ impl SimpleComponent for App {
             button.connect_clicked(move |_| sender.input(AppMsg::SetColor(color)));
             swatches.attach(&button, (i % 4) as i32, (i / 4) as i32, 1, 1);
         }
+        let signature_button = model.signature_button.clone();
+        model.refresh_signature_menu(&sender);
         let sidebar_stack = model.sidebar_stack.clone();
         sidebar_stack.add_named(model.strip.root(), Some("files"));
         sidebar_stack.add_named(model.page_strip.root(), Some("pages"));
@@ -2987,6 +3027,10 @@ impl App {
                             self.request_selection(false);
                         }
                     }
+                    SelectGesture::Form { page, field } => {
+                        self.clear_selection();
+                        self.form_clicked(page, field, &sender);
+                    }
                     SelectGesture::OpenLink(target) => {
                         self.clear_selection();
                         self.follow_link(target);
@@ -3039,6 +3083,12 @@ impl App {
                 }
             }
             AppMsg::Copy => self.request_selection(true),
+            AppMsg::FillForm { id, value } => self.fill_form(id, value, &sender),
+            AppMsg::PlaceSignature(index) => self.place_signature(index, &sender),
+            AppMsg::NewSignature => self.new_signature(&sender),
+            AppMsg::SignatureDrawn(strokes) => self.signature_drawn(strokes, &sender),
+            AppMsg::DeleteSignature(index) => self.delete_signature(index, &sender),
+            AppMsg::FormFilled { out, result } => self.form_filled(out, result, &sender),
             AppMsg::Edit(op) => {
                 // On a PDF the rotate commands turn pages.
                 if self.pdf.is_some() {

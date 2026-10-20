@@ -95,8 +95,9 @@ Goal of the phase: Lumen replaces your current image viewer for everyday use.
   - Properties side panel (`adw::OverlaySplitView`): dimensions, file size, camera, date, GPS.
 - **Done when:** phone photos are never sideways; `Alt+Enter` toggles properties.
 
-### 1.8 (Optional) Switch to glycin 🟡
-Install `glycin` + `glycin-loaders` and use `glycin::Loader`. This gives sandboxed decoding, HEIC/AVIF/JXL/RAW and animated images, and it's what Loupe uses. You could do this later in Phase 7 instead.
+### 1.8 ✅ Switch to glycin 🟡
+Install `glycin` + `glycin-loaders` and use `glycin::Loader`. This gives sandboxed decoding, HEIC/AVIF/JXL/RAW and animated images, and it's what Loupe uses.
+- **Notes:** done after the 0.1.0 release (see `src/image/decode.rs` and docs/DEVELOPMENT.md). Pictures and thumbnails decode in glycin's bubblewrap sandbox, animations play, and the orientation stays Lumen's. RAW needs a glycin RAW loader, which is not installed here, so it is not claimed.
 
 ---
 
@@ -281,8 +282,8 @@ Lumen already exports its actions on the session D-Bus (that is how the features
 
 ## Stretch goals
 
-- Signatures (draw once, store, stamp onto PDFs).
-- PDF form filling (`poppler::FormField`).
+- [x] Signatures (draw once, store, stamp onto PDFs) — `src/signatures.rs` keeps them, normalised, in `~/.local/share/lumen/signatures.toml`; `src/app/signature.rs` has the pad and the menu. A signature is a `Shape::Ink`, written to PDFs as one Ink annotation with all its strokes, so other readers show it. Clicking a form's signature field signs into it. Not a cryptographic (certificate) signature.
+- [x] PDF form filling (`poppler::FormField`) — `src/pdf/forms.rs` reads the fields with the document and writes a working copy per change (one undo step each, the view stays put); `src/app/forms.rs` turns clicks into values: toggles, a text box or a list in a popover.
 - OCR with Tesseract to make scanned PDFs searchable.
 - Copy text from images (OCR).
 - Compare two images side by side.

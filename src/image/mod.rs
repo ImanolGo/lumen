@@ -1,10 +1,15 @@
 //! Image documents: decoded pixels plus where they came from.
 
+pub mod decode;
 mod metadata;
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use relm4::gtk::{gdk, gsk, prelude::*};
 
 pub use metadata::Metadata;
@@ -12,21 +17,45 @@ pub use metadata::Metadata;
 #[derive(Debug, Clone)]
 pub struct ImageDocument {
     pub path: PathBuf,
+    /// The picture, or the first frame of an animation.
     pub texture: gdk::Texture,
     pub orientation: Orientation,
     pub metadata: Metadata,
+    /// Every frame, for an animated picture (GIF, APNG, WebP…).
+    pub animation: Option<Animation>,
+}
+
+/// The frames of an animation and how long each one stays on screen.
+#[derive(Debug, Clone)]
+pub struct Animation {
+    pub frames: Arc<[(gdk::Texture, Duration)]>,
+}
+
+impl Animation {
+    pub fn new(frames: Vec<(gdk::Texture, Duration)>) -> Self {
+        Self {
+            frames: frames.into(),
+        }
+    }
 }
 
 impl ImageDocument {
+    /// Decode the picture at `path` (in a sandbox, see [`decode`]). Blocking.
     pub fn load(path: &Path) -> Result<Self> {
-        let texture = gdk::Texture::from_filename(path)
-            .with_context(|| format!("failed to decode {}", path.display()))?;
+        let decoded = decode::decode(path)?;
         let metadata = Metadata::read(path);
+        // Lumen's EXIF reader knows JPEG and TIFF best; the decoder covers the formats it does not.
+        let orientation = if metadata.orientation != Orientation::NORMAL {
+            metadata.orientation
+        } else {
+            decoded.orientation.unwrap_or(Orientation::NORMAL)
+        };
         Ok(Self {
             path: path.to_owned(),
-            texture,
-            orientation: metadata.orientation,
+            texture: decoded.texture,
+            orientation,
             metadata,
+            animation: decoded.animation,
         })
     }
 

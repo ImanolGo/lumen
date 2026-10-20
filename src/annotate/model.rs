@@ -130,6 +130,8 @@ pub enum Shape {
     Line(Point, Point),
     Arrow(Point, Point),
     Freehand(Vec<Point>),
+    /// Several strokes that belong together, such as a signature.
+    Ink(Vec<Vec<Point>>),
     Text {
         bounds: Rect,
         text: String,
@@ -261,6 +263,12 @@ impl Annotation {
                 .map(|p| Rect::new(p.x, p.y, 0.0, 0.0))
                 .reduce(|a, b| a.union(&b))
                 .unwrap_or_default(),
+            Shape::Ink(strokes) => strokes
+                .iter()
+                .flatten()
+                .map(|p| Rect::new(p.x, p.y, 0.0, 0.0))
+                .reduce(|a, b| a.union(&b))
+                .unwrap_or_default(),
             Shape::Highlight(rects) => rects
                 .iter()
                 .copied()
@@ -286,6 +294,7 @@ impl Annotation {
                 shift(b);
             }
             Shape::Freehand(points) => points.iter_mut().for_each(shift),
+            Shape::Ink(strokes) => strokes.iter_mut().flatten().for_each(shift),
             Shape::Highlight(rects) => rects.iter_mut().for_each(shift_rect),
         }
     }
@@ -333,6 +342,7 @@ impl Annotation {
                 *b = map(*b);
             }
             Shape::Freehand(points) => points.iter_mut().for_each(|p| *p = map(*p)),
+            Shape::Ink(strokes) => strokes.iter_mut().flatten().for_each(|p| *p = map(*p)),
             Shape::Highlight(rects) => rects.iter_mut().for_each(|r| *r = map_rect(*r)),
         }
     }
@@ -347,6 +357,10 @@ impl Annotation {
                 *b = change.map(*b);
             }
             Shape::Freehand(points) => points.iter_mut().for_each(|p| *p = change.map(*p)),
+            Shape::Ink(strokes) => strokes
+                .iter_mut()
+                .flatten()
+                .for_each(|p| *p = change.map(*p)),
             Shape::Highlight(rects) => rects.iter_mut().for_each(|r| *r = change.map_rect(*r)),
         }
         self.style.width *= change.width_factor();
@@ -388,6 +402,8 @@ impl Annotation {
                     .windows(2)
                     .any(|w| distance_to_segment(p, w[0], w[1]) <= reach),
             },
+            // A signature is picked up anywhere inside it, not just on its thin strokes.
+            Shape::Ink(_) => self.bounds().inflate(tolerance).contains(p),
             Shape::Text { bounds, .. } => bounds.inflate(tolerance).contains(p),
             Shape::Highlight(rects) => rects.iter().any(|r| r.inflate(tolerance).contains(p)),
         }

@@ -6,11 +6,11 @@ You need the GTK 4, libadwaita and poppler-glib development files, plus a C tool
 
 | Distro | Command |
 |---|---|
-| Arch / CachyOS | `sudo pacman -S --needed base-devel gtk4 libadwaita poppler-glib` |
-| Fedora | `sudo dnf install gcc gtk4-devel libadwaita-devel poppler-glib-devel` |
-| Debian / Ubuntu | `sudo apt install build-essential libgtk-4-dev libadwaita-1-dev libpoppler-glib-dev` |
+| Arch / CachyOS | `sudo pacman -S --needed base-devel gtk4 libadwaita poppler-glib libseccomp glycin` |
+| Fedora | `sudo dnf install gcc gtk4-devel libadwaita-devel poppler-glib-devel libseccomp-devel glycin-loaders` |
+| Debian / Ubuntu | `sudo apt install build-essential libgtk-4-dev libadwaita-1-dev libpoppler-glib-dev libseccomp-dev glycin-loaders` |
 
-Minimum versions, checked at build time: GTK ≥ 4.16 (the `gnome_47` feature in `Cargo.toml`), libadwaita ≥ 1.8 (`v1_8`, for `adw::ShortcutsDialog`), poppler-glib ≥ 25.06 (`v25_6`), Rust ≥ 1.92. Older distributions (Debian 13, Ubuntu 24.04) do not have them; build the Flatpak there.
+Minimum versions, checked at build time: GTK ≥ 4.16 (the `gnome_47` feature in `Cargo.toml`), libadwaita ≥ 1.8 (`v1_8`, for `adw::ShortcutsDialog`), poppler-glib ≥ 25.06 (`v25_6`), libseccomp (for glycin's sandbox), Rust ≥ 1.93 (glycin 4). Older distributions (Debian 13, Ubuntu 24.04) do not have them; build the Flatpak there.
 
 Check them with:
 ```sh
@@ -114,3 +114,13 @@ LANGUAGE=es LUMEN_LOCALEDIR=$PWD/target/locale cargo run   # try it
 ```
 
 Add new source files that use `tr()` to `po/POTFILES.in`. Spanish (`es`) is complete.
+
+## Picture decoding
+
+`src/image/decode.rs` decodes pictures with glycin 4 (`glycin-external`), which runs the loaders
+installed under `/usr/share/glycin-loaders/2+/` (or the GNOME runtime's, in the Flatpak) in
+bubblewrap sandboxes. `apply_transformations` is off: Lumen applies the EXIF orientation itself, so
+lossless rotation and editing can change it. Animations are decoded up front (capped at 2000 frames
+or 512 MB, beyond which only the first frame is shown) and played by the canvas. Without any loaders
+installed, Lumen falls back to `gdk::Texture::from_filename` and logs a warning. Editing still
+decodes with the `image` crate (pure Rust) for the formats it can write back.

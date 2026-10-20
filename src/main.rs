@@ -9,6 +9,7 @@ mod pdf;
 mod print;
 mod save;
 mod settings;
+mod signatures;
 mod thumbnails;
 mod widgets;
 

@@ -5,6 +5,7 @@
     <file alias="scalable/apps/io.github.imanolgo.Lumen.svg">icons/hicolor/scalable/apps/io.github.imanolgo.Lumen.svg</file>
     <file alias="symbolic/apps/io.github.imanolgo.Lumen-symbolic.svg">icons/hicolor/symbolic/apps/io.github.imanolgo.Lumen-symbolic.svg</file>
     <file alias="scalable/actions/lumen-image-edit-symbolic.svg">icons/actions/lumen-image-edit-symbolic.svg</file>
+    <file alias="scalable/actions/lumen-signature-symbolic.svg">icons/actions/lumen-signature-symbolic.svg</file>
     <file alias="scalable/actions/lumen-tool-arrow-symbolic.svg">icons/actions/lumen-tool-arrow-symbolic.svg</file>
     <file alias="scalable/actions/lumen-tool-ellipse-symbolic.svg">icons/actions/lumen-tool-ellipse-symbolic.svg</file>
     <file alias="scalable/actions/lumen-tool-highlight-symbolic.svg">icons/actions/lumen-tool-highlight-symbolic.svg</file>

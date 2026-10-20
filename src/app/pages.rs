@@ -352,6 +352,7 @@ impl App {
         };
         let Some(info) = opened.pdf else { return };
         let (original, protected) = (old.original.clone(), old.protected);
+        let old_rects = old.layout.rects.clone();
         let mut view = self.make_pdf_view(&path, original, &info, sender);
         // The working copy opens without a password; the file the user opened did not.
         view.protected = protected;
@@ -370,9 +371,14 @@ impl App {
             info.n_pages,
             info.page_sizes[0],
         );
+        // Same pages (a form filled in, an undo): stay where the reader is.
+        let same_layout = old_rects == view.layout.rects;
         self.pdf = Some(view);
         self.sync_canvas();
-        self.canvas.scroll_to_page(goto);
+        self.canvas.set_forms(&info.forms);
+        if !same_layout {
+            self.canvas.scroll_to_page(goto);
+        }
         self.clear_selection();
         self.restart_search();
         // Several files were queued for insertion: carry on with the next.

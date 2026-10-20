@@ -274,9 +274,11 @@ impl App {
                     session.stored = Some(stored);
                 }
                 if ticket == session.ticket {
+                    // Edited pixels are a still picture, even if the original moved.
                     self.edited = Some(ImageDocument {
                         texture: rendered.into_texture(),
                         orientation: Orientation::NORMAL,
+                        animation: None,
                         ..original.clone()
                     });
                 }

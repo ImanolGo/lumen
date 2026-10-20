@@ -1,9 +1,11 @@
-src/app.rs
 src/app/edit.rs
+src/app/forms.rs
 src/app/markup.rs
 src/app/pages.rs
 src/app/prefs.rs
+src/app.rs
 src/app/shortcuts.rs
+src/app/signature.rs
 src/document.rs
 src/main.rs
 src/print.rs

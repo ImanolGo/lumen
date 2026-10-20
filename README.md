@@ -5,7 +5,7 @@
 <h1 align="center">Lumen</h1>
 
 <p align="center">
-  A fast image and PDF viewer for Linux, with the light editing and markup you use every day.<br>
+  A fast image and PDF viewer for Linux, with the light editing, markup, form filling and signing you use every day.<br>
   Written in Rust with GTK 4 and libadwaita.
 </p>
 
@@ -21,21 +21,23 @@
 ## Features
 
 - **Fast.** Pictures and pages load in the background, so the UI never freezes. A 50 MP JPEG is on screen in about half a second and a 500-page PDF opens in about 50 ms (release build, measured on a 2020 laptop).
+- **Safe with files from anywhere.** Pictures are decoded by [glycin](https://gitlab.gnome.org/GNOME/glycin), which runs each decoder in its own sandboxed process, so a malicious file cannot reach your system. That also brings HEIC, AVIF, JPEG XL, JPEG 2000, OpenEXR and animated GIF, APNG and WebP.
 - **Pictures and PDFs in one app.** Open the files you pick, or a whole folder, then drop in more from anywhere and flip through them with thumbnails. Zoom and pan smoothly, honour EXIF orientation, run a slideshow or go fullscreen.
 - **Light editing.** Rotate, flip, crop, resize and adjust colour, with undo and redo. Rotating a JPEG does not recompress it.
 - **Markup.** Rectangles, ellipses, arrows, lines, pen strokes, text and highlights on pictures and PDFs. PDF annotations are real annotations, so other readers can still edit them.
+- **Forms and signatures.** Fill in PDF forms (text, checkboxes, radio buttons, lists) and save them so any reader sees the answers. Draw your signature once and stamp it onto PDFs and pictures, or into a form's signature field.
 - **PDF reading.** Continuous scroll, page thumbnails, table of contents, search, text selection and copy, clickable links, password-protected files and document properties.
 - **PDF page management.** Rotate, delete, reorder and insert pages, merge files, export pages as a PDF or PNG.
 - **Printing** through the native GTK print dialog.
 - **Native.** Follows the GNOME HIG and works on any desktop. Preferences, keyboard shortcuts dialog and accessible names are included. Translations use gettext; Spanish ships today.
 
-| Crop with draggable handles | Annotate a PDF |
-|---|---|
-| <img src="data/screenshots/image-crop.png" alt="Cropping a picture" width="380"> | <img src="data/screenshots/pdf-annotations.png" alt="Annotating a PDF with page thumbnails" width="380"> |
+| Fill in and sign a PDF form | Annotate a PDF | Crop with draggable handles |
+|---|---|---|
+| <img src="data/screenshots/pdf-forms.png" alt="A membership form filled in and signed in Lumen" width="260"> | <img src="data/screenshots/pdf-annotations.png" alt="Annotating a PDF with page thumbnails" width="260"> | <img src="data/screenshots/image-crop.png" alt="Cropping a picture" width="260"> |
 
 ## Installing
 
-Lumen is at version 0.1.0. It is not on Flathub yet; install it from a release, the AUR or source.
+The latest release is 0.1.0. Sandboxed decoding, form filling and signatures are on `main` and come with the next release; until then, build from source or use `lumen-git` from the AUR. Lumen is not on Flathub yet.
 
 ### From a release
 
@@ -45,7 +47,7 @@ Each tagged release on the [releases page](https://github.com/ImanolGo/lumen/rel
 |---|---|---|
 | `lumen.flatpak` | `flatpak install --user lumen.flatpak` | Any distribution with Flatpak (brings its own GNOME 50 runtime) |
 | `lumen_X.Y.Z-1_amd64.deb` | `sudo apt install ./lumen_X.Y.Z-1_amd64.deb` | Ubuntu 26.04 or later, Debian testing |
-| `lumen-vX.Y.Z-x86_64-linux.tar.gz` | `sudo tar -C / -xzf lumen-vX.Y.Z-x86_64-linux.tar.gz` | Distributions with GTK 4.16+, libadwaita 1.8+ and poppler-glib 25.06+ |
+| `lumen-vX.Y.Z-x86_64-linux.tar.gz` | `sudo tar -C / -xzf lumen-vX.Y.Z-x86_64-linux.tar.gz` | Distributions with GTK 4.16+, libadwaita 1.8+, poppler-glib 25.06+ and libseccomp (plus the glycin loaders for sandboxed decoding) |
 
 If your distribution is older than that, use the Flatpak.
 
@@ -74,13 +76,13 @@ sudo apt install ./lumen_*.deb
 
 ### From source
 
-You need a C toolchain, Rust 1.92 or newer, GTK ≥ 4.16, libadwaita ≥ 1.8, poppler-glib ≥ 25.06, the GLib tools (`glib-compile-resources`) and gettext. The build checks these versions.
+You need a C toolchain, Rust 1.93 or newer, GTK ≥ 4.16, libadwaita ≥ 1.8, poppler-glib ≥ 25.06, libseccomp, the GLib tools (`glib-compile-resources`) and gettext. At run time, install the glycin loaders for sandboxed decoding (without them Lumen falls back to GTK's own decoders). The build checks these versions.
 
 | Distro | Command |
 |---|---|
-| Arch / CachyOS | `sudo pacman -S --needed base-devel rust gtk4 libadwaita poppler-glib gettext` |
-| Fedora | `sudo dnf install gcc cargo gtk4-devel libadwaita-devel poppler-glib-devel gettext` |
-| Debian / Ubuntu | `sudo apt install build-essential cargo libgtk-4-dev libadwaita-1-dev libpoppler-glib-dev gettext` |
+| Arch / CachyOS | `sudo pacman -S --needed base-devel rust gtk4 libadwaita poppler-glib libseccomp gettext glycin` |
+| Fedora | `sudo dnf install gcc cargo gtk4-devel libadwaita-devel poppler-glib-devel libseccomp-devel gettext glycin-loaders` |
+| Debian / Ubuntu | `sudo apt install build-essential cargo libgtk-4-dev libadwaita-1-dev libpoppler-glib-dev libseccomp-dev gettext glycin-loaders` |
 
 These are GNOME 49-era libraries, so distributions released before late 2025 (for example Debian 13 and Ubuntu 24.04) are too old; use the Flatpak there. Check what you have with `pkg-config --modversion gtk4 libadwaita-1 poppler-glib`, and use [rustup](https://rustup.rs) if your Rust is older than 1.92.
 
@@ -110,11 +112,19 @@ lumen ~/Pictures/Trip      # or every picture and PDF in a folder
 
 Drop more files or folders onto the window to add them to the ones you are browsing.
 
-Lumen registers itself for PDF, PNG, JPEG, GIF, WebP, BMP, TIFF, SVG, AVIF and HEIF. All of them can be viewed (SVG, AVIF and HEIF need the matching gdk-pixbuf loaders); JPEG, PNG, WebP, GIF, BMP and TIFF can also be edited and marked up. Edits are saved in place for JPEG, PNG and WebP, and as a copy for the others. Animated GIFs show their first frame. To make it the default PDF viewer:
+Lumen registers itself for PDF and every picture format the installed glycin loaders read: PNG, JPEG, GIF, WebP, BMP, TIFF, SVG, AVIF, HEIF/HEIC, JPEG XL, JPEG 2000, OpenEXR, QOI, TGA, ICO and the PNM family. Animated GIF, APNG and WebP play. JPEG, PNG, WebP, GIF, BMP and TIFF can also be edited and marked up; edits are saved in place for JPEG, PNG and WebP, and as a copy for the others. Camera RAW files need a glycin RAW loader, which most distributions do not ship yet. To make it the default PDF viewer:
 
 ```sh
 xdg-mime default io.github.imanolgo.Lumen.desktop application/pdf
 ```
+
+### Filling in forms
+
+Fields you can fill in have a light blue tint. Click a checkbox or radio button to set it, or a text field or list to type or pick a value next to it. `Enter` finishes a text field; in a field with several lines, `Shift+Enter` starts a new line. Each change can be undone, and `Ctrl+S` saves the answers into the PDF, where any reader sees them. Password-protected PDFs keep their password.
+
+### Signing
+
+Open the markup toolbar (`Ctrl+Shift+A`) and click the signature button. The first time, choose **New Signature…** and sign with your mouse, touchpad or pen; Lumen keeps it for next time. Picking a signature places it on the page, selected, so you can drag it into place and resize it. Clicking a form's signature field signs right into it. In a PDF the signature is a normal ink annotation, so other readers show it. It is a drawn signature, not a certificate-based digital one.
 
 Press `Ctrl+?` in the app for the full, searchable list of shortcuts. The main ones:
 
@@ -126,7 +136,8 @@ Press `Ctrl+?` in the app for the full, searchable list of shortcuts. The main o
 | `Ctrl+=` / `Ctrl+-`, `Ctrl+0` / `Ctrl+1` | Zoom in / out, best fit / 100 % |
 | `Ctrl+R` / `Ctrl+Shift+R` | Rotate right / left |
 | `Ctrl+K` | Crop (`Enter` applies, `Esc` cancels) |
-| `Ctrl+Shift+A` | Markup toolbar |
+| `Ctrl+Shift+A` | Markup toolbar (shapes, text, highlights, signatures) |
+| `Enter` / `Shift+Enter` | Finish a text field or note / new line |
 | `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo |
 | `Ctrl+S` / `Ctrl+Shift+S` | Save / Save As |
 | `Ctrl+F` | Find in PDF |
@@ -141,6 +152,7 @@ Press `Ctrl+?` in the app for the full, searchable list of shortcuts. The main o
 |---|---|
 | `~/.config/lumen/settings.toml` | Preferences |
 | `~/.local/share/lumen/state.toml` | Window size, sidebar state, last page per PDF |
+| `~/.local/share/lumen/signatures.toml` | Your saved signatures (up to eight), as strokes |
 
 Lumen only overwrites a file you opened when you choose Save. Edits and page changes are kept as working copies until then.
 

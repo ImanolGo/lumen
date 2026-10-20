@@ -16,7 +16,7 @@ jobs:
     container: archlinux:latest
     steps:
       - name: Install dependencies
-        run: pacman -Syu --noconfirm --needed base-devel git rust gtk4 libadwaita poppler-glib gettext
+        run: pacman -Syu --noconfirm --needed base-devel git rust gtk4 libadwaita poppler-glib gettext libseccomp
       - uses: actions/checkout@v4
       - name: Build and stage
         run: |
@@ -55,7 +55,7 @@ jobs:
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             build-essential ca-certificates curl dpkg-dev gettext git pkg-config \
-            libgtk-4-dev libadwaita-1-dev libpoppler-glib-dev libglib2.0-dev-bin
+            libgtk-4-dev libadwaita-1-dev libpoppler-glib-dev libglib2.0-dev-bin libseccomp-dev
           curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - uses: actions/checkout@v4

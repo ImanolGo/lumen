@@ -7,6 +7,6 @@ Exec=lumen %F
 Icon=io.github.imanolgo.Lumen
 Terminal=false
 Categories=Graphics;Viewer;GTK;
-MimeType=application/pdf;image/png;image/jpeg;image/gif;image/webp;image/bmp;image/tiff;image/svg+xml;image/avif;image/heif;
+MimeType=application/pdf;image/png;image/jpeg;image/gif;image/webp;image/bmp;image/tiff;image/svg+xml;image/avif;image/heif;image/jxl;image/apng;image/jp2;image/qoi;image/x-exr;image/vnd.microsoft.icon;image/x-tga;image/vnd.radiance;image/x-portable-anymap;image/x-portable-bitmap;image/x-portable-graymap;image/x-portable-pixmap;
 Keywords=image;picture;photo;pdf;document;viewer;annotate;
 StartupNotify=true

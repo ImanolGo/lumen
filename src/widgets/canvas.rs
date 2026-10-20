@@ -27,8 +27,8 @@ use crate::{
         CropRect,
         crop::{self, Grab, Rect},
     },
-    image::{ImageDocument, Orientation},
-    pdf::{HitRect, Link, LinkTarget, PageLayout, PagePoint},
+    image::{Animation, ImageDocument, Orientation},
+    pdf::{FieldKind, FormField, HitRect, Link, LinkTarget, PageLayout, PagePoint},
     settings::Background,
 };
 
@@ -59,6 +59,8 @@ pub enum SelectGesture {
     End { moved: bool },
     /// A plain click on a link.
     OpenLink(LinkTarget),
+    /// A plain click on a form field that can be filled in.
+    Form { page: usize, field: FormField },
 }
 
 /// How the pointer is used on the canvas with regard to markup.
@@ -116,6 +118,9 @@ impl ViewInfo {
 const SELECTION_COLOR: gdk::RGBA = gdk::RGBA::new(0.2, 0.5, 1.0, 0.35);
 const HIT_OTHER: gdk::RGBA = gdk::RGBA::new(1.0, 0.85, 0.0, 0.45);
 const HIT_CURRENT: gdk::RGBA = gdk::RGBA::new(1.0, 0.45, 0.0, 0.6);
+/// The tint and edge of form fields that can be filled in.
+const FORM_FILL: gdk::RGBA = gdk::RGBA::new(0.21, 0.52, 0.89, 0.10);
+const FORM_EDGE: gdk::RGBA = gdk::RGBA::new(0.21, 0.52, 0.89, 0.45);
 /// The soft shadow under each PDF page, so pages read as paper on any background.
 const PAGE_SHADOW: gdk::RGBA = gdk::RGBA::new(0.0, 0.0, 0.0, 0.22);
 
@@ -153,6 +158,8 @@ pub struct PagesState {
     selection: HashMap<usize, Vec<HitRect>>,
     /// Clickable links per page.
     links: HashMap<usize, Vec<Link>>,
+    /// Form fields per page.
+    forms: HashMap<usize, Vec<FormField>>,
 }
 
 mod imp {
@@ -163,7 +170,14 @@ mod imp {
     #[derive(glib::Properties)]
     #[properties(wrapper_type = super::LumenCanvas)]
     pub struct LumenCanvas {
+        /// What is drawn: the picture, or the current frame of an animation.
         pub texture: RefCell<Option<gdk::Texture>>,
+        /// The picture being shown (its first frame), to tell a new picture from the next frame.
+        pub source: RefCell<Option<gdk::Texture>>,
+        pub animation: RefCell<Option<Animation>>,
+        pub frame: Cell<usize>,
+        /// Bumped whenever the content changes; timers of an older animation stop.
+        pub animation_generation: Cell<u64>,
         pub orientation: Cell<Orientation>,
         /// Unoriented size the zoom applies to; `None` when there is no content.
         pub logical: Cell<Option<(f64, f64)>>,
@@ -210,6 +224,10 @@ mod imp {
         fn default() -> Self {
             Self {
                 texture: RefCell::default(),
+                source: RefCell::default(),
+                animation: RefCell::default(),
+                frame: Cell::new(0),
+                animation_generation: Cell::new(0),
                 orientation: Cell::new(Orientation::NORMAL),
                 logical: Cell::new(None),
                 crisp: Cell::new(true),
@@ -443,6 +461,7 @@ impl LumenCanvas {
         let imp = self.imp();
         match content {
             CanvasContent::None => {
+                self.stop_animation();
                 if imp.logical.get().is_some() {
                     *imp.pages.borrow_mut() = None;
                     *imp.texture.borrow_mut() = None;
@@ -453,11 +472,15 @@ impl LumenCanvas {
             CanvasContent::Image(image) => {
                 let unchanged = imp.crisp.get()
                     && imp.logical.get().is_some()
-                    && imp.texture.borrow().as_ref() == Some(&image.texture)
+                    && imp.source.borrow().as_ref() == Some(&image.texture)
                     && imp.orientation.get() == image.orientation;
                 if !unchanged {
+                    self.stop_animation();
                     *imp.pages.borrow_mut() = None;
                     *imp.texture.borrow_mut() = Some(image.texture.clone());
+                    *imp.source.borrow_mut() = Some(image.texture.clone());
+                    *imp.animation.borrow_mut() = image.animation.clone();
+                    self.next_frame_later();
                     imp.orientation.set(image.orientation);
                     imp.logical.set(Some((
                         image.texture.width() as f64,
@@ -470,7 +493,16 @@ impl LumenCanvas {
             CanvasContent::Pages { key, layout } => {
                 let same = imp.pages.borrow().is_some() && imp.content_key.get() == key;
                 if !same {
+                    // A new version of the same pages (a form filled in, an undo) keeps the
+                    // zoom and scroll position; anything else starts fitted, at the top.
+                    let keep_view = imp
+                        .pages
+                        .borrow()
+                        .as_ref()
+                        .is_some_and(|old| old.layout.rects == layout.rects);
+                    self.stop_animation();
                     *imp.texture.borrow_mut() = None;
+                    *imp.source.borrow_mut() = None;
                     imp.orientation.set(Orientation::NORMAL);
                     imp.logical.set(Some(layout.size));
                     imp.crisp.set(false);
@@ -482,11 +514,59 @@ impl LumenCanvas {
                         current_hit: None,
                         selection: HashMap::new(),
                         links: HashMap::new(),
+                        forms: HashMap::new(),
                     });
-                    self.new_content();
+                    if keep_view {
+                        // Report the view again, so the new document's pages get rendered.
+                        imp.last_view.set(None);
+                        self.notify_view();
+                        self.queue_draw();
+                    } else {
+                        self.new_content();
+                    }
                 }
             }
         }
+    }
+
+    /// Forget the animation being played, if any; its pending timer becomes a no-op.
+    fn stop_animation(&self) {
+        let imp = self.imp();
+        imp.animation_generation
+            .set(imp.animation_generation.get() + 1);
+        imp.animation.replace(None);
+        imp.frame.set(0);
+    }
+
+    /// Show the next frame of the animation once the current one has had its time.
+    fn next_frame_later(&self) {
+        let imp = self.imp();
+        let Some(animation) = imp.animation.borrow().clone() else {
+            return;
+        };
+        let generation = imp.animation_generation.get();
+        // Like browsers, treat delays of 10 ms or less as 100 ms: old GIFs rely on it.
+        let delay = animation.frames[imp.frame.get()].1;
+        let delay = if delay <= std::time::Duration::from_millis(10) {
+            std::time::Duration::from_millis(100)
+        } else {
+            delay
+        };
+        let canvas = self.downgrade();
+        glib::timeout_add_local_once(delay, move || {
+            let Some(canvas) = canvas.upgrade() else {
+                return;
+            };
+            let imp = canvas.imp();
+            if imp.animation_generation.get() != generation {
+                return;
+            }
+            let next = (imp.frame.get() + 1) % animation.frames.len();
+            imp.frame.set(next);
+            imp.texture.replace(Some(animation.frames[next].0.clone()));
+            canvas.queue_draw();
+            canvas.next_frame_later();
+        });
     }
 
     /// Show `texture` for page `index` (or blank paper for `None`).
@@ -623,9 +703,13 @@ impl LumenCanvas {
                     .get()
                     .is_some_and(|(_, _, _, n)| n == 1);
                 let (x, y) = origin.get();
-                match canvas.link_at(x, y).filter(|_| !moved && single_click) {
-                    Some(target) => canvas.emit_select(SelectGesture::OpenLink(target)),
-                    None => canvas.emit_select(SelectGesture::End { moved }),
+                let click = !moved && single_click;
+                if let Some((page, field)) = canvas.form_at(x, y).filter(|_| click) {
+                    canvas.emit_select(SelectGesture::Form { page, field });
+                } else if let Some(target) = canvas.link_at(x, y).filter(|_| click) {
+                    canvas.emit_select(SelectGesture::OpenLink(target));
+                } else {
+                    canvas.emit_select(SelectGesture::End { moved });
                 }
             }
         ));
@@ -673,6 +757,50 @@ impl LumenCanvas {
         }
     }
 
+    /// Show the form fields of every page that has some.
+    pub fn set_forms(&self, forms: &std::collections::BTreeMap<usize, Vec<FormField>>) {
+        if let Some(pages) = self.imp().pages.borrow_mut().as_mut() {
+            pages.forms = forms.iter().map(|(p, f)| (*p, f.clone())).collect();
+        }
+        self.queue_draw();
+    }
+
+    /// The point of `page` at the centre of the view, in document units.
+    pub fn view_center(&self, page: usize) -> Option<annotate::Point> {
+        self.doc_point(page, self.width() as f64 / 2.0, self.height() as f64 / 2.0)
+    }
+
+    /// The editable form field under widget coordinates (`x`, `y`), if any.
+    fn form_at(&self, x: f64, y: f64) -> Option<(usize, FormField)> {
+        let point = self.page_point_at(x, y)?;
+        let pages = self.imp().pages.borrow();
+        let fields = pages.as_ref()?.forms.get(&point.page)?;
+        fields
+            .iter()
+            .find(|f| f.editable() && f.contains(point.x, point.y))
+            .map(|f| (point.page, f.clone()))
+    }
+
+    /// A popover pointing at `area` (points) of `page`, removed again once closed.
+    pub fn popup_at(&self, page: usize, area: &HitRect) -> Option<gtk::Popover> {
+        let (ox, oy) = self.page_origin(page)?;
+        let zoom = self.effective_zoom();
+        let target = gdk::Rectangle::new(
+            (ox + area.x1 * zoom) as i32,
+            (oy + area.y1 * zoom) as i32,
+            ((area.x2 - area.x1) * zoom).max(8.0) as i32,
+            ((area.y2 - area.y1) * zoom).max(8.0) as i32,
+        );
+        let popover = gtk::Popover::new();
+        popover.set_parent(self);
+        popover.set_pointing_to(Some(&target));
+        popover.connect_closed(|popover| {
+            let popover = popover.clone();
+            glib::idle_add_local_once(move || popover.unparent());
+        });
+        Some(popover)
+    }
+
     /// The link under widget coordinates (`x`, `y`), if any.
     fn link_at(&self, x: f64, y: f64) -> Option<LinkTarget> {
         let point = self.page_point_at(x, y)?;
@@ -706,10 +834,11 @@ impl LumenCanvas {
             return;
         }
         if self.has_pages() && !self.imp().dragging.get() {
-            let name = if self.link_at(x, y).is_some() {
-                "pointer"
-            } else {
-                "text"
+            let name = match self.form_at(x, y) {
+                Some((_, field)) if matches!(field.kind, FieldKind::Text { .. }) => "text",
+                Some(_) => "pointer",
+                None if self.link_at(x, y).is_some() => "pointer",
+                None => "text",
             };
             self.set_cursor_from_name(Some(name));
         }
@@ -979,7 +1108,7 @@ impl LumenCanvas {
             .build();
         popover.set_child(Some(&scroller));
 
-        // Ctrl+Enter finishes; Escape or a click elsewhere does too.
+        // Enter finishes, as do Escape and a click elsewhere; Shift+Enter starts a new line.
         let keys = gtk::EventControllerKey::new();
         keys.connect_key_pressed(glib::clone!(
             #[weak]
@@ -988,7 +1117,7 @@ impl LumenCanvas {
             glib::Propagation::Proceed,
             move |_, key, _, state| {
                 let enter = key == gdk::Key::Return || key == gdk::Key::KP_Enter;
-                if enter && state.contains(gdk::ModifierType::CONTROL_MASK) {
+                if enter && !state.contains(gdk::ModifierType::SHIFT_MASK) {
                     popover.popdown();
                     return glib::Propagation::Stop;
                 }
@@ -1321,6 +1450,22 @@ impl LumenCanvas {
                     snapshot.append_scaled_texture(texture, gsk::ScalingFilter::Trilinear, &bounds)
                 }
                 None => snapshot.append_color(&gdk::RGBA::WHITE, &bounds),
+            }
+            // Fields that can be filled in get a light tint and edge, as in other readers.
+            for field in pages.forms.get(&index).into_iter().flatten() {
+                if !field.editable() {
+                    continue;
+                }
+                let a = &field.area;
+                let rect = graphene::Rect::new(
+                    (ox + (r.x + a.x1) * zoom) as f32,
+                    (oy + (r.y + a.y1) * zoom) as f32,
+                    ((a.x2 - a.x1) * zoom) as f32,
+                    ((a.y2 - a.y1) * zoom) as f32,
+                );
+                snapshot.append_color(&FORM_FILL, &rect);
+                let edge = gsk::RoundedRect::from_rect(rect, 0.0);
+                snapshot.append_border(&edge, &[1.0; 4], &[FORM_EDGE; 4]);
             }
             self.snapshot_markup(snapshot, index, (ox + r.x * zoom, oy + r.y * zoom), zoom);
             if let Some(rects) = pages.selection.get(&index) {

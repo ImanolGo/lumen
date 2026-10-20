@@ -8,7 +8,7 @@ pkgdesc='Fast image and PDF viewer with light editing, markup and page managemen
 arch=('x86_64' 'aarch64')
 url='https://github.com/ImanolGo/lumen'
 license=('GPL-3.0-or-later')
-depends=('gtk4>=4.16' 'libadwaita>=1.8' 'poppler-glib>=25.06' 'glib2' 'cairo')
+depends=('gtk4>=4.16' 'libadwaita>=1.8' 'poppler-glib>=25.06' 'glib2' 'cairo' 'glycin' 'libseccomp')
 makedepends=('cargo' 'gettext' 'git')
 checkdepends=('desktop-file-utils' 'appstream')
 provides=("$_pkgname")

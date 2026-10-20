@@ -9,8 +9,15 @@
 #
 # Environment: LUMEN_BIN (default target/release/lumen), SCHEME (prefer-light or
 # prefer-dark), WIN_W and WIN_H (window size, at most 1024×768 here).
-# Needs gtk4-broadwayd (part of GTK), chromium and gdbus. Run from the repository root.
+# Needs gtk4-broadwayd (part of GTK), chromium, gdbus and dbus-run-session. Run from the
+# repository root. It never touches a Lumen you have open: it runs on a private session bus.
 set -eu
+
+# Run in a private session bus: otherwise a Lumen the user already has open would receive the
+# files and the actions (GApplication hands both to the running instance).
+if [ -z "${LUMEN_PRIVATE_BUS:-}" ]; then
+    exec env LUMEN_PRIVATE_BUS=1 dbus-run-session -- "$0" "$@"
+fi
 
 out=$(realpath -m "$1")
 shift
@@ -68,7 +75,12 @@ for action in "${actions[@]}"; do
     sleep 0.4
 done
 sleep 0.5
-call screenshot-to "[<'$out'>]"
-sleep 0.5
+# The first frames can take a moment (more so on a fresh bus); try until one is written.
+rm -f "$out"
+for _ in $(seq 20); do
+    call screenshot-to "[<'$out'>]"
+    sleep 0.5
+    [ -f "$out" ] && break
+done
 [ -f "$out" ] || { cat "$work/lumen.log" >&2; echo "no screenshot was written" >&2; exit 1; }
 echo "wrote $out"

@@ -4,6 +4,16 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Added
+- Pictures are decoded with glycin, in sandboxed processes, so a malicious file cannot reach the system. This adds HEIC, AVIF, JPEG XL, JPEG 2000, OpenEXR, QOI and more, and animated GIF, APNG and WebP now play. File thumbnails are decoded the same way. Without glycin's loaders, GTK's own decoders are used as before.
+- PDF forms can be filled in: text fields, checkboxes, radio buttons and lists. Each change is one undo step, and the saved file shows the answers in any reader.
+- Signatures: draw one once, keep it, and stamp it onto PDFs and pictures, or into a form's signature field. On a PDF it is one ink annotation that other readers show.
+
+### Changed
+- Rust 1.93 or newer is needed (glycin 4), and libseccomp to build.
+- Reloading a PDF with the same pages (a form filled in, an undo) keeps the zoom and scroll position.
+- In text annotations and multi-line form fields, `Enter` finishes and `Shift+Enter` starts a new line (it was `Ctrl+Enter` to finish).
+
 ### Changed
 - New app icon and symbolic icon: a fan of pages, the front one holding a photo above text with a highlighter stroke.
 - Retook the screenshots.

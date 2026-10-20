@@ -27,6 +27,8 @@ pub enum ThumbData {
     },
     /// The first page of a PDF.
     Page(crate::pdf::RenderedPage),
+    /// Decoded in glycin's sandbox.
+    Texture(gdk::Texture),
 }
 
 impl ThumbData {
@@ -47,6 +49,7 @@ impl ThumbData {
                 gdk::MemoryTexture::new(width, height, format, &bytes, rowstride).upcast()
             }
             Self::Page(page) => page.into_texture(),
+            Self::Texture(texture) => texture,
         }
     }
 }
@@ -104,6 +107,16 @@ fn render(path: &std::path::Path) -> Option<ThumbData> {
         return crate::pdf::render_thumbnail(path, THUMB_SIZE)
             .ok()
             .map(ThumbData::Page);
+    }
+    // Pictures from anywhere are decoded in glycin's sandbox when it is installed.
+    if crate::image::decode::sandboxed() {
+        return match crate::image::decode::thumbnail(path, THUMB_SIZE as u32) {
+            Ok(texture) => Some(ThumbData::Texture(texture)),
+            Err(err) => {
+                tracing::debug!(path = %path.display(), "no thumbnail: {err:#}");
+                None
+            }
+        };
     }
     let pixbuf = Pixbuf::from_file_at_scale(path, THUMB_SIZE, THUMB_SIZE, true).ok()?;
     let pixbuf = pixbuf.apply_embedded_orientation().unwrap_or(pixbuf);

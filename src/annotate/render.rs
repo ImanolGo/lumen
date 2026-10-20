@@ -85,6 +85,21 @@ fn draw(cr: &cairo::Context, a: &Annotation) -> Result<(), cairo::Error> {
                 cr.stroke()?;
             }
         }
+        Shape::Ink(strokes) => {
+            for stroke in strokes {
+                if let Some((first, rest)) = stroke.split_first() {
+                    cr.move_to(first.x, first.y);
+                    if rest.is_empty() {
+                        cr.line_to(first.x, first.y);
+                    }
+                    for p in rest {
+                        cr.line_to(p.x, p.y);
+                    }
+                }
+            }
+            set_color(cr, a.style.stroke, None);
+            cr.stroke()?;
+        }
         Shape::Highlight(rects) => {
             for r in rects {
                 cr.rectangle(r.x, r.y, r.w, r.h);
