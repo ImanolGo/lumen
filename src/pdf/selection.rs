@@ -12,7 +12,7 @@ use std::{
 
 use poppler::{Rectangle, SelectionStyle};
 
-use super::{HitRect, PdfSource, open_document, poppler_lock};
+use super::{HitRect, LazyDoc, PdfSource, poppler_lock};
 
 /// A point on a page, in points from the page's top-left corner.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -174,11 +174,7 @@ impl SelectionWorker {
         let worker = Arc::clone(&shared);
         let source = source.clone();
         thread::spawn(move || {
-            let doc = {
-                let _poppler = poppler_lock();
-                open_document(&source)
-            };
-            let Ok(doc) = doc else { return };
+            let mut doc = LazyDoc::new(&source);
             let mut pages: HashMap<usize, poppler::Page> = HashMap::new();
             loop {
                 let request = {
@@ -194,6 +190,7 @@ impl SelectionWorker {
                         state = condvar.wait(state).unwrap();
                     }
                 };
+                let Ok(doc) = doc.get() else { continue };
                 let _poppler = poppler_lock();
                 if pages.len() > PAGE_CACHE {
                     pages.clear();

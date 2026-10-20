@@ -11,7 +11,7 @@ use std::{
 
 use poppler::FindFlags;
 
-use super::{PdfSource, open_document, poppler_lock};
+use super::{LazyDoc, PdfSource, poppler_lock};
 
 /// A match, in points from the top-left corner of its page.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -61,13 +61,8 @@ impl SearchWorker {
         let worker = Arc::clone(&shared);
         let source = source.clone();
         thread::spawn(move || {
-            // Poppler documents are not `Send`, so the thread opens its own.
-            let doc = {
-                let _poppler = poppler_lock();
-                open_document(&source)
-            };
-            let Ok(doc) = doc else { return };
-            let n_pages = doc.n_pages().max(0) as usize;
+            // Poppler documents are not `Send`, so the thread opens its own, at the first search.
+            let mut doc = LazyDoc::new(&source);
             loop {
                 let query = {
                     let (lock, condvar) = &*worker;
@@ -83,6 +78,11 @@ impl SearchWorker {
                     }
                 };
 
+                let Ok(doc) = doc.get() else {
+                    on_event(SearchEvent::Done { id: query.id });
+                    continue;
+                };
+                let n_pages = doc.n_pages().max(0) as usize;
                 // Start at the page being viewed, then wrap around.
                 let start = query.start_page.min(n_pages.saturating_sub(1));
                 let mut finished = true;

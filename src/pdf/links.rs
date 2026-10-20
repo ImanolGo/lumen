@@ -15,7 +15,7 @@ use relm4::gtk::glib::translate::ToGlibPtr;
 
 use poppler::{Document, ffi};
 
-use super::{HitRect, PdfSource, open_document, outline::resolve, poppler_lock};
+use super::{HitRect, LazyDoc, PdfSource, outline::resolve, poppler_lock};
 
 /// Where a link leads.
 #[derive(Debug, Clone, PartialEq)]
@@ -92,11 +92,7 @@ impl LinkWorker {
         let worker = Arc::clone(&shared);
         let source = source.clone();
         thread::spawn(move || {
-            let doc = {
-                let _poppler = poppler_lock();
-                open_document(&source)
-            };
-            let Ok(doc) = doc else { return };
+            let mut doc = LazyDoc::new(&source);
             loop {
                 let index = {
                     let (lock, condvar) = &*worker;
@@ -111,9 +107,10 @@ impl LinkWorker {
                         state = condvar.wait(state).unwrap();
                     }
                 };
+                let Ok(doc) = doc.get() else { continue };
                 let links = {
                     let _poppler = poppler_lock();
-                    read_links(&doc, index, &page_sizes)
+                    read_links(doc, index, &page_sizes)
                 };
                 on_page(LinksLoaded { page: index, links });
             }
@@ -252,7 +249,7 @@ mod tests {
         let path =
             std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/links.pdf");
         let _poppler = poppler_lock();
-        let doc = open_document(&PdfSource::new(&path, None)).unwrap();
+        let doc = crate::pdf::open_document(&PdfSource::new(&path, None)).unwrap();
         let links = read_links(&doc, 0, &[(400.0, 300.0), (400.0, 300.0)]);
         assert_eq!(links.len(), 3, "got {links:?}");
 

@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::Result;
 
-use super::{PdfSource, RenderedPage, open_document, poppler_lock, render_page};
+use super::{LazyDoc, PdfSource, RenderedPage, poppler_lock, render_page};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RenderJob {
@@ -40,10 +40,7 @@ impl PageRenderer {
         let source = source.clone();
         thread::spawn(move || {
             // Poppler documents are not `Send`, so the thread opens its own.
-            let doc = {
-                let _poppler = poppler_lock();
-                open_document(&source).map_err(|err| format!("{err:#}"))
-            };
+            let mut doc = LazyDoc::new(&source);
             loop {
                 let job = {
                     let (lock, condvar) = &*worker;
@@ -59,12 +56,12 @@ impl PageRenderer {
                         state = condvar.wait(state).unwrap();
                     }
                 };
-                let result = match &doc {
+                let result = match doc.get() {
                     Ok(doc) => {
                         let _poppler = poppler_lock();
                         render_page(doc, job.page, job.scale).map_err(|e| format!("{e:#}"))
                     }
-                    Err(err) => Err(err.clone()),
+                    Err(err) => Err(err),
                 };
                 worker.0.lock().unwrap().in_flight = None;
                 on_done(job, result);

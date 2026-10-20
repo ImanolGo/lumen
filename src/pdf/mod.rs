@@ -116,6 +116,35 @@ fn poppler_lock() -> std::sync::MutexGuard<'static, ()> {
     LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// A document a worker thread opens only when its first job arrives, so a worker that is
+/// never needed (no search, no thumbnails) never parses the file.
+struct LazyDoc {
+    source: PdfSource,
+    doc: Option<Result<poppler::Document, String>>,
+}
+
+impl LazyDoc {
+    fn new(source: &PdfSource) -> Self {
+        Self {
+            source: source.clone(),
+            doc: None,
+        }
+    }
+
+    /// The document, opened now if it was not yet. Takes the Poppler lock while opening, so
+    /// call it without holding the lock.
+    fn get(&mut self) -> Result<&poppler::Document, String> {
+        let source = &self.source;
+        self.doc
+            .get_or_insert_with(|| {
+                let _poppler = poppler_lock();
+                open_document(source).map_err(|err| format!("{err:#}"))
+            })
+            .as_ref()
+            .map_err(Clone::clone)
+    }
+}
+
 /// A PDF file and the password that unlocks it, if it has one.
 #[derive(Debug, Clone)]
 pub struct PdfSource {
