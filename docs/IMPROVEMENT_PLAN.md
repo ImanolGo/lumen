@@ -100,7 +100,7 @@ These are the rules for the features and polish below. When in doubt, choose the
 - **Done when:** a new control test opens a folder of 3 pictures, edits and saves the middle
   one, and `GetState` still reports 3 files with index 1. Save As reports 4 files.
 
-### - [ ] A2 ✅ 🟢 A failed preview render undoes a committed edit
+### - [x] A2 ✅ 🟢 A failed preview render undoes a committed edit
 - **Where:** `src/app/edit.rs:287–296` (`edit_rendered`, `Err` branch).
 - **Problem:** While the Adjust sliders are moving, `refresh_edit` renders a *preview* that is
   not on the stack. If that render fails, the code calls `session.stack.undo()` and removes the

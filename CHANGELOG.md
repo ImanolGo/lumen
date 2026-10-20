@@ -6,6 +6,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ### Fixed
 - Saving a picture or PDF no longer replaces the files you are browsing with just the saved one; Save As adds the copy after the current file.
+- A colour-adjust preview that failed to render no longer undoes the last edit you made.
 
 ## [0.3.1] - 2026-10-20
 

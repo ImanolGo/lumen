@@ -36,6 +36,8 @@ pub struct EditSession {
     pub stored: Option<Arc<DynamicImage>>,
     /// Identifies the newest render request; older results are dropped.
     pub ticket: u64,
+    /// The newest request is a preview of an unapplied tool, not the edits on the stack.
+    pub previewing: bool,
 }
 
 /// Something the user asked for that must wait until unsaved edits are dealt with.
@@ -147,6 +149,7 @@ impl App {
             stack: EditStack::default(),
             stored: None,
             ticket: 0,
+            previewing: false,
         });
         self.edited = None;
         self.edit_mode = EditMode::None;
@@ -236,6 +239,7 @@ impl App {
         }
 
         session.ticket += 1;
+        session.previewing = preview.is_some();
         let ticket = session.ticket;
         let mut ops = session.stack.active().to_vec();
         ops.extend(preview);
@@ -287,8 +291,12 @@ impl App {
             Err(message) => {
                 tracing::warn!("edit failed: {message}");
                 if ticket == session.ticket {
-                    // Take back what could not be applied.
-                    session.stack.undo();
+                    // Take back what could not be applied; a preview was never on the stack.
+                    if !session.previewing {
+                        session.stack.undo();
+                    }
+                    session.previewing = false;
+                    self.adjust = Adjustments::default();
                     self.edit_mode = EditMode::None;
                     self.canvas.end_crop();
                     self.refresh_after_failure();
