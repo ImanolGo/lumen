@@ -11,7 +11,7 @@ makedepends=('cargo' 'gettext')
 checkdepends=('desktop-file-utils' 'appstream')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
 # After each new tag: `updpkgsums`, then `makepkg --printsrcinfo > .SRCINFO`.
-sha256sums=('a668d1ba8f860161d4f58962021395828c8159bca89bca979075e5919939e9dd')
+sha256sums=('ae9a8d79eafa8b551b26653bdd1f99c05ff9c3827685e9c69d6be16e2b4242ed')
 
 prepare() {
     cd "$pkgname-$pkgver"
