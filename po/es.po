@@ -192,11 +192,11 @@ msgid "Line width"
 msgstr "Grosor de línea"
 
 #: src/app/pages.rs:219
-#, fuzzy, rust-format
+#, rust-format
 msgid "{n} page deleted"
 msgid_plural "{n} pages deleted"
-msgstr[0] "{n} página"
-msgstr[1] "{n} páginas"
+msgstr[0] "{n} página eliminada"
+msgstr[1] "{n} páginas eliminadas"
 
 #: src/app/pages.rs:220 src/app.rs:1996 src/app/shortcuts.rs:58
 msgid "Undo"
