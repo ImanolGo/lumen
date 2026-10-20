@@ -4,6 +4,8 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-20
+
 ### Fixed
 - SVG drawings stay sharp when zoomed in: the part in view is rendered again at the zoom level (in glycin's sandbox) instead of the decoded pixels being enlarged.
 - The orientation glycin reads from a picture (HEIF and other formats Lumen's own EXIF reader does not cover) is used again; pictures without any orientation tag counted as rotated internally.
@@ -53,7 +55,8 @@ First release.
 - Packages: Flatpak, `.deb` for Ubuntu 26.04+ and Debian testing (`make deb`), and `lumen` and `lumen-git` PKGBUILDs for the AUR. The release workflow builds the Flatpak, the `.deb` and a tarball, and can be run by hand without publishing.
 - README, `CONTRIBUTING.md`, `docs/RELEASING.md` and this changelog.
 
-[Unreleased]: https://github.com/ImanolGo/lumen/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/ImanolGo/lumen/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/ImanolGo/lumen/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/ImanolGo/lumen/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ImanolGo/lumen/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ImanolGo/lumen/releases/tag/v0.1.0
