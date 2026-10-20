@@ -195,7 +195,7 @@ These are the rules for the features and polish below. When in doubt, choose the
 - **Done when:** no `state.toml` write happens while holding → over 100 files (check with
   `strace -e rename`), and the last page is still remembered after closing.
 
-### - [ ] A8 🔍 🟢 The page-number entry is overwritten while typing, and `Ctrl+G` may focus a hidden entry
+### - [x] A8 (fixed defensively, not reproduced headless) 🔍 🟢 The page-number entry is overwritten while typing, and `Ctrl+G` may focus a hidden entry
 - **Where:**
   - `src/app.rs:1793`: `#[watch] set_text: &model.page_text()` re-applies on *every* message
     (page renders, thumbnails, `ControlsIdle`).

@@ -1810,8 +1810,6 @@ impl SimpleComponent for App {
                                         gtk::prelude::EditableExt::set_alignment: 1.0,
                                         set_valign: gtk::Align::Center,
                                         set_tooltip_text: Some(&tr("Go to page (Ctrl+G)")),
-                                        #[watch]
-                                        set_text: &model.page_text(),
                                         connect_activate[sender] => move |entry| {
                                             sender.input(AppMsg::GotoPageText(entry.text().to_string()));
                                         },
@@ -1876,6 +1874,11 @@ impl SimpleComponent for App {
     }
 
     fn post_view() {
+        // The page number follows the view, but never overwrites what is being typed.
+        let page_text = model.page_text();
+        if widgets.page_entry.text() != page_text && !entry_has_focus(&widgets.page_entry) {
+            widgets.page_entry.set_text(&page_text);
+        }
         let color = model.markup_color();
         if model.style_color.get() != color {
             model.style_color.set(color);
@@ -2251,10 +2254,27 @@ impl SimpleComponent for App {
 
         let goto_action = gio::SimpleAction::new("goto-page", None);
         let entry = widgets.page_entry.clone();
+        let goto_sender = sender.clone();
         goto_action.connect_activate(move |_, _| {
-            entry.grab_focus();
-            entry.select_region(0, -1);
+            // The page controls may be faded out: bring them back before focusing the entry.
+            goto_sender.input(AppMsg::Hover(true));
+            let entry = entry.clone();
+            glib::timeout_add_local_once(std::time::Duration::from_millis(40), move || {
+                entry.grab_focus();
+                entry.select_region(0, -1);
+            });
         });
+        // The controls stay while the entry is in use.
+        let focus = gtk::EventControllerFocus::new();
+        focus.connect_enter({
+            let sender = sender.clone();
+            move |_| sender.input(AppMsg::ControlsHover(true))
+        });
+        focus.connect_leave({
+            let sender = sender.clone();
+            move |_| sender.input(AppMsg::ControlsHover(false))
+        });
+        widgets.page_entry.add_controller(focus);
         widgets.main_window.add_action(&goto_action);
         relm4::main_application().set_accels_for_action("win.goto-page", &["<Control>g"]);
 
@@ -2820,6 +2840,8 @@ impl App {
                 if let Ok(page) = text.trim().parse::<usize>() {
                     self.goto_page(page.saturating_sub(1));
                 }
+                // Back to the view, so the entry shows the page that was reached.
+                self.canvas.grab_focus();
             }
             AppMsg::Select(gesture) => {
                 if self.pdf.is_none() {
@@ -3315,6 +3337,16 @@ fn color_circle(
         }
     });
     area
+}
+
+/// Whether the keyboard focus is in `entry` (a `GtkEntry` holds its text in a child).
+fn entry_has_focus(entry: &gtk::Entry) -> bool {
+    entry
+        .root()
+        .and_then(|root| root.focus())
+        .is_some_and(|focus| {
+            focus.is_ancestor(entry) || focus == *entry.upcast_ref::<gtk::Widget>()
+        })
 }
 
 /// Render the window, as it is on screen, into a PNG file.
