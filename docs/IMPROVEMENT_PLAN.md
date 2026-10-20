@@ -83,7 +83,7 @@ These are the rules for the features and polish below. When in doubt, choose the
 
 ## Phase A: Correctness and file safety (do first)
 
-### - [ ] A1 ✅ 🟢 Saving a picture collapses the browsed list to one file
+### - [x] A1 ✅ 🟢 Saving a picture collapses the browsed list to one file
 - **Where:** `src/app/edit.rs:567`, which sends `AppMsg::Open(vec![dest])` after every
   successful save.
 - **Problem:** You browse a folder of 200 photos, rotate one and press `Ctrl+S`. `Open` replaces

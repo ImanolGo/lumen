@@ -456,6 +456,50 @@ fn edits_a_picture_and_saves_a_copy() {
 }
 
 #[test]
+fn saving_keeps_the_files_being_browsed() {
+    let Some(lumen) = Lumen::start("browse-save", &[]) else {
+        return;
+    };
+    let pictures: Vec<_> = ["a.png", "b.png", "c.png"]
+        .iter()
+        .map(|name| {
+            let path = lumen.path(name);
+            image::RgbImage::from_pixel(60, 40, image::Rgb([10, 20, 30]))
+                .save(&path)
+                .unwrap();
+            path
+        })
+        .collect();
+    let refs: Vec<&Path> = pictures.iter().map(|p| p.as_path()).collect();
+    let state = lumen.call("Open", args(&[paths(&refs), no_options()]));
+    assert_eq!(state["files"].as_array().unwrap().len(), 3);
+
+    lumen.call(
+        "EditImage",
+        args(&["rotate-right".to_variant(), no_options()]),
+    );
+    let in_place = options(&[("overwrite", true.to_variant())]);
+    let state = lumen.call(
+        "Save",
+        args(&[pictures[0].display().to_string().to_variant(), in_place]),
+    );
+    assert_eq!(state["files"].as_array().unwrap().len(), 3);
+    assert_eq!(state["index"], 0);
+
+    lumen.call(
+        "EditImage",
+        args(&["rotate-right".to_variant(), no_options()]),
+    );
+    let copy = lumen.path("a-copy.png");
+    let state = lumen.call(
+        "Save",
+        args(&[copy.display().to_string().to_variant(), no_options()]),
+    );
+    assert_eq!(state["files"].as_array().unwrap().len(), 4);
+    assert_eq!(state["index"], 1);
+}
+
+#[test]
 fn protected_pdfs_open_with_their_password_and_never_ask() {
     let Some(lumen) = Lumen::start("password", &[]) else {
         return;

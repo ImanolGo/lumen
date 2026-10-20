@@ -4,6 +4,9 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Fixed
+- Saving a picture or PDF no longer replaces the files you are browsing with just the saved one; Save As adds the copy after the current file.
+
 ## [0.3.1] - 2026-10-20
 
 ### Fixed

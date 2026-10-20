@@ -249,6 +249,9 @@ pub enum AppMsg {
         files: Vec<PathBuf>,
         add: bool,
     },
+    /// A file was saved: show it again, keeping the files being browsed (a copy is added
+    /// after the current file).
+    ShowSaved(PathBuf),
     /// Move by this many files in the list.
     Navigate(isize),
     /// Jump to a list index (sidebar click).
@@ -2561,6 +2564,19 @@ impl App {
                     self.refresh_strip();
                     self.show_index(0, &sender);
                 }
+            }
+            AppMsg::ShowSaved(dest) => {
+                self.cache.retain(|(p, _)| *p != dest);
+                let index = match self.list.iter().position(|f| *f == dest) {
+                    Some(index) => index,
+                    None => {
+                        let at = (self.index + 1).min(self.list.len());
+                        self.list.insert(at, dest);
+                        self.refresh_strip();
+                        at
+                    }
+                };
+                self.show_index(index, &sender);
             }
             AppMsg::Navigate(delta) => {
                 // With an annotation selected, the arrow keys move it instead.

@@ -564,7 +564,7 @@ impl App {
                     // The saved file is opened again; a call answers once it is.
                     None => {
                         self.control_saved_reopens();
-                        sender.input(AppMsg::Open(vec![dest]));
+                        sender.input(AppMsg::ShowSaved(dest));
                     }
                 }
             }
