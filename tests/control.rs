@@ -56,6 +56,11 @@ impl Lumen {
     /// Start Lumen with `files`, or `None` if the tools to run it headless are missing.
     fn start(test: &str, files: &[PathBuf]) -> Option<Self> {
         if !installed("dbus-daemon") || !installed("gtk4-broadwayd") {
+            // CI sets this, so a missing tool fails the run instead of silently skipping it.
+            assert!(
+                std::env::var_os("LUMEN_REQUIRE_CONTROL_TESTS").is_none(),
+                "{test}: dbus-daemon or gtk4-broadwayd is not installed"
+            );
             eprintln!("skipping {test}: dbus-daemon or gtk4-broadwayd is not installed");
             return None;
         }

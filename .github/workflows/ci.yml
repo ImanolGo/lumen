@@ -21,7 +21,15 @@ jobs:
       - name: Lints
         run: cargo clippy --all-targets --locked -- -D warnings
       - name: Tests
+        # The end-to-end tests drive the real app on Broadway; they must run, not skip.
+        env:
+          LUMEN_REQUIRE_CONTROL_TESTS: "1"
         run: cargo test --locked
+      - name: Translation template is up to date
+        run: |
+          ./build-aux/update-pot.sh
+          # Only the file locations and the template date may differ; the messages must not.
+          git diff --exit-code -I'^#:' -I'POT-Creation-Date' po/
       - name: Desktop file and metadata
         run: |
           desktop-file-validate data/io.github.imanolgo.Lumen.desktop

@@ -539,7 +539,7 @@ Nothing else. Each new preference needs a reason in the commit message.
   - Update the security paragraph after A5.
 - **PLAN.md:** add "Phase 9 → see IMPROVEMENT_PLAN.md".
 
-### - [ ] E5 🟢 CI hardening
+### - [x] E5 (pot check and required control tests; cargo-deny not added) 🟢 CI hardening
 - Check that `po/lumen.pot` is up to date: run `update-pot.sh` in CI and fail on `git diff`.
 - Run `tests/control.rs` in CI explicitly. Install `gtk4-broadway` (in `gtk4` on Arch) and
   `dbus`, and make sure the tests fail rather than skip when Broadway is missing.
