@@ -12,7 +12,10 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use image::{ImageFormat, codecs::jpeg::JpegEncoder};
+use image::{
+    ExtendedColorType, ImageDecoder, ImageEncoder, ImageReader,
+    codecs::{jpeg::JpegEncoder, png::PngEncoder, webp::WebPEncoder},
+};
 use little_exif::{exif_tag::ExifTag, metadata::Metadata};
 
 use crate::{
@@ -57,14 +60,6 @@ impl Format {
             Self::Jpeg { .. } => "jpg",
             Self::Png => "png",
             Self::WebP => "webp",
-        }
-    }
-
-    fn image_format(self) -> ImageFormat {
-        match self {
-            Self::Jpeg { .. } => ImageFormat::Jpeg,
-            Self::Png => ImageFormat::Png,
-            Self::WebP => ImageFormat::WebP,
         }
     }
 }
@@ -144,17 +139,40 @@ fn write_reencoded(request: &SaveRequest, temp: &Path) -> Result<()> {
             .context("cannot draw the annotations")?;
     }
 
+    // The colour profile travels with the pixels, or a wide-gamut photo changes colour.
+    let profile = icc_profile(&request.source);
+    let file = BufWriter::new(File::create(temp).context("cannot create the output file")?);
     match request.format {
         Format::Jpeg { quality } => {
-            let file = File::create(temp).context("cannot create the output file")?;
-            let mut encoder = JpegEncoder::new_with_quality(BufWriter::new(file), quality);
+            let mut encoder = JpegEncoder::new_with_quality(file, quality);
+            keep_profile(&mut encoder, profile);
             encoder
                 .encode_image(&rendered.to_rgb8())
                 .context("cannot encode the JPEG")?;
         }
-        other => rendered
-            .save_with_format(temp, other.image_format())
-            .context("cannot encode the image")?,
+        Format::Png => {
+            let mut encoder = PngEncoder::new(file);
+            keep_profile(&mut encoder, profile);
+            encoder
+                .write_image(
+                    rendered.as_bytes(),
+                    rendered.width(),
+                    rendered.height(),
+                    rendered.color().into(),
+                )
+                .context("cannot encode the image")?;
+        }
+        Format::WebP => {
+            let mut encoder = WebPEncoder::new_lossless(file);
+            keep_profile(&mut encoder, profile);
+            let (w, h) = (rendered.width(), rendered.height());
+            if rendered.color().has_alpha() {
+                encoder.write_image(rendered.to_rgba8().as_raw(), w, h, ExtendedColorType::Rgba8)
+            } else {
+                encoder.write_image(rendered.to_rgb8().as_raw(), w, h, ExtendedColorType::Rgb8)
+            }
+            .context("cannot encode the image")?;
+        }
     }
 
     // The pixels are upright now, so the carried-over EXIF must say so.
@@ -167,6 +185,27 @@ fn write_reencoded(request: &SaveRequest, temp: &Path) -> Result<()> {
         tracing::warn!("could not copy the EXIF data: {err}");
     }
     Ok(())
+}
+
+/// The embedded ICC colour profile of the picture at `path`, if it has one.
+fn icc_profile(path: &Path) -> Option<Vec<u8>> {
+    ImageReader::open(path)
+        .ok()?
+        .with_guessed_format()
+        .ok()?
+        .into_decoder()
+        .ok()?
+        .icc_profile()
+        .ok()
+        .flatten()
+}
+
+fn keep_profile(encoder: &mut impl ImageEncoder, profile: Option<Vec<u8>>) {
+    if let Some(profile) = profile
+        && encoder.set_icc_profile(profile).is_err()
+    {
+        tracing::warn!("this format cannot carry the colour profile");
+    }
 }
 
 /// A name for "Save As" next to the original: `photo.jpg` -> `photo-edited.png`.
@@ -202,7 +241,7 @@ mod tests {
         }
     }
 
-    use image::{DynamicImage, Rgb, RgbImage};
+    use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
 
     use super::*;
     use crate::edit::{CropRect, EditOp};
@@ -305,6 +344,42 @@ mod tests {
         save(&back).unwrap();
         assert_eq!(orientation_of(&path), Some(1));
         assert_eq!(jpeg_body(&before), jpeg_body(&fs::read(&path).unwrap()));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_colour_profile_survives_a_re_encode() {
+        let dir = scratch_dir("icc");
+        let source = dir.join("a.jpg");
+        // Not a real profile, just bytes that must come back unchanged.
+        let profile = b"not-really-an-icc-profile-but-bytes-to-keep".to_vec();
+        let mut bytes = Vec::new();
+        let mut encoder = JpegEncoder::new_with_quality(&mut bytes, 90);
+        encoder.set_icc_profile(profile.clone()).unwrap();
+        encoder.encode_image(&RgbImage::new(32, 32)).unwrap();
+        fs::write(&source, bytes).unwrap();
+        assert_eq!(icc_profile(&source), Some(profile.clone()));
+
+        for (name, format) in [
+            ("b.jpg", Format::Jpeg { quality: 90 }),
+            ("b.png", Format::Png),
+            ("b.webp", Format::WebP),
+        ] {
+            let dest = dir.join(name);
+            save(&request(
+                &source,
+                &dest,
+                &[EditOp::Crop(CropRect {
+                    x: 0,
+                    y: 0,
+                    w: 16,
+                    h: 16,
+                })],
+                format,
+            ))
+            .unwrap();
+            assert_eq!(icc_profile(&dest), Some(profile.clone()), "{name}");
+        }
         let _ = fs::remove_dir_all(dir);
     }
 

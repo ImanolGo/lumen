@@ -130,7 +130,7 @@ These are the rules for the features and polish below. When in doubt, choose the
 - **Done when:** unit tests cover a `0600` file staying `0600`, a symlink still being a symlink
   that points at the updated file, and a hard link staying shared.
 
-### - [ ] A4 ✅ 🟡 Re-encoding drops the ICC profile, and lossy WebP becomes lossless
+### - [x] A4 (ICC part) ✅ 🟡 Re-encoding drops the ICC profile, and lossy WebP becomes lossless
 - **Where:** `src/save.rs:136–169` (`write_reencoded`), `Format::WebP` ("Lossless WebP",
   `save.rs:31`).
 - **Problem:**
@@ -149,6 +149,7 @@ These are the rules for the features and polish below. When in doubt, choose the
     a **JPEG quality** preference (default 90) instead of the hard-coded constant.
 - **Done when:** a test re-encodes a JPEG fixture with an embedded ICC profile and the output
   still has the same profile bytes.
+- **Status:** the ICC profile is now carried over for JPEG, PNG and WebP (test in `save.rs`). **Still open:** the `image` crate cannot write lossy WebP, so lossy sources are still saved lossless (needs another encoder, e.g. the `webp` crate); the JPEG-quality preference moves to C11.
 
 ### - [ ] A5 ✅ 🟠 Editing decodes outside the sandbox (README claim is not true)
 - **Where:** `image::open` in `src/app/edit.rs:249`, `src/save.rs:138`,

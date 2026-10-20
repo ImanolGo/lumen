@@ -8,6 +8,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - Saving a picture or PDF no longer replaces the files you are browsing with just the saved one; Save As adds the copy after the current file.
 - A colour-adjust preview that failed to render no longer undoes the last edit you made.
 - Saving over a file keeps its permissions, and follows a symlink or hard link instead of replacing it with a separate file.
+- Saving an edited JPEG, PNG or WebP keeps its embedded colour profile, so wide-gamut photos no longer shift colour.
 
 ## [0.3.1] - 2026-10-20
 
