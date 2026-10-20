@@ -15,6 +15,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - Ctrl+G brings back the faded page controls before focusing the page box, and the box is no longer reset while you type in it.
 - While the markup toolbar is open, V, R, O, A, L, P, T and H choose the tool (shown in the tooltips).
 - Searching waits for a short pause in typing instead of restarting on every key.
+- Filling in a form field or undoing no longer flashes the pages white while they are drawn again.
 
 ## [0.3.1] - 2026-10-20
 

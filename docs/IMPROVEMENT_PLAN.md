@@ -268,7 +268,7 @@ the numbers in the commit message.
   - Searching a common word does not delay page renders (log render latency during a search).
   - RSS after open drops by about 4× the parsed-document size.
 
-### - [ ] B2 ✅ 🟡 No white flash when a PDF reloads (form fill, undo, page ops)
+### - [x] B2 (same-layout reloads; page-operation remapping not done) ✅ 🟡 No white flash when a PDF reloads (form fill, undo, page ops)
 - **Where:** `src/widgets/canvas.rs:510–547`. When `keep_view` is true, the new `PagesState`
   starts with `textures: HashMap::new()`.
 - **Do:**

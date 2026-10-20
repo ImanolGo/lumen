@@ -521,6 +521,17 @@ impl LumenCanvas {
                         .borrow()
                         .as_ref()
                         .is_some_and(|old| old.layout.rects == layout.rects);
+                    // The old pictures of the pages stand in until the new ones are rendered,
+                    // so a form filled in or an undo does not flash white pages.
+                    let stand_ins = if keep_view {
+                        imp.pages
+                            .borrow_mut()
+                            .as_mut()
+                            .map(|old| std::mem::take(&mut old.textures))
+                            .unwrap_or_default()
+                    } else {
+                        HashMap::new()
+                    };
                     self.stop_animation();
                     *imp.texture.borrow_mut() = None;
                     *imp.source.borrow_mut() = None;
@@ -530,7 +541,7 @@ impl LumenCanvas {
                     imp.content_key.set(key);
                     *imp.pages.borrow_mut() = Some(PagesState {
                         layout: Rc::clone(layout),
-                        textures: HashMap::new(),
+                        textures: stand_ins,
                         highlights: HashMap::new(),
                         current_hit: None,
                         selection: HashMap::new(),
