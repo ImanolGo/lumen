@@ -1,6 +1,6 @@
 pkgbase = lumen
 	pkgdesc = Fast image and PDF viewer with light editing, markup and page management
-	pkgver = 0.4.0
+	pkgver = 0.4.1
 	pkgrel = 1
 	url = https://github.com/ImanolGo/lumen
 	arch = x86_64
@@ -17,7 +17,7 @@ pkgbase = lumen
 	depends = cairo
 	depends = glycin
 	depends = libseccomp
-	source = lumen-0.4.0.tar.gz::https://github.com/ImanolGo/lumen/archive/refs/tags/v0.4.0.tar.gz
+	source = lumen-0.4.1.tar.gz::https://github.com/ImanolGo/lumen/archive/refs/tags/v0.4.1.tar.gz
 	sha256sums = a668d1ba8f860161d4f58962021395828c8159bca89bca979075e5919939e9dd
 
 pkgname = lumen

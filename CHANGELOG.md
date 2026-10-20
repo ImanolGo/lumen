@@ -4,6 +4,8 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-20
+
 ### Fixed
 - The document menu in the header (Edit for a picture, Pages for a PDF) no longer closes by itself a few seconds after it opens. Its model was reassigned on every view update, and GTK builds a new popover each time, so the open menu was thrown away.
 
@@ -99,7 +101,8 @@ First release.
 - Packages: Flatpak, `.deb` for Ubuntu 26.04+ and Debian testing (`make deb`), and `lumen` and `lumen-git` PKGBUILDs for the AUR. The release workflow builds the Flatpak, the `.deb` and a tarball, and can be run by hand without publishing.
 - README, `CONTRIBUTING.md`, `docs/RELEASING.md` and this changelog.
 
-[Unreleased]: https://github.com/ImanolGo/lumen/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/ImanolGo/lumen/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/ImanolGo/lumen/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/ImanolGo/lumen/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/ImanolGo/lumen/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/ImanolGo/lumen/compare/v0.2.0...v0.3.0

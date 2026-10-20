@@ -72,6 +72,11 @@
   </keywords>
   <translation type="gettext">lumen</translation>
   <releases>
+    <release version="0.4.1" date="2026-10-20">
+      <description>
+        <p>The menu in the header no longer closes by itself: the Edit menu of a picture and the Pages menu of a document stay open until you pick something.</p>
+      </description>
+    </release>
     <release version="0.4.0" date="2026-10-20">
       <description>
         <p>Browse the folder of a single picture, go back after following a PDF link, move files to the trash, a night mode for PDFs and a command palette. Saving keeps permissions, symlinks and colour profiles, editing decodes in the sandbox, and thumbnails use the desktop cache.</p>
