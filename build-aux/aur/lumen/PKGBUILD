@@ -10,8 +10,8 @@ depends=('gtk4>=4.16' 'libadwaita>=1.8' 'poppler-glib>=25.06' 'glib2' 'cairo' 'g
 makedepends=('cargo' 'gettext')
 checkdepends=('desktop-file-utils' 'appstream')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-# Replace with the real checksum once the tag exists: `updpkgsums`.
-sha256sums=('SKIP')
+# After each new tag: `updpkgsums`, then `makepkg --printsrcinfo > .SRCINFO`.
+sha256sums=('5a110e0bfa0569f311de3d276e4c6045705c9ca0f702311b564a64eb4e7f7e94')
 
 prepare() {
     cd "$pkgname-$pkgver"
