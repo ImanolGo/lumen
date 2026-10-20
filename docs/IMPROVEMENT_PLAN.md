@@ -521,7 +521,7 @@ Nothing else. Each new preference needs a reason in the commit message.
 - Create `geometry.rs` with `ViewTransform { zoom, origin }` and `page_rect_to_widget(...)`,
   give it unit tests, and use it in `canvas.rs`.
 
-### - [ ] E3 🟢 One table for actions, shortcuts and the shortcuts dialog
+### - [x] E3 🟢 One table for actions, shortcuts and the shortcuts dialog
 - `shortcuts.rs` repeats the accelerators by hand, and they have already drifted (A9). Build the
   dialog from the same `nav_actions` / `view_actions` tables (add a section and a title to each
   entry). Add a unit test that every registered accelerator appears in the dialog.

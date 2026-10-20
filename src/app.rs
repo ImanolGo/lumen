@@ -10,6 +10,7 @@ mod shortcuts;
 mod signature;
 
 use crate::i18n::{tr, tr_fmt};
+use shortcuts::accels;
 use std::{
     cell::{Cell, RefCell},
     collections::{BTreeMap, HashSet},
@@ -2571,97 +2572,153 @@ impl SimpleComponent for App {
         });
         widgets.page_entry.add_controller(focus);
         widgets.main_window.add_action(&goto_action);
-        relm4::main_application().set_accels_for_action("win.goto-page", &["<Control>g"]);
+        relm4::main_application().set_accels_for_action("win.goto-page", accels("goto-page"));
 
         let nav_actions: &[NavAction] = &[
-            ("page-next", || AppMsg::PageBy(1), &["Page_Down"]),
-            ("page-prev", || AppMsg::PageBy(-1), &["Page_Up"]),
-            ("page-first", || AppMsg::Edge(false), &["Home"]),
-            ("page-last", || AppMsg::Edge(true), &["End"]),
-            ("tool-select", || AppMsg::ToolKey(Tool::Select), &["v"]),
+            ("page-next", || AppMsg::PageBy(1), accels("page-next")),
+            ("page-prev", || AppMsg::PageBy(-1), accels("page-prev")),
+            ("page-first", || AppMsg::Edge(false), accels("page-first")),
+            ("page-last", || AppMsg::Edge(true), accels("page-last")),
+            (
+                "tool-select",
+                || AppMsg::ToolKey(Tool::Select),
+                accels("tool-select"),
+            ),
             (
                 "tool-rectangle",
                 || AppMsg::ToolKey(Tool::Rectangle),
-                &["r"],
+                accels("tool-rectangle"),
             ),
-            ("tool-ellipse", || AppMsg::ToolKey(Tool::Ellipse), &["o"]),
-            ("tool-arrow", || AppMsg::ToolKey(Tool::Arrow), &["a"]),
-            ("tool-line", || AppMsg::ToolKey(Tool::Line), &["l"]),
-            ("tool-pen", || AppMsg::ToolKey(Tool::Pen), &["p"]),
-            ("tool-text", || AppMsg::ToolKey(Tool::Text), &["t"]),
+            (
+                "tool-ellipse",
+                || AppMsg::ToolKey(Tool::Ellipse),
+                accels("tool-ellipse"),
+            ),
+            (
+                "tool-arrow",
+                || AppMsg::ToolKey(Tool::Arrow),
+                accels("tool-arrow"),
+            ),
+            (
+                "tool-line",
+                || AppMsg::ToolKey(Tool::Line),
+                accels("tool-line"),
+            ),
+            (
+                "tool-pen",
+                || AppMsg::ToolKey(Tool::Pen),
+                accels("tool-pen"),
+            ),
+            (
+                "tool-text",
+                || AppMsg::ToolKey(Tool::Text),
+                accels("tool-text"),
+            ),
             (
                 "tool-highlight",
                 || AppMsg::ToolKey(Tool::Highlight),
-                &["h"],
+                accels("tool-highlight"),
             ),
-            ("trash", || AppMsg::Trash, &["<Control>Delete"]),
-            ("show-in-folder", || AppMsg::ShowInFolder, &[]),
-            ("open-with", || AppMsg::OpenWith, &[]),
-            ("jump-back", || AppMsg::JumpBack, &["<Alt>Left"]),
-            ("jump-forward", || AppMsg::JumpForward, &["<Alt>Right"]),
-            ("screen-down", || AppMsg::Screen(1), &["space"]),
-            ("screen-up", || AppMsg::Screen(-1), &["<Shift>space"]),
-            ("next", || AppMsg::Navigate(1), &["Right"]),
-            ("prev", || AppMsg::Navigate(-1), &["Left", "BackSpace"]),
-            ("toggle-sidebar", || AppMsg::ToggleSidebar, &["F9"]),
+            ("trash", || AppMsg::Trash, accels("trash")),
+            (
+                "show-in-folder",
+                || AppMsg::ShowInFolder,
+                accels("show-in-folder"),
+            ),
+            ("open-with", || AppMsg::OpenWith, accels("open-with")),
+            ("jump-back", || AppMsg::JumpBack, accels("jump-back")),
+            (
+                "jump-forward",
+                || AppMsg::JumpForward,
+                accels("jump-forward"),
+            ),
+            ("screen-down", || AppMsg::Screen(1), accels("screen-down")),
+            ("screen-up", || AppMsg::Screen(-1), accels("screen-up")),
+            ("next", || AppMsg::Navigate(1), accels("next")),
+            ("prev", || AppMsg::Navigate(-1), accels("prev")),
+            (
+                "toggle-sidebar",
+                || AppMsg::ToggleSidebar,
+                accels("toggle-sidebar"),
+            ),
             (
                 "toggle-properties",
                 || AppMsg::ToggleProperties,
-                &["<Alt>Return"],
+                accels("toggle-properties"),
             ),
-            ("find-next", || AppMsg::SearchStep(1), &["F3"]),
-            ("find-prev", || AppMsg::SearchStep(-1), &["<Shift>F3"]),
-            ("find-close", || AppMsg::SearchOpened(false), &[]),
-            ("copy", || AppMsg::Copy, &[]),
-            ("print", || AppMsg::Print(None), &["<Control>p"]),
-            ("undo", || AppMsg::Undo, &["<Control>z"]),
+            ("find-next", || AppMsg::SearchStep(1), accels("find-next")),
+            ("find-prev", || AppMsg::SearchStep(-1), accels("find-prev")),
             (
-                "redo",
-                || AppMsg::Redo,
-                &["<Control><Shift>z", "<Control>y"],
+                "find-close",
+                || AppMsg::SearchOpened(false),
+                accels("find-close"),
             ),
+            ("copy", || AppMsg::Copy, accels("copy")),
+            ("print", || AppMsg::Print(None), accels("print")),
+            ("undo", || AppMsg::Undo, accels("undo")),
+            ("redo", || AppMsg::Redo, accels("redo")),
             (
                 "rotate-right",
                 || AppMsg::Edit(EditOp::RotateCw),
-                &["<Control>r"],
+                accels("rotate-right"),
             ),
             (
                 "rotate-left",
                 || AppMsg::Edit(EditOp::RotateCcw),
-                &["<Control><Shift>r"],
+                accels("rotate-left"),
             ),
-            ("flip-h", || AppMsg::Edit(EditOp::FlipH), &[]),
-            ("flip-v", || AppMsg::Edit(EditOp::FlipV), &[]),
-            (
-                "crop",
-                || AppMsg::EnterMode(EditMode::Crop),
-                &["<Control>k"],
-            ),
-            ("resize", || AppMsg::ResizeDialog, &["<Control><Alt>r"]),
+            ("flip-h", || AppMsg::Edit(EditOp::FlipH), accels("flip-h")),
+            ("flip-v", || AppMsg::Edit(EditOp::FlipV), accels("flip-v")),
+            ("crop", || AppMsg::EnterMode(EditMode::Crop), accels("crop")),
+            ("resize", || AppMsg::ResizeDialog, accels("resize")),
             (
                 "adjust",
                 || AppMsg::EnterMode(EditMode::Adjust),
-                &["<Control><Alt>c"],
+                accels("adjust"),
             ),
-            ("save", || AppMsg::Save, &["<Control>s"]),
-            ("save-as", || AppMsg::SaveAs, &["<Control><Shift>s"]),
-            ("apply-tool", || AppMsg::Confirm, &[]),
-            ("markup", || AppMsg::ToggleMarkup, &["<Control><Shift>a"]),
-            ("preferences", || AppMsg::Preferences, &["<Control>comma"]),
-            ("fullscreen", || AppMsg::ToggleFullscreen, &["F11"]),
-            ("slideshow", || AppMsg::ToggleSlideshow, &["F5"]),
-            ("leave-presentation", || AppMsg::LeavePresentation, &[]),
-            ("about", || AppMsg::About, &[]),
+            ("save", || AppMsg::Save, accels("save")),
+            ("save-as", || AppMsg::SaveAs, accels("save-as")),
+            ("apply-tool", || AppMsg::Confirm, accels("apply-tool")),
+            ("markup", || AppMsg::ToggleMarkup, accels("markup")),
+            ("preferences", || AppMsg::Preferences, accels("preferences")),
             (
-                "shortcuts",
-                || AppMsg::Shortcuts,
-                &["<Control>question", "<Control>slash"],
+                "fullscreen",
+                || AppMsg::ToggleFullscreen,
+                accels("fullscreen"),
             ),
-            ("delete-pages", || AppMsg::DeletePages, &[]),
-            ("insert-pages", || AppMsg::InsertDialog, &[]),
-            ("export-pages", || AppMsg::ExportPagesDialog, &[]),
-            ("export-png", || AppMsg::ExportPngDialog, &[]),
-            ("export-image-pdf", || AppMsg::ExportImagePdfDialog, &[]),
+            ("slideshow", || AppMsg::ToggleSlideshow, accels("slideshow")),
+            (
+                "leave-presentation",
+                || AppMsg::LeavePresentation,
+                accels("leave-presentation"),
+            ),
+            ("about", || AppMsg::About, accels("about")),
+            ("shortcuts", || AppMsg::Shortcuts, accels("shortcuts")),
+            (
+                "delete-pages",
+                || AppMsg::DeletePages,
+                accels("delete-pages"),
+            ),
+            (
+                "insert-pages",
+                || AppMsg::InsertDialog,
+                accels("insert-pages"),
+            ),
+            (
+                "export-pages",
+                || AppMsg::ExportPagesDialog,
+                accels("export-pages"),
+            ),
+            (
+                "export-png",
+                || AppMsg::ExportPngDialog,
+                accels("export-png"),
+            ),
+            (
+                "export-image-pdf",
+                || AppMsg::ExportImagePdfDialog,
+                accels("export-image-pdf"),
+            ),
         ];
         let app = relm4::main_application();
         // Application accelerators run before the focused widget sees the key, so a plain
@@ -2745,7 +2802,7 @@ impl SimpleComponent for App {
         });
         widgets.main_window.add_action(&scaling_action);
 
-        app.set_accels_for_action("win.find", &["<Control>f"]);
+        app.set_accels_for_action("win.find", accels("find"));
         widgets.search_bar.connect_entry(&widgets.search_entry);
 
         // Shift+Enter goes to the previous match; plain Enter to the next.
@@ -2804,14 +2861,14 @@ impl SimpleComponent for App {
         widgets.main_window.add_controller(pointer);
 
         let view_actions: [ViewAction; 4] = [
+            ("zoom-in", LumenCanvas::zoom_in, accels("zoom-in")),
+            ("zoom-out", LumenCanvas::zoom_out, accels("zoom-out")),
+            ("best-fit", LumenCanvas::best_fit, accels("best-fit")),
             (
-                "zoom-in",
-                LumenCanvas::zoom_in,
-                &["<Control>plus", "<Control>equal"],
+                "actual-size",
+                LumenCanvas::actual_size,
+                accels("actual-size"),
             ),
-            ("zoom-out", LumenCanvas::zoom_out, &["<Control>minus"]),
-            ("best-fit", LumenCanvas::best_fit, &["<Control>0"]),
-            ("actual-size", LumenCanvas::actual_size, &["<Control>1"]),
         ];
         for (name, handler, accels) in view_actions {
             let action = gio::SimpleAction::new(name, None);
@@ -2820,7 +2877,7 @@ impl SimpleComponent for App {
             widgets.main_window.add_action(&action);
             app.set_accels_for_action(&format!("win.{name}"), accels);
         }
-        app.set_accels_for_action("win.open", &["<Control>o"]);
+        app.set_accels_for_action("win.open", accels("open"));
         app.set_accels_for_action("window.close", &["<Control>w"]);
 
         let open_recent = gio::SimpleAction::new("open-recent", Some(glib::VariantTy::STRING));
