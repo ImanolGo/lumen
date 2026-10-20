@@ -4,6 +4,9 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Fixed
+- The document menu in the header (Edit for a picture, Pages for a PDF) no longer closes by itself a few seconds after it opens. Its model was reassigned on every view update, and GTK builds a new popover each time, so the open menu was thrown away.
+
 ## [0.4.0] - 2026-10-20
 
 ### Added

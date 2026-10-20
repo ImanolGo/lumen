@@ -152,6 +152,8 @@ pub struct App {
     /// What the document menu in the header shows: the picture edits or the page changes.
     edit_menu: gio::Menu,
     pages_menu: gio::Menu,
+    /// Whether the document menu currently shows the page changes (`pages_menu`).
+    document_menu_pdf: Rc<Cell<bool>>,
     strip: FileStrip,
     page_strip: PageStrip,
     sidebar_stack: gtk::Stack,
@@ -348,7 +350,10 @@ impl SimpleComponent for App {
                     },
 
                     // One menu for what can be done to the document: page changes for a PDF,
-                    // picture edits for a picture.
+                    // picture edits for a picture. Its model is changed in `post_view` only
+                    // when the kind of document changes: setting it rebuilds the popover,
+                    // which would close the menu while it is open.
+                    #[name = "document_menu"]
                     pack_end = &gtk::MenuButton {
                         #[watch]
                         set_icon_name: if model.pdf.is_some() {
@@ -362,12 +367,7 @@ impl SimpleComponent for App {
                         } else {
                             tr("Edit")
                         }),
-                        #[watch]
-                        set_menu_model: Some(if model.pdf.is_some() {
-                            &model.pages_menu
-                        } else {
-                            &model.edit_menu
-                        }),
+                        set_menu_model: Some(&model.edit_menu),
                         #[watch]
                         set_visible: model.pdf.is_some() || (model.image.is_some() && model.edit.is_some()),
                     },
@@ -927,6 +927,17 @@ impl SimpleComponent for App {
         if widgets.page_entry.text() != page_text && !entry_has_focus(&widgets.page_entry) {
             widgets.page_entry.set_text(&page_text);
         }
+        // Changing a menu button's model builds a new popover, closing it if it is open
+        // (GTK does not compare the models). Only change it when the document's kind did.
+        let pdf_menu = model.pdf.is_some();
+        if model.document_menu_pdf.get() != pdf_menu {
+            model.document_menu_pdf.set(pdf_menu);
+            widgets.document_menu.set_menu_model(Some(if pdf_menu {
+                &model.pages_menu
+            } else {
+                &model.edit_menu
+            }));
+        }
         let color = model.markup_color();
         if model.style_color.get() != color {
             model.style_color.set(color);
@@ -1029,6 +1040,7 @@ impl SimpleComponent for App {
             recent_row: gtk::Box::new(gtk::Orientation::Horizontal, 6),
             edit_menu: edit_menu.clone(),
             pages_menu: pages_menu.clone(),
+            document_menu_pdf: Rc::new(Cell::new(false)),
             strip,
             page_strip: PageStrip::new(PageStripCallbacks {
                 on_activate: Box::new({
