@@ -849,6 +849,8 @@ msgstr "Mover en pasos mayores"
 msgid ""
 "Choose a tool: select, rectangle, ellipse, arrow, line, pen, text, highlight"
 msgstr ""
+"Elegir herramienta: seleccionar, rectángulo, elipse, flecha, línea, lápiz, "
+"texto, resaltado"
 
 #: src/app/shortcuts.rs:82
 msgid "Finish editing text"
