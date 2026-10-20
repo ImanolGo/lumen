@@ -38,6 +38,11 @@ pub struct EditSession {
     pub ticket: u64,
     /// The newest request is a preview of an unapplied tool, not the edits on the stack.
     pub previewing: bool,
+    /// Renders that have been started and have not reported back.
+    pub in_flight: u32,
+    /// A preview asked for while a render was running: shown when that render is done, so
+    /// dragging a slider never piles up renders of a large picture.
+    pub queued_preview: Option<EditOp>,
 }
 
 /// Something the user asked for that must wait until unsaved edits are dealt with.
@@ -150,6 +155,8 @@ impl App {
             stored: None,
             ticket: 0,
             previewing: false,
+            in_flight: 0,
+            queued_preview: None,
         });
         self.edited = None;
         self.edit_mode = EditMode::None;
@@ -223,6 +230,13 @@ impl App {
         };
         self.dirty.set(session.stack.is_dirty());
 
+        match preview {
+            Some(_) if session.in_flight > 0 => {
+                session.queued_preview = preview;
+                return;
+            }
+            _ => session.queued_preview = None,
+        }
         if preview.is_none() {
             if !session.stack.is_dirty() {
                 self.edited = None;
@@ -240,6 +254,7 @@ impl App {
 
         session.ticket += 1;
         session.previewing = preview.is_some();
+        session.in_flight += 1;
         let ticket = session.ticket;
         let mut ops = session.stack.active().to_vec();
         ops.extend(preview);
@@ -269,7 +284,18 @@ impl App {
         &mut self,
         ticket: u64,
         result: Result<(Option<Arc<DynamicImage>>, RenderedEdit), String>,
+        sender: &ComponentSender<App>,
     ) {
+        // The slider moved while this was rendering: show where it is now.
+        let queued = self.edit.as_mut().and_then(|session| {
+            session.in_flight = session.in_flight.saturating_sub(1);
+            (session.in_flight == 0)
+                .then(|| session.queued_preview.take())
+                .flatten()
+        });
+        if let Some(preview) = queued {
+            self.refresh_edit(sender, Some(preview));
+        }
         let (Some(session), Some(original)) = (&mut self.edit, &self.image) else {
             return;
         };

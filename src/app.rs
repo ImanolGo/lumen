@@ -3142,7 +3142,7 @@ impl App {
             }
             AppMsg::AdjustField(field, value) => self.adjust_field(field, value, &sender),
             AppMsg::ResizeDialog => self.ask_resize(&sender),
-            AppMsg::EditRendered { ticket, result } => self.edit_rendered(ticket, result),
+            AppMsg::EditRendered { ticket, result } => self.edit_rendered(ticket, result, &sender),
             AppMsg::Save => self.save(&sender),
             AppMsg::SaveConfirmed => self.save_confirmed(&sender),
             AppMsg::SaveCancelled => self.after_save = None,

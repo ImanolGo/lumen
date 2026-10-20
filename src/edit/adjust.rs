@@ -28,30 +28,45 @@ pub fn apply(image: DynamicImage, adjustments: Adjustments) -> DynamicImage {
     let contrast = 1.0 + adjustments.contrast;
     let saturation = 1.0 + adjustments.saturation;
 
-    let mut rgba = image.into_rgba8();
-    for pixel in rgba.pixels_mut() {
-        let [r, g, b, a] = pixel.0;
-        let mut channels = [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0];
-
-        for c in &mut channels {
-            *c *= gain;
-            *c = (*c - 0.5) * contrast + 0.5;
+    let rgba = image.into_rgba8();
+    let (width, height) = rgba.dimensions();
+    let mut raw = rgba.into_raw();
+    let adjust = |pixels: &mut [u8]| {
+        for pixel in pixels.as_chunks_mut::<4>().0 {
+            let mut channels = [
+                pixel[0] as f32 / 255.0,
+                pixel[1] as f32 / 255.0,
+                pixel[2] as f32 / 255.0,
+            ];
+            for c in &mut channels {
+                *c *= gain;
+                *c = (*c - 0.5) * contrast + 0.5;
+            }
+            // Saturation scales the distance from the pixel's own grey.
+            let grey = 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+            for c in &mut channels {
+                *c = grey + (*c - grey) * saturation;
+            }
+            let to_byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+            pixel[..3].copy_from_slice(&channels.map(to_byte));
         }
-        // Saturation scales the distance from the pixel's own grey.
-        let grey = 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
-        for c in &mut channels {
-            *c = grey + (*c - grey) * saturation;
-        }
+    };
 
-        let to_byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
-        pixel.0 = [
-            to_byte(channels[0]),
-            to_byte(channels[1]),
-            to_byte(channels[2]),
-            a,
-        ];
+    // Big pictures are split into bands, one per core.
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+    if raw.len() < 4_000_000 || threads == 1 {
+        adjust(&mut raw);
+    } else {
+        let band = (raw.len() / 4).div_ceil(threads) * 4;
+        std::thread::scope(|scope| {
+            for part in raw.chunks_mut(band) {
+                scope.spawn(|| adjust(part));
+            }
+        });
     }
-    DynamicImage::ImageRgba8(rgba)
+    image::RgbaImage::from_raw(width, height, raw)
+        .map(DynamicImage::ImageRgba8)
+        .expect("the buffer keeps its size")
 }
 
 #[cfg(test)]

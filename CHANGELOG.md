@@ -19,6 +19,8 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - Animated pictures show their first frame at once; the other frames are decoded in the background and join the loop as they arrive.
 - A JPEG inserted into or exported as a PDF is embedded as it is, instead of as large uncompressed pixels.
 - Working copies of an edited PDF live in the cache folder instead of `/tmp` (which is often memory), and the ones undo can no longer reach are deleted.
+- Dragging the colour-adjust sliders on a large picture renders one preview at a time (the newest wins), spread over all cores, instead of piling up renders.
+- PDF workers for search, selection, links and thumbnails open the document only when first used.
 
 ## [0.3.1] - 2026-10-20
 

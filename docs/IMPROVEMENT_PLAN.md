@@ -317,7 +317,7 @@ the numbers in the commit message.
 - **Done when:** opening a 500-photo folder the second time fills the visible thumbnails in
   under 200 ms.
 
-### - [ ] B6 ✅ 🟡 Colour adjust: preview on a screen-sized proxy, one render in flight
+### - [x] B6 (coalescing + parallel pixels; screen-sized proxy and base-render cache not done) ✅ 🟡 Colour adjust: preview on a screen-sized proxy, one render in flight
 - **Where:** `src/app/edit.rs:217–260,367–382`, `src/edit/adjust.rs:23`.
 - **Problem:** Each slider tick clones the full-resolution image, replays the *whole* edit stack
   (including Lanczos resizes) and adjusts on one core. A drag fires dozens of these at once
