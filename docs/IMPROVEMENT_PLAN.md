@@ -300,7 +300,7 @@ the numbers in the commit message.
 - **Done when:** text at 800 % is as sharp as at 100 %, and a re-render at 800 % takes less
   than 100 ms on the dev laptop.
 
-### - [ ] B5 ✅ 🟡 Thumbnails: use the desktop thumbnail cache
+### - [x] B5 (cache read/write for pictures; EXIF-embedded thumbnails not done) ✅ 🟡 Thumbnails: use the desktop thumbnail cache
 - **Where:** `src/thumbnails.rs`, `src/image/decode.rs:125` (`thumbnail` decodes the full
   picture and then shrinks it).
 - **Problem:** A folder of 50 MP photos decodes 200 MB per thumbnail, even though Nautilus has

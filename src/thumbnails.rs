@@ -10,7 +10,7 @@ use std::{
     thread,
 };
 
-use relm4::gtk::{gdk, gdk_pixbuf::Pixbuf, glib, prelude::*};
+use relm4::gtk::{gdk, gdk_pixbuf::Pixbuf, gio, glib, prelude::*};
 
 pub const THUMB_SIZE: i32 = 144;
 const WORKERS: usize = 2;
@@ -99,7 +99,72 @@ impl ThumbnailLoader {
     }
 }
 
+/// The thumbnail the file manager (or an earlier run) already made, if it is still valid.
+fn cached(path: &std::path::Path) -> Option<gdk::Texture> {
+    let info = gio::File::for_path(path)
+        .query_info(
+            "thumbnail::path,thumbnail::is-valid",
+            gio::FileQueryInfoFlags::NONE,
+            gio::Cancellable::NONE,
+        )
+        .ok()?;
+    if !info.boolean("thumbnail::is-valid") {
+        return None;
+    }
+    let thumbnail = info.attribute_byte_string("thumbnail::path")?;
+    gdk::Texture::from_filename(std::path::Path::new(thumbnail.as_str())).ok()
+}
+
+/// Save `texture` in the desktop's thumbnail cache, as the freedesktop thumbnail
+/// specification says, so the next run (and the file manager) can use it. Best effort.
+fn store(path: &std::path::Path, texture: &gdk::Texture) {
+    let _ = try_store(path, texture);
+}
+
+fn try_store(path: &std::path::Path, texture: &gdk::Texture) -> Option<()> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+
+    let uri = gio::File::for_path(path).uri();
+    let hash = glib::compute_checksum_for_string(glib::ChecksumType::Md5, uri.as_str())?;
+    let dir = glib::user_cache_dir().join("thumbnails").join("large");
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&dir)
+        .ok()?;
+    let mtime = std::fs::metadata(path).ok()?.mtime();
+
+    let mut downloader = gdk::TextureDownloader::new(texture);
+    downloader.set_format(gdk::MemoryFormat::R8g8b8a8);
+    let (bytes, stride) = downloader.download_bytes();
+    let pixbuf = Pixbuf::from_bytes(
+        &bytes,
+        relm4::gtk::gdk_pixbuf::Colorspace::Rgb,
+        true,
+        8,
+        texture.width(),
+        texture.height(),
+        stride as i32,
+    );
+    let temp = dir.join(format!(".{hash}.{}.tmp", std::process::id()));
+    pixbuf
+        .savev(
+            &temp,
+            "png",
+            &[
+                ("tEXt::Thumb::URI", uri.as_str()),
+                ("tEXt::Thumb::MTime", &mtime.to_string()),
+            ],
+        )
+        .ok()?;
+    std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o600)).ok()?;
+    std::fs::rename(&temp, dir.join(format!("{hash}.png"))).ok()
+}
+
 fn render(path: &std::path::Path) -> Option<ThumbData> {
+    if let Some(texture) = cached(path) {
+        return Some(ThumbData::Texture(texture));
+    }
     if path
         .extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
@@ -111,7 +176,10 @@ fn render(path: &std::path::Path) -> Option<ThumbData> {
     // Pictures from anywhere are decoded in glycin's sandbox when it is installed.
     if crate::image::decode::sandboxed() {
         return match crate::image::decode::thumbnail(path, THUMB_SIZE as u32) {
-            Ok(texture) => Some(ThumbData::Texture(texture)),
+            Ok(texture) => {
+                store(path, &texture);
+                Some(ThumbData::Texture(texture))
+            }
             Err(err) => {
                 tracing::debug!(path = %path.display(), "no thumbnail: {err:#}");
                 None
