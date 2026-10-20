@@ -602,7 +602,9 @@ impl LumenCanvas {
         };
         let generation = imp.animation_generation.get();
         // Like browsers, treat delays of 10 ms or less as 100 ms: old GIFs rely on it.
-        let delay = animation.frames[imp.frame.get()].1;
+        let delay = animation
+            .frame(imp.frame.get())
+            .map_or(std::time::Duration::from_millis(100), |(_, delay)| delay);
         let delay = if delay <= std::time::Duration::from_millis(10) {
             std::time::Duration::from_millis(100)
         } else {
@@ -617,9 +619,11 @@ impl LumenCanvas {
             if imp.animation_generation.get() != generation {
                 return;
             }
-            let next = (imp.frame.get() + 1) % animation.frames.len();
+            let next = (imp.frame.get() + 1) % animation.len().max(1);
             imp.frame.set(next);
-            imp.texture.replace(Some(animation.frames[next].0.clone()));
+            if let Some((texture, _)) = animation.frame(next) {
+                imp.texture.replace(Some(texture));
+            }
             canvas.queue_draw();
             canvas.next_frame_later();
         });

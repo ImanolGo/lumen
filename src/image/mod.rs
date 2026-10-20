@@ -5,7 +5,7 @@ mod metadata;
 
 use std::{
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -27,17 +27,39 @@ pub struct ImageDocument {
     pub vector: bool,
 }
 
-/// The frames of an animation and how long each one stays on screen.
+/// The frames of an animation and how long each one stays on screen. Frames are added
+/// while the rest of the animation is still being decoded.
 #[derive(Debug, Clone)]
 pub struct Animation {
-    pub frames: Arc<[(gdk::Texture, Duration)]>,
+    frames: Arc<Mutex<Vec<(gdk::Texture, Duration)>>>,
 }
 
 impl Animation {
     pub fn new(frames: Vec<(gdk::Texture, Duration)>) -> Self {
         Self {
-            frames: frames.into(),
+            frames: Arc::new(Mutex::new(frames)),
         }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Vec<(gdk::Texture, Duration)>> {
+        self.frames.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub fn len(&self) -> usize {
+        self.lock().len()
+    }
+
+    pub fn frame(&self, index: usize) -> Option<(gdk::Texture, Duration)> {
+        self.lock().get(index).cloned()
+    }
+
+    pub fn push(&self, texture: gdk::Texture, delay: Duration) {
+        self.lock().push((texture, delay));
+    }
+
+    /// Give up on the animation and keep only its first frame.
+    pub fn keep_first(&self) {
+        self.lock().truncate(1);
     }
 }
 

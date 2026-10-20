@@ -65,32 +65,17 @@ async fn decode_sandboxed(path: &Path) -> Result<Decoded> {
     let first = image.next_frame().await.map_err(short_error)?;
     let texture = first.texture();
 
-    let animation = match first.delay() {
-        Some(delay) => {
-            let start = first.details().n_frame();
-            let mut frames = vec![(texture.clone(), delay)];
-            let mut bytes = texture_bytes(&texture);
-            loop {
-                let frame = image.next_frame().await.map_err(short_error)?;
-                // The decoder loops: back at the first frame means the animation is complete.
-                let index = frame.details().n_frame();
-                if index.is_none() || index == start {
-                    break Some(Animation::new(frames));
-                }
-                let texture = frame.texture();
-                bytes += texture_bytes(&texture);
-                if bytes > MAX_ANIMATION_BYTES || frames.len() >= MAX_ANIMATION_FRAMES {
-                    tracing::warn!(
-                        path = %path.display(),
-                        "animation too large to keep in memory; showing its first frame"
-                    );
-                    break None;
-                }
-                frames.push((texture, frame.delay().unwrap_or(delay)));
-            }
-        }
-        None => None,
-    };
+    // An animation shows its first frame at once; the rest is decoded in the background
+    // and joins the loop as it arrives.
+    let animation = first.delay().map(|delay| {
+        let start = first.details().n_frame();
+        let animation = Animation::new(vec![(texture.clone(), delay)]);
+        let (frames, path) = (animation.clone(), path.to_owned());
+        std::thread::spawn(move || {
+            futures_lite::future::block_on(collect_frames(image, frames, start, delay, &path))
+        });
+        animation
+    });
     Ok(Decoded {
         texture,
         orientation: (orientation != Orientation::NORMAL).then_some(orientation),
@@ -133,6 +118,38 @@ fn texture_pixels(texture: &gdk::Texture) -> Result<image::DynamicImage> {
     } else {
         rgba.into()
     })
+}
+
+/// Decode the rest of an animation into `animation`. The decoder loops: coming back to the
+/// first frame means it is complete. An animation too big for memory is cut back to its first frame.
+async fn collect_frames(
+    mut image: glycin::Image,
+    animation: Animation,
+    start: Option<u64>,
+    first_delay: std::time::Duration,
+    path: &Path,
+) {
+    let mut bytes = animation.frame(0).map_or(0, |(t, _)| texture_bytes(&t));
+    loop {
+        let Ok(frame) = image.next_frame().await else {
+            return;
+        };
+        let index = frame.details().n_frame();
+        if index.is_none() || index == start {
+            return;
+        }
+        let texture = frame.texture();
+        bytes += texture_bytes(&texture);
+        if bytes > MAX_ANIMATION_BYTES || animation.len() >= MAX_ANIMATION_FRAMES {
+            tracing::warn!(
+                path = %path.display(),
+                "animation too large to keep in memory; showing its first frame"
+            );
+            animation.keep_first();
+            return;
+        }
+        animation.push(texture, frame.delay().unwrap_or(first_delay));
+    }
 }
 
 /// Render part of a drawing (SVG) as it looks at `scale` times its natural size: the region

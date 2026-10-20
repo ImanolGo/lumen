@@ -16,6 +16,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - While the markup toolbar is open, V, R, O, A, L, P, T and H choose the tool (shown in the tooltips).
 - Searching waits for a short pause in typing instead of restarting on every key.
 - Filling in a form field or undoing no longer flashes the pages white while they are drawn again.
+- Animated pictures show their first frame at once; the other frames are decoded in the background and join the loop as they arrive.
 
 ## [0.3.1] - 2026-10-20
 

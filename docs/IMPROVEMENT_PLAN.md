@@ -333,7 +333,7 @@ the numbers in the commit message.
 - **Done when:** dragging a slider on a 50 MP JPEG stays above 30 fps and peak RSS stays under
   1.5× the decoded image size.
 
-### - [ ] B7 ✅ 🟢 Animated pictures: show the first frame right away
+### - [x] B7 ✅ 🟢 Animated pictures: show the first frame right away
 - **Where:** `src/image/decode.rs:68–89` decodes *every* frame before returning.
 - **Do:** Return after the first frame with an `AnimationStream` handle. Keep decoding frames on
   the worker and send them over a channel. The canvas starts animating once frame 2 arrives.
