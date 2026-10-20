@@ -3,7 +3,7 @@
 # Run from the repository root.
 set -e
 xgettext --from-code=UTF-8 --language=Rust \
-    --keyword=tr --keyword=n_ --keyword=tr_fmt:1 \
+    --keyword=tr --keyword=n_ --keyword=tr_fmt:1 --keyword=ntr:1,2 \
     --package-name=lumen --copyright-holder="Imanol Gomez" \
     --msgid-bugs-address="https://github.com/ImanolGo/lumen/issues" \
     --add-comments=TRANSLATORS \

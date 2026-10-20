@@ -6,7 +6,7 @@
 
 use std::path::PathBuf;
 
-use gettextrs::{bind_textdomain_codeset, bindtextdomain, gettext, textdomain};
+use gettextrs::{bind_textdomain_codeset, bindtextdomain, gettext, ngettext, textdomain};
 use relm4::adw::{self, prelude::*};
 
 const DOMAIN: &str = "lumen";
@@ -57,6 +57,22 @@ pub fn tr_fmt(text: &str, values: &[(&str, &str)]) -> String {
     out
 }
 
+/// `singular` or `plural` (each with `{n}` in it) in the form `n` needs in the user's language.
+pub fn ntr(singular: &str, plural: &str, n: u32) -> String {
+    ngettext(singular, plural, n).replace("{n}", &n.to_string())
+}
+
+/// A picture's size, for example "4032 × 3024 px".
+pub fn dimensions(width: u32, height: u32) -> String {
+    tr_fmt(
+        "{width} × {height} px",
+        &[
+            ("width", &width.to_string()),
+            ("height", &height.to_string()),
+        ],
+    )
+}
+
 /// Add buttons to an alert dialog, with translated labels.
 pub fn add_responses(dialog: &adw::AlertDialog, responses: &[(&str, &str)]) {
     for (id, label) in responses {
@@ -71,6 +87,13 @@ mod tests {
     #[test]
     fn untranslated_text_comes_back_unchanged() {
         assert_eq!(tr("Open"), "Open");
+    }
+
+    #[test]
+    fn counts_pick_the_singular_or_plural_form() {
+        assert_eq!(ntr("{n} page", "{n} pages", 1), "1 page");
+        assert_eq!(ntr("{n} page", "{n} pages", 12), "12 pages");
+        assert_eq!(dimensions(4032, 3024), "4032 × 3024 px");
     }
 
     #[test]

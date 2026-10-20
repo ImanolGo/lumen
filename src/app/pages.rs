@@ -226,7 +226,7 @@ impl App {
         let filter = gtk::FileFilter::new();
         filter.set_name(Some(&tr("PDF documents and pictures")));
         filter.add_mime_type("application/pdf");
-        filter.add_pixbuf_formats();
+        filter.add_mime_type("image/*");
         let filters = gio::ListStore::new::<gtk::FileFilter>();
         filters.append(&filter);
         let dialog = gtk::FileDialog::builder()

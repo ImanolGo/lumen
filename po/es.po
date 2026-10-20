@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: lumen\n"
 "Report-Msgid-Bugs-To: https://github.com/ImanolGo/lumen/issues\n"
-"POT-Creation-Date: 2026-10-20 12:42+0200\n"
+"POT-Creation-Date: 2026-10-20 12:43+0200\n"
 "PO-Revision-Date: 2026-10-19 16:39+0200\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -147,43 +147,43 @@ msgstr "No se pudo rellenar el formulario"
 msgid "Or type a value"
 msgstr "O escribe un valor"
 
-#: src/app/markup.rs:12
+#: src/app/markup.rs:22
 msgid "Amber"
 msgstr "Ámbar"
 
-#: src/app/markup.rs:13
+#: src/app/markup.rs:23
 msgid "Yellow"
 msgstr "Amarillo"
 
-#: src/app/markup.rs:14
+#: src/app/markup.rs:24
 msgid "Coral"
 msgstr "Coral"
 
-#: src/app/markup.rs:15
+#: src/app/markup.rs:25
 msgid "Red"
 msgstr "Rojo"
 
-#: src/app/markup.rs:16
+#: src/app/markup.rs:26
 msgid "Violet"
 msgstr "Violeta"
 
-#: src/app/markup.rs:17
+#: src/app/markup.rs:27
 msgid "Blue"
 msgstr "Azul"
 
-#: src/app/markup.rs:18
+#: src/app/markup.rs:28
 msgid "Green"
 msgstr "Verde"
 
-#: src/app/markup.rs:19
+#: src/app/markup.rs:29
 msgid "Black"
 msgstr "Negro"
 
-#: src/app/markup.rs:100
+#: src/app/markup.rs:99
 msgid "Text size"
 msgstr "Tamaño del texto"
 
-#: src/app/markup.rs:102
+#: src/app/markup.rs:101
 msgid "Line width"
 msgstr "Grosor de línea"
 
@@ -375,7 +375,7 @@ msgstr "Imágenes"
 msgid "Images and PDFs"
 msgstr "Imágenes y PDF"
 
-#: src/app.rs:1241 src/app/shortcuts.rs:12
+#: src/app.rs:1241 src/app/shortcuts.rs:12 src/i18n.rs:89
 msgid "Open"
 msgstr "Abrir"
 
@@ -395,7 +395,7 @@ msgstr "Archivos recientes"
 msgid "Main Menu"
 msgstr "Menú principal"
 
-#: src/app.rs:1334 src/app.rs:1672 src/widgets/properties.rs:72
+#: src/app.rs:1334 src/app.rs:1672 src/widgets/properties.rs:75
 msgid "Pages"
 msgstr "Páginas"
 
@@ -495,7 +495,7 @@ msgstr "3:2"
 msgid "16:9"
 msgstr "16:9"
 
-#: src/app.rs:1590 src/widgets/properties.rs:57
+#: src/app.rs:1590 src/widgets/properties.rs:60
 msgid "Exposure"
 msgstr "Exposición"
 
@@ -893,13 +893,35 @@ msgstr ""
 msgid "New Signature"
 msgstr "Nueva firma"
 
-#: src/document.rs:94
+#: src/document.rs:65
+#, rust-format
+msgid "Unsupported file type: {type}"
+msgstr "Tipo de archivo no admitido: {type}"
+
+#: src/document.rs:97
 msgid "The password is incorrect"
 msgstr "La contraseña es incorrecta"
 
-#: src/document.rs:96
+#: src/document.rs:99
 msgid "This PDF is password protected"
 msgstr "Este PDF está protegido con contraseña"
+
+#: src/document.rs:127 src/i18n.rs:94 src/i18n.rs:95
+#, rust-format
+msgid "{n} page"
+msgid_plural "{n} pages"
+msgstr[0] "{n} página"
+msgstr[1] "{n} páginas"
+
+#: src/i18n.rs:68
+#, rust-format
+msgid "{width} × {height} px"
+msgstr "{width} × {height} px"
+
+#: src/i18n.rs:102
+#, rust-format
+msgid "Page {page} of {total}"
+msgstr "Página {page} de {total}"
 
 #: src/print.rs:114
 msgid "Scaling"
@@ -913,73 +935,65 @@ msgstr "Ajustar a la página"
 msgid "Size on paper"
 msgstr "Tamaño en el papel"
 
-#: src/widgets/properties.rs:54
+#: src/widgets/properties.rs:55
 msgid "Dimensions"
 msgstr "Dimensiones"
 
-#: src/widgets/properties.rs:55
+#: src/widgets/properties.rs:58
 msgid "Camera"
 msgstr "Cámara"
 
-#: src/widgets/properties.rs:56
+#: src/widgets/properties.rs:59
 msgid "Date taken"
 msgstr "Fecha de captura"
 
-#: src/widgets/properties.rs:58
+#: src/widgets/properties.rs:61
 msgid "Location"
 msgstr "Ubicación"
 
-#: src/widgets/properties.rs:69
+#: src/widgets/properties.rs:72
 msgid "Title"
 msgstr "Título"
 
-#: src/widgets/properties.rs:70
+#: src/widgets/properties.rs:73
 msgid "Author"
 msgstr "Autor"
 
-#: src/widgets/properties.rs:71
+#: src/widgets/properties.rs:74
 msgid "Subject"
 msgstr "Asunto"
 
-#: src/widgets/properties.rs:74
+#: src/widgets/properties.rs:77
 msgid "Page size"
 msgstr "Tamaño de página"
 
-#: src/widgets/properties.rs:77
+#: src/widgets/properties.rs:80
 msgid "Created"
 msgstr "Creado"
 
-#: src/widgets/properties.rs:78
+#: src/widgets/properties.rs:81
 msgid "Made with"
 msgstr "Creado con"
 
-#: src/widgets/properties.rs:79
+#: src/widgets/properties.rs:82
 msgid "PDF producer"
 msgstr "Productor del PDF"
 
-#: src/widgets/properties.rs:80
+#: src/widgets/properties.rs:83
 msgid "PDF version"
 msgstr "Versión de PDF"
 
-#: src/widgets/properties.rs:109
+#: src/widgets/properties.rs:112
 msgid "File"
 msgstr "Archivo"
 
-#: src/widgets/properties.rs:112
+#: src/widgets/properties.rs:115
 msgid "Folder"
 msgstr "Carpeta"
 
-#: src/widgets/properties.rs:114
+#: src/widgets/properties.rs:117
 msgid "Size on disk"
 msgstr "Tamaño en disco"
-
-#, rust-format
-#~ msgid "Page {page} of {total}"
-#~ msgstr "Página {page} de {total}"
-
-#, rust-format
-#~ msgid "{width} × {height} px"
-#~ msgstr "{width} × {height} px"
 
 #, rust-format
 #~ msgid "{index} of {total} · {summary}"

@@ -7,6 +7,16 @@ use relm4::{ComponentSender, gtk::prelude::*};
 
 use super::{App, AppMsg};
 
+use crate::{
+    annotate::{
+        AnnotationLayer, Color, Editor, GeometryChange, History, Outcome, Rect, Shape, Store, Tool,
+    },
+    edit::EditOp,
+    i18n::{n_, tr},
+    pdf::HitRect,
+    widgets::{MarkupEvent, MarkupMode},
+};
+
 /// The colours offered for markup, from Lumen's icon and the GNOME palette.
 pub const SWATCHES: [(&str, Color); 8] = [
     (n_("Amber"), Color::AMBER),
@@ -18,15 +28,6 @@ pub const SWATCHES: [(&str, Color); 8] = [
     (n_("Green"), Color::rgba(0.180, 0.761, 0.494, 1.0)),
     (n_("Black"), Color::rgba(0.141, 0.122, 0.192, 1.0)),
 ];
-use crate::{
-    annotate::{
-        AnnotationLayer, Color, Editor, GeometryChange, History, Outcome, Rect, Shape, Store, Tool,
-    },
-    edit::EditOp,
-    i18n::{n_, tr},
-    pdf::HitRect,
-    widgets::{MarkupEvent, MarkupMode},
-};
 
 /// Annotation layers by page.
 pub type Layers = BTreeMap<usize, AnnotationLayer>;
@@ -78,8 +79,6 @@ impl App {
         self.markup.editor.tool
     }
 
-    /// Markup applies to images and PDFs, but not while a crop or colour tool is open.
-    /// Markup on a picture is saved by editing its pixels, so it needs an editable format.
     /// The colour the tool in use draws with.
     pub(super) fn markup_color(&self) -> Color {
         if self.markup.editor.tool == Tool::Highlight {
@@ -120,6 +119,8 @@ impl App {
         }
     }
 
+    /// Markup applies to images and PDFs, but not while a crop or colour tool is open.
+    /// Markup on a picture is saved by editing its pixels, so it needs an editable format.
     pub(super) fn can_markup(&self) -> bool {
         (self.pdf.is_some() || self.edit.is_some()) && self.edit_mode == super::edit::EditMode::None
     }

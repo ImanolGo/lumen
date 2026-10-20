@@ -1,6 +1,6 @@
 //! Toolkit-light document loading.
 //!
-//! Detects what a file is and decodes it. Phase 2 adds a real `PdfDocument`.
+//! Detects what a file is and decodes it.
 
 use std::path::{Path, PathBuf};
 
@@ -61,7 +61,10 @@ pub fn detect_kind(path: &Path) -> Result<DocumentKind> {
 
     match DocumentKind::from_mime(&mime) {
         Some(kind) => Ok(kind),
-        None => bail!("unsupported file type: {mime}"),
+        None => bail!(crate::i18n::tr_fmt(
+            "Unsupported file type: {type}",
+            &[("type", &mime)]
+        )),
     }
 }
 
@@ -107,7 +110,11 @@ pub fn open(path: &Path, password: Option<&str>) -> Result<Opened, OpenError> {
         DocumentKind::Image => {
             let image = ImageDocument::load(path).map_err(OpenError::other)?;
             let (w, h) = image.display_size();
-            (format!("{w} × {h} px"), Some(image), None)
+            (
+                crate::i18n::dimensions(w as u32, h as u32),
+                Some(image),
+                None,
+            )
         }
         DocumentKind::Pdf => {
             let info =
@@ -117,10 +124,7 @@ pub fn open(path: &Path, password: Option<&str>) -> Result<Opened, OpenError> {
                     },
                     PdfError::Other(err) => OpenError::other(err),
                 })?;
-            let summary = match info.n_pages {
-                1 => "1 page".to_owned(),
-                n => format!("{n} pages"),
-            };
+            let summary = crate::i18n::ntr("{n} page", "{n} pages", info.n_pages as u32);
             (summary, None, Some(info))
         }
     };

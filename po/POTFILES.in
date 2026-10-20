@@ -7,6 +7,7 @@ src/app.rs
 src/app/shortcuts.rs
 src/app/signature.rs
 src/document.rs
+src/i18n.rs
 src/main.rs
 src/print.rs
 src/widgets/properties.rs

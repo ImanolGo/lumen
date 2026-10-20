@@ -51,7 +51,10 @@ impl PropertiesPanel {
         let meta = &image.metadata;
         let mut entries = file_entries(&image.path, meta.file_size);
         entries.extend([
-            (tr("Dimensions"), Some(format!("{w} × {h} px"))),
+            (
+                tr("Dimensions"),
+                Some(crate::i18n::dimensions(w as u32, h as u32)),
+            ),
             (tr("Camera"), meta.camera.clone()),
             (tr("Date taken"), meta.date_taken.clone()),
             (tr("Exposure"), meta.exposure.clone()),
