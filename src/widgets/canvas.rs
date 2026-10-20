@@ -27,6 +27,7 @@ use crate::{
         CropRect,
         crop::{self, Grab, Rect},
     },
+    geometry::View,
     image::{Animation, ImageDocument, Orientation},
     pdf::{FieldKind, FormField, HitRect, Link, LinkTarget, PageLayout, PagePoint},
     settings::Background,
@@ -144,6 +145,11 @@ fn night_colors() -> (graphene::Matrix, graphene::Vec4) {
 
 /// How long the stand-in picture takes to fade out.
 const PLACEHOLDER_FADE_MS: u32 = 150;
+
+/// `area` as a GSK rectangle.
+fn graphene_rect(area: crate::geometry::Area) -> graphene::Rect {
+    graphene::Rect::new(area.x as f32, area.y as f32, area.w as f32, area.h as f32)
+}
 
 const PAGE_SHADOW: gdk::RGBA = gdk::RGBA::new(0.0, 0.0, 0.0, 0.22);
 
@@ -876,13 +882,10 @@ impl LumenCanvas {
 
     /// The page point under widget coordinates (`x`, `y`); the nearest page if between pages.
     fn page_point_at(&self, x: f64, y: f64) -> Option<PagePoint> {
-        let zoom = self.effective_zoom();
-        let (ox, oy) = self.origin();
+        let view = View::new(self.effective_zoom(), self.origin());
         let pages = self.imp().pages.borrow();
-        let (page, px, py) = pages
-            .as_ref()?
-            .layout
-            .locate((x - ox) / zoom, (y - oy) / zoom)?;
+        let (lx, ly) = view.to_layout((x, y));
+        let (page, px, py) = pages.as_ref()?.layout.locate(lx, ly)?;
         Some(PagePoint { page, x: px, y: py })
     }
 
@@ -1168,14 +1171,10 @@ impl LumenCanvas {
 
     /// Where the document origin of `page` is in widget coordinates (images: page 0).
     fn page_origin(&self, page: usize) -> Option<(f64, f64)> {
-        let zoom = self.effective_zoom();
-        let (ox, oy) = self.origin();
+        let view = View::new(self.effective_zoom(), self.origin());
         match self.imp().pages.borrow().as_ref() {
-            Some(pages) => {
-                let r = pages.layout.rects.get(page)?;
-                Some((ox + r.x * zoom, oy + r.y * zoom))
-            }
-            None => self.imp().logical.get().map(|_| (ox, oy)),
+            Some(pages) => Some(view.page_origin(pages.layout.rects.get(page)?)),
+            None => self.imp().logical.get().map(|_| view.origin),
         }
     }
 
@@ -1630,11 +1629,10 @@ impl LumenCanvas {
                 .and_then(|p| p.layout.rects.get(page).copied())
         };
         let Some(rect) = rect else { return };
-        let zoom = self.effective_zoom();
-        let (ox, oy) = self.origin();
         // The hit in widget coordinates.
-        let (left, right) = (ox + (rect.x + hit.x1) * zoom, ox + (rect.x + hit.x2) * zoom);
-        let (top, bottom) = (oy + (rect.y + hit.y1) * zoom, oy + (rect.y + hit.y2) * zoom);
+        let area = View::new(self.effective_zoom(), self.origin()).area_in_page(&rect, &hit);
+        let (left, right) = (area.x, area.x + area.w);
+        let (top, bottom) = (area.y, area.y + area.h);
         let (width, height) = (self.width() as f64, self.height() as f64);
 
         let margin = 24.0;
@@ -1656,6 +1654,7 @@ impl LumenCanvas {
         zoom: f64,
         (ox, oy): (f64, f64),
     ) {
+        let view = View::new(zoom, (ox, oy));
         let (top, bottom) = (-oy / zoom, (self.height() as f64 - oy) / zoom);
         let Some((first, last)) = pages.layout.visible(top, bottom) else {
             return;
@@ -1700,13 +1699,7 @@ impl LumenCanvas {
                 if !field.editable() {
                     continue;
                 }
-                let a = &field.area;
-                let rect = graphene::Rect::new(
-                    (ox + (r.x + a.x1) * zoom) as f32,
-                    (oy + (r.y + a.y1) * zoom) as f32,
-                    ((a.x2 - a.x1) * zoom) as f32,
-                    ((a.y2 - a.y1) * zoom) as f32,
-                );
+                let rect = graphene_rect(view.area_in_page(&r, &field.area));
                 snapshot.append_color(&FORM_FILL, &rect);
                 let edge = gsk::RoundedRect::from_rect(rect, 0.0);
                 snapshot.append_border(&edge, &[1.0; 4], &[FORM_EDGE; 4]);
@@ -1714,12 +1707,7 @@ impl LumenCanvas {
             self.snapshot_markup(snapshot, index, (ox + r.x * zoom, oy + r.y * zoom), zoom);
             if let Some(rects) = pages.selection.get(&index) {
                 for hit in rects {
-                    let rect = graphene::Rect::new(
-                        (ox + (r.x + hit.x1) * zoom) as f32,
-                        (oy + (r.y + hit.y1) * zoom) as f32,
-                        ((hit.x2 - hit.x1) * zoom) as f32,
-                        ((hit.y2 - hit.y1) * zoom) as f32,
-                    );
+                    let rect = graphene_rect(view.area_in_page(&r, hit));
                     snapshot.append_color(&SELECTION_COLOR, &rect);
                 }
             }
@@ -1727,12 +1715,7 @@ impl LumenCanvas {
                 for (i, hit) in hits.iter().enumerate() {
                     let current = pages.current_hit == Some((index, i));
                     let color = if current { HIT_CURRENT } else { HIT_OTHER };
-                    let rect = graphene::Rect::new(
-                        (ox + (r.x + hit.x1) * zoom) as f32,
-                        (oy + (r.y + hit.y1) * zoom) as f32,
-                        ((hit.x2 - hit.x1) * zoom) as f32,
-                        ((hit.y2 - hit.y1) * zoom) as f32,
-                    );
+                    let rect = graphene_rect(view.area_in_page(&r, hit));
                     snapshot.append_color(&color, &rect);
                 }
             }

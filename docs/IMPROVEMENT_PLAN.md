@@ -514,7 +514,7 @@ Nothing else. Each new preference needs a reason in the commit message.
 - Target: `app.rs` under 1,200 lines. This is a pure refactor: no behaviour change, and all
   tests stay green.
 
-### - [ ] E2 🟢 Put the transforms in one place, as the rules promised
+### - [x] E2 (PDF page transforms; the picture-side `origin` logic stays in the canvas) 🟢 Put the transforms in one place, as the rules promised
 - PLAN.md rule 3 and ARCHITECTURE.md refer to `src/geometry.rs`, which does not exist. Page,
   widget and document transforms are spread through `canvas.rs` (`page_origin`, `doc_point`,
   `page_point_at`, `origin`) and the snapshot code repeats the same rect maths 5 times.

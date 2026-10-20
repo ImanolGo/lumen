@@ -31,6 +31,7 @@ src/
 │   └── control.rs       the D-Bus control interface (scripts and end-to-end tests)
 ├── document.rs          file-type detection, open/probe
 ├── folder.rs            natural ordering, listing folders
+├── geometry.rs          widget ↔ layout ↔ page-area transforms (pure, tested)
 ├── fsutil.rs            replacing files without losing permissions, symlinks or hard links
 ├── i18n.rs              gettext helpers
 ├── settings.rs          preferences and remembered state (TOML)
@@ -46,8 +47,8 @@ src/
                          annotations (Poppler C API), page operations and composing (lopdf)
 ```
 
-There is no separate `geometry.rs` yet: the widget, document and page transforms live in
-`widgets/canvas.rs` (see the improvement plan, E2).
+`geometry.rs` holds the tested arithmetic between widget pixels, layout points and areas inside a
+page (`View`); the canvas owns the zoom and scroll position it is built from.
 
 ## Data flow
 

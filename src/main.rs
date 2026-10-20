@@ -4,6 +4,7 @@ mod document;
 mod edit;
 mod folder;
 mod fsutil;
+mod geometry;
 mod i18n;
 mod image;
 mod pdf;
