@@ -37,7 +37,7 @@
 
 ## Installing
 
-The latest release is 0.2.0. Lumen is not on Flathub yet; install it from a release, the AUR or source.
+The latest release is 0.3.0. Lumen is not on Flathub yet; install it from a release, the AUR or source.
 
 ### From a release
 

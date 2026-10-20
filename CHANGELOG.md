@@ -4,6 +4,8 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-20
+
 ### Added
 - A D-Bus control interface, `io.github.imanolgo.Lumen.Control1`, for scripts and tests: open, navigate, fill in forms, annotate, edit pictures, change pages, undo, save, export, search and take screenshots, with JSON answers. Nothing destructive happens without an explicit flag, and no call waits on a dialog. See docs/DEVELOPMENT.md.
 - End-to-end tests that drive the real app through that interface.
@@ -47,6 +49,7 @@ First release.
 - Packages: Flatpak, `.deb` for Ubuntu 26.04+ and Debian testing (`make deb`), and `lumen` and `lumen-git` PKGBUILDs for the AUR. The release workflow builds the Flatpak, the `.deb` and a tarball, and can be run by hand without publishing.
 - README, `CONTRIBUTING.md`, `docs/RELEASING.md` and this changelog.
 
-[Unreleased]: https://github.com/ImanolGo/lumen/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/ImanolGo/lumen/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ImanolGo/lumen/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ImanolGo/lumen/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ImanolGo/lumen/releases/tag/v0.1.0

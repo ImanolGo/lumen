@@ -1,6 +1,6 @@
 # Maintainer: Imanol Gomez <imanol@steinergomez.com>
 pkgname=lumen
-pkgver=0.2.0
+pkgver=0.3.0
 pkgrel=1
 pkgdesc='Fast image and PDF viewer with light editing, markup and page management'
 arch=('x86_64' 'aarch64')

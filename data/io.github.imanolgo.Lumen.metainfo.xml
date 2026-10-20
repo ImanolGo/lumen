@@ -72,6 +72,15 @@
   </keywords>
   <translation type="gettext">lumen</translation>
   <releases>
+    <release version="0.3.0" date="2026-10-20">
+      <description>
+        <p>Scripting, and a fix for saving PDFs.</p>
+        <ul>
+          <li>Saving a PDF no longer asks afterwards whether to save the changes it just saved.</li>
+          <li>A D-Bus interface lets scripts open, fill in, annotate, edit, rearrange and save documents.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.0" date="2026-10-20">
       <description>
         <p>Safer pictures, forms and signatures.</p>
