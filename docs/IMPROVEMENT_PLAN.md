@@ -391,7 +391,7 @@ toolbar.
 - **Done when:** `lumen ~/Pictures/a.jpg` shows `a.jpg` with no slower first paint, then → goes
   to the next file in the folder.
 
-### - [ ] C2 🟢 Back and forward after following a link
+### - [x] C2 (Alt+Left/Right and a Back toast; mouse buttons 8/9 not wired) 🟢 Back and forward after following a link
 - Clicking an internal link or an outline entry pushes the current position (page and y offset)
   onto a stack. `Alt+Left` / `Alt+Right` (and mouse buttons 8 and 9) go back and forward. A
   small "← Back to page 12" OSD pill appears for 4 s after a jump.

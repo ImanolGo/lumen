@@ -45,6 +45,8 @@ const SECTIONS: &[(&str, &[(&str, &str)])] = &[
             (n_("First page"), "Home"),
             (n_("Last page"), "End"),
             (n_("Go to page"), "<Control>g"),
+            (n_("Back after following a link"), "<Alt>Left"),
+            (n_("Forward again"), "<Alt>Right"),
             (n_("Find"), "<Control>f"),
             (n_("Next match"), "F3"),
             (n_("Previous match"), "<Shift>F3"),

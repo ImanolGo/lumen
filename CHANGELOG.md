@@ -22,6 +22,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - Dragging the colour-adjust sliders on a large picture renders one preview at a time (the newest wins), spread over all cores, instead of piling up renders.
 - Thumbnails use the desktop's thumbnail cache (`~/.cache/thumbnails`): ones the file manager made are reused, and the ones Lumen makes are saved there for next time.
 - Deleting pages shows "1 page deleted · Undo" at the bottom of the window; saving and exporting confirm the same way.
+- After following a link or an outline entry in a PDF, Alt+Left goes back to where you were (and Alt+Right forward again); a toast with a Back button appears too.
 - PDF workers for search, selection, links and thumbnails open the document only when first used.
 
 ## [0.3.1] - 2026-10-20

@@ -210,6 +210,10 @@ pub struct App {
     /// Working copies of the PDF being rearranged (they are the undo history of page changes).
     work: WorkDir,
     reload_generation: u64,
+    /// Where the reader was before following links and outline entries (and where to go
+    /// forward to after going back), as scroll positions in layout points.
+    jump_back: Vec<f64>,
+    jump_forward: Vec<f64>,
     /// Where short messages with an action (Undo…) are shown; set once the window exists.
     toasts: Option<adw::ToastOverlay>,
     /// A write of the remembered state is already scheduled.
@@ -260,6 +264,10 @@ pub enum AppMsg {
     /// A file was saved: show it again, keeping the files being browsed (a copy is added
     /// after the current file).
     ShowSaved(PathBuf),
+    /// Alt+Left or the toast's button: back to where a link or the outline was followed from.
+    JumpBack,
+    /// Alt+Right: forward again.
+    JumpForward,
     /// The remembered state is due to be written (see `save_state_soon`).
     SaveState,
     /// A tool's letter key: choose the tool while the markup toolbar is open.
@@ -753,9 +761,42 @@ impl App {
             .request(wanted.filter(|p| !pdf.links_loaded.contains(p)));
     }
 
-    fn follow_link(&mut self, target: LinkTarget) {
+    /// Remember where the reader is before a jump (a link or the outline), so Alt+Left can
+    /// come back, and say so.
+    fn jumped_from_here(&mut self, page: usize, sender: &ComponentSender<Self>) {
+        let Some(position) = self.canvas.scroll_position() else {
+            return;
+        };
+        self.jump_back.push(position);
+        self.jump_forward.clear();
+        self.toast(
+            &tr_fmt("Went to page {page}", &[("page", &(page + 1).to_string())]),
+            Some((&tr("Back"), AppMsg::JumpBack, sender)),
+        );
+    }
+
+    /// Go back (or forward) along the jumps made with links and the outline.
+    fn jump_along(&mut self, back: bool) {
+        let Some(here) = self.canvas.scroll_position() else {
+            return;
+        };
+        let (from, to) = if back {
+            (&mut self.jump_back, &mut self.jump_forward)
+        } else {
+            (&mut self.jump_forward, &mut self.jump_back)
+        };
+        if let Some(position) = from.pop() {
+            to.push(here);
+            self.canvas.restore_scroll(position);
+        }
+    }
+
+    fn follow_link(&mut self, target: LinkTarget, sender: &ComponentSender<Self>) {
         match target {
-            LinkTarget::Page { page, y } => self.canvas.scroll_to_point(page, y),
+            LinkTarget::Page { page, y } => {
+                self.jumped_from_here(page, sender);
+                self.canvas.scroll_to_point(page, y);
+            }
             LinkTarget::Named(action) => {
                 let Some(pdf) = &self.pdf else { return };
                 let page = match action {
@@ -1123,6 +1164,8 @@ impl App {
         } else {
             SidebarMode::Files
         };
+        self.jump_back.clear();
+        self.jump_forward.clear();
         self.load_markup(opened_annotations);
         self.unprotected_ok = false;
         self.pending_goto = None;
@@ -2169,6 +2212,8 @@ impl SimpleComponent for App {
             pending_goto: None,
             work: WorkDir::default(),
             reload_generation: 0,
+            jump_back: Vec::new(),
+            jump_forward: Vec::new(),
             toasts: None,
             state_save_pending: false,
             page_busy: false,
@@ -2339,6 +2384,8 @@ impl SimpleComponent for App {
                 || AppMsg::ToolKey(Tool::Highlight),
                 &["h"],
             ),
+            ("jump-back", || AppMsg::JumpBack, &["<Alt>Left"]),
+            ("jump-forward", || AppMsg::JumpForward, &["<Alt>Right"]),
             ("screen-down", || AppMsg::Screen(1), &["space"]),
             ("screen-up", || AppMsg::Screen(-1), &["<Shift>space"]),
             ("next", || AppMsg::Navigate(1), &["Right"]),
@@ -2683,6 +2730,8 @@ impl App {
                 };
                 self.show_index(index, &sender);
             }
+            AppMsg::JumpBack => self.jump_along(true),
+            AppMsg::JumpForward => self.jump_along(false),
             AppMsg::SaveState => {
                 self.state_save_pending = false;
                 self.store.borrow().save_state();
@@ -2861,6 +2910,7 @@ impl App {
             AppMsg::SidebarMode(mode) => self.sidebar_mode = mode,
             AppMsg::GotoTarget(target) => {
                 if self.pdf.is_some() {
+                    self.jumped_from_here(target.page, &sender);
                     self.canvas.scroll_to_point(target.page, target.y);
                 }
             }
@@ -2934,7 +2984,7 @@ impl App {
                     }
                     SelectGesture::OpenLink(target) => {
                         self.clear_selection();
-                        self.follow_link(target);
+                        self.follow_link(target, &sender);
                     }
                     SelectGesture::End { moved } => {
                         // With the highlighter, a dragged selection becomes a highlight once measured.

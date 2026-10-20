@@ -645,6 +645,18 @@ impl LumenCanvas {
         self.scroll_to_point(index, None);
     }
 
+    /// How far down the document the view is, in layout points; `None` unless pages are shown.
+    pub fn scroll_position(&self) -> Option<f64> {
+        self.has_pages().then(|| {
+            self.adjustment_value(gtk::Orientation::Vertical) / self.effective_zoom().max(1e-6)
+        })
+    }
+
+    /// Scroll back to a position from `scroll_position`.
+    pub fn restore_scroll(&self, position: f64) {
+        self.set_adjustment_value(gtk::Orientation::Vertical, position * self.effective_zoom());
+    }
+
     /// Scroll down (`direction` 1) or up (-1) by nearly one screen. Returns whether the view
     /// moved, so the caller can go on to the next file at the end.
     pub fn scroll_screen(&self, direction: i32) -> bool {
