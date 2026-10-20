@@ -58,3 +58,13 @@ listview.thumbnail-strip > row:selected label {
   color: var(--accent-color);
   font-weight: bold;
 }
+
+/* One accent: the amber of the icon, instead of the system's blue. It marks the selected
+   page, the active tool, suggested actions and switches. */
+@define-color accent_bg_color #e8a317;
+@define-color accent_fg_color rgba(0, 0, 0, 0.8);
+@define-color accent_color #8f5d00;
+
+@media (prefers-color-scheme: dark) {
+  @define-color accent_color #f6c34a;
+}

@@ -486,7 +486,7 @@ Nothing else. Each new preference needs a reason in the commit message.
 - Move **Properties** into the main menu (`Alt+Enter` keeps working).
 - The end result is sidebar, open | title | markup, document menu, main menu.
 
-### - [ ] D5 🟢 A visual rule pass
+### - [x] D5 (amber accent app-wide, checked in light and dark; hairline pages and the high-contrast/2× recheck not done) 🟢 A visual rule pass
 - One accent: the active tool, selection rings, the current search hit, the crop frame and the
   page ring all use the same amber.
 - Use the OSD pill style for every floating control: zoom pill, back pill (C2) and toasts.

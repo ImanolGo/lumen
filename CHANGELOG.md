@@ -34,6 +34,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - The empty window shows your recent files with their thumbnails; click one to open it.
 - Moving to a picture that is still being decoded shows its thumbnail, scaled up, which fades into the real picture; the spinner only appears when there is no thumbnail.
 - PDF pages that are still being drawn show their sidebar thumbnail, scaled up, instead of blank paper once that thumbnail exists.
+- One accent colour: the icon's amber replaces the system blue for the selected page, the active tool, suggested actions and switches.
 - PDF workers for search, selection, links and thumbnails open the document only when first used.
 
 ## [0.3.1] - 2026-10-20
