@@ -428,7 +428,7 @@ toolbar.
 - **Night mode** (invert lightness, keep hue) as a GSK `ColorMatrix` node on the page nodes. It
   is cheap and needs no re-render.
 
-### - [ ] C8 🟢 Search options
+### - [x] C8 (toggles; per-page hit badges not done) 🟢 Search options
 - Case-sensitive and whole-word toggles in the search bar (Poppler
   `FindFlags::CASE_SENSITIVE | WHOLE_WORDS_ONLY`). Show the hit count per page in the page
   sidebar as a small badge.

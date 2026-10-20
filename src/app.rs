@@ -147,6 +147,8 @@ pub struct App {
     search_text: String,
     /// Identifies the running search; events from older ones are dropped.
     search_id: u64,
+    /// Case-sensitive and whole-word matching, from the toggles in the search bar.
+    search_options: pdf::SearchOptions,
     /// Identifies the latest change of the search text, for the typing pause.
     search_ticket: u64,
     searching: bool,
@@ -407,6 +409,8 @@ pub enum AppMsg {
     },
     /// The search text changed.
     SearchChanged(String),
+    /// A matching option was switched in the search bar.
+    SearchOptions(pdf::SearchOptions),
     /// The search text has stayed the same since change `ticket`: search for it.
     SearchTyped {
         ticket: u64,
@@ -981,8 +985,12 @@ impl App {
         let Some(pdf) = &self.pdf else { return };
         if self.search_open && !self.search_text.is_empty() {
             self.searching = true;
-            pdf.search
-                .start(self.search_id, self.search_text.clone(), pdf.page);
+            pdf.search.start(
+                self.search_id,
+                self.search_text.clone(),
+                pdf.page,
+                self.search_options,
+            );
         } else {
             pdf.search.stop(self.search_id);
         }
@@ -1672,6 +1680,27 @@ impl SimpleComponent for App {
                             set_placeholder_text: Some(&tr("Find in document")),
                             connect_search_changed[sender] => move |entry| {
                                 sender.input(AppMsg::SearchChanged(entry.text().to_string()));
+                            },
+                        },
+
+                        gtk::ToggleButton {
+                            set_label: "Aa",
+                            set_tooltip_text: Some(&tr("Match Case")),
+                            connect_toggled[sender, model_options] => move |button| {
+                                let mut options = model_options.get();
+                                options.case_sensitive = button.is_active();
+                                model_options.set(options);
+                                sender.input(AppMsg::SearchOptions(options));
+                            },
+                        },
+                        gtk::ToggleButton {
+                            set_label: "ab",
+                            set_tooltip_text: Some(&tr("Whole Words")),
+                            connect_toggled[sender, model_options] => move |button| {
+                                let mut options = model_options.get();
+                                options.whole_words = button.is_active();
+                                model_options.set(options);
+                                sender.input(AppMsg::SearchOptions(options));
                             },
                         },
 
@@ -2369,6 +2398,7 @@ impl SimpleComponent for App {
             search_open: false,
             search_text: String::new(),
             search_id: 0,
+            search_options: pdf::SearchOptions::default(),
             search_ticket: 0,
             searching: false,
             hits: BTreeMap::new(),
@@ -2459,6 +2489,7 @@ impl SimpleComponent for App {
         }
         let signature_button = model.signature_button.clone();
         model.refresh_signature_menu(&sender);
+        let model_options = Rc::new(Cell::new(pdf::SearchOptions::default()));
         let sidebar_stack = model.sidebar_stack.clone();
         sidebar_stack.add_named(model.strip.root(), Some("files"));
         sidebar_stack.add_named(model.page_strip.root(), Some("pages"));
@@ -3614,6 +3645,10 @@ impl App {
                         move || sender.input(AppMsg::SearchTyped { ticket }),
                     );
                 }
+            }
+            AppMsg::SearchOptions(options) => {
+                self.search_options = options;
+                self.restart_search();
             }
             AppMsg::SearchTyped { ticket } => {
                 if ticket == self.search_ticket {

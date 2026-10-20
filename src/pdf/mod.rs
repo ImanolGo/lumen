@@ -26,7 +26,7 @@ pub use layout::PageLayout;
 pub use links::{Link, LinkTarget, LinkWorker, LinksLoaded, NamedAction, is_safe_uri};
 pub use outline::{OutlineItem, OutlineTarget};
 pub use renderer::{PageRenderer, RenderJob};
-pub use search::{HitRect, SearchEvent, SearchWorker};
+pub use search::{HitRect, SearchEvent, SearchOptions, SearchWorker};
 pub use selection::{Granularity, PagePoint, SelectRequest, SelectionResult, SelectionWorker};
 
 /// Rendering is capped so a high zoom on a huge page cannot exhaust memory.

@@ -34,10 +34,31 @@ pub enum SearchEvent {
     Done { id: u64 },
 }
 
+/// How the text is matched, beyond ignoring accents.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SearchOptions {
+    pub case_sensitive: bool,
+    pub whole_words: bool,
+}
+
+impl SearchOptions {
+    fn flags(self) -> FindFlags {
+        let mut flags = FindFlags::DEFAULT | FindFlags::IGNORE_DIACRITICS;
+        if self.case_sensitive {
+            flags |= FindFlags::CASE_SENSITIVE;
+        }
+        if self.whole_words {
+            flags |= FindFlags::WHOLE_WORDS_ONLY;
+        }
+        flags
+    }
+}
+
 struct Query {
     id: u64,
     text: String,
     start_page: usize,
+    options: SearchOptions,
 }
 
 #[derive(Default)]
@@ -97,10 +118,7 @@ impl SearchWorker {
                     };
                     let height = page.size().1;
                     let hits: Vec<HitRect> = page
-                        .find_text_with_options(
-                            &query.text,
-                            FindFlags::DEFAULT | FindFlags::IGNORE_DIACRITICS,
-                        )
+                        .find_text_with_options(&query.text, query.options.flags())
                         .iter()
                         // Poppler measures from the bottom of the page.
                         .map(|r| HitRect {
@@ -127,7 +145,7 @@ impl SearchWorker {
     }
 
     /// Abandon any running search and look for `text`, beginning at `start_page`.
-    pub fn start(&self, id: u64, text: String, start_page: usize) {
+    pub fn start(&self, id: u64, text: String, start_page: usize, options: SearchOptions) {
         let (lock, condvar) = &*self.shared;
         let mut state = lock.lock().unwrap();
         state.latest = id;
@@ -135,6 +153,7 @@ impl SearchWorker {
             id,
             text,
             start_page,
+            options,
         });
         condvar.notify_all();
     }
