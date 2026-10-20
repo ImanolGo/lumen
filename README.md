@@ -37,7 +37,7 @@
 
 ## Installing
 
-The latest release is 0.1.0. Sandboxed decoding, form filling and signatures are on `main` and come with the next release; until then, build from source or use `lumen-git` from the AUR. Lumen is not on Flathub yet.
+The latest release is 0.2.0. Lumen is not on Flathub yet; install it from a release, the AUR or source.
 
 ### From a release
 

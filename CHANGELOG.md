@@ -4,6 +4,8 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-20
+
 ### Added
 - Pictures are decoded with glycin, in sandboxed processes, so a malicious file cannot reach the system. This adds HEIC, AVIF, JPEG XL, JPEG 2000, OpenEXR, QOI and more, and animated GIF, APNG and WebP now play. File thumbnails are decoded the same way. Without glycin's loaders, GTK's own decoders are used as before.
 - PDF forms can be filled in: text fields, checkboxes, radio buttons and lists. Each change is one undo step, and the saved file shows the answers in any reader.
@@ -13,10 +15,6 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - Rust 1.93 or newer is needed (glycin 4), and libseccomp to build.
 - Reloading a PDF with the same pages (a form filled in, an undo) keeps the zoom and scroll position.
 - In text annotations and multi-line form fields, `Enter` finishes and `Shift+Enter` starts a new line (it was `Ctrl+Enter` to finish).
-
-### Changed
-- New app icon and symbolic icon: a fan of pages, the front one holding a photo above text with a highlighter stroke.
-- Retook the screenshots.
 
 ## [0.1.0] - 2026-10-19
 
@@ -39,5 +37,6 @@ First release.
 - Packages: Flatpak, `.deb` for Ubuntu 26.04+ and Debian testing (`make deb`), and `lumen` and `lumen-git` PKGBUILDs for the AUR. The release workflow builds the Flatpak, the `.deb` and a tarball, and can be run by hand without publishing.
 - README, `CONTRIBUTING.md`, `docs/RELEASING.md` and this changelog.
 
-[Unreleased]: https://github.com/ImanolGo/lumen/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ImanolGo/lumen/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ImanolGo/lumen/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ImanolGo/lumen/releases/tag/v0.1.0

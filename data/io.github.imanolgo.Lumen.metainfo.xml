@@ -72,6 +72,17 @@
   </keywords>
   <translation type="gettext">lumen</translation>
   <releases>
+    <release version="0.2.0" date="2026-10-20">
+      <description>
+        <p>Safer pictures, forms and signatures.</p>
+        <ul>
+          <li>Pictures are decoded in a sandbox with glycin, which also adds HEIC, AVIF, JPEG XL and more, and plays animated GIF, APNG and WebP.</li>
+          <li>Fill in PDF forms: text fields, checkboxes, radio buttons and lists.</li>
+          <li>Draw your signature once and stamp it onto PDFs and pictures, or into a form's signature field.</li>
+          <li>Enter finishes a text note or field; Shift+Enter starts a new line.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-10-19">
       <description>
         <p>First release.</p>
