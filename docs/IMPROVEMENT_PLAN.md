@@ -444,7 +444,7 @@ toolbar.
   **recent files** as thumbnails (from the B5 cache). Clicking one opens it. The page stays
   minimal: no grid browser.
 
-### - [ ] C11 🟢 Preferences worth having (and no more)
+### - [x] C11 (wrap around and browse folder; JPEG quality and sort order not done) 🟢 Preferences worth having (and no more)
 - **JPEG quality** (from A4).
 - **Wrap around** at the end of the list.
 - **Sort by** name or date taken.

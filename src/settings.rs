@@ -46,6 +46,8 @@ pub struct Settings {
     pub remember_state: bool,
     /// Opening a single picture also lets you browse the other pictures in its folder.
     pub browse_folder: bool,
+    /// Going past the last picture continues with the first (and the other way round).
+    pub wrap_around: bool,
 }
 
 impl Default for Settings {
@@ -57,6 +59,7 @@ impl Default for Settings {
             slideshow_seconds: 5,
             remember_state: true,
             browse_folder: true,
+            wrap_around: false,
         }
     }
 }

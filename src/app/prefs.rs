@@ -168,6 +168,20 @@ pub fn show_preferences(current: &Settings, on_change: impl Fn(Settings) + 'stat
     });
     general.add(&browse);
 
+    let wrap = adw::SwitchRow::builder()
+        .title(tr("Wrap around"))
+        .subtitle(tr("Continue with the first file after the last one"))
+        .active(current.wrap_around)
+        .build();
+    wrap.connect_active_notify({
+        let update = Rc::clone(&update);
+        move |row| {
+            let value = row.is_active();
+            update(&|s| s.wrap_around = value);
+        }
+    });
+    general.add(&wrap);
+
     let page = adw::PreferencesPage::new();
     page.add(&viewing);
     page.add(&slideshow);

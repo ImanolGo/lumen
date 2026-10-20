@@ -1059,11 +1059,15 @@ impl App {
     }
 
     fn can_go_prev(&self) -> bool {
-        self.index > 0
+        self.index > 0 || self.wraps()
     }
 
     fn can_go_next(&self) -> bool {
-        self.index + 1 < self.list.len()
+        self.index + 1 < self.list.len() || self.wraps()
+    }
+
+    fn wraps(&self) -> bool {
+        self.list.len() > 1 && self.store.borrow().settings.wrap_around
     }
 
     /// Work out the files behind `paths` off the main thread (folders are listed), then
@@ -3145,10 +3149,14 @@ impl App {
                 if !self.guard(Pending::Navigate(delta), &sender) {
                     return;
                 }
-                let target = self
-                    .index
-                    .saturating_add_signed(delta)
-                    .min(self.list.len().saturating_sub(1));
+                let wrap = self.store.borrow().settings.wrap_around && self.list.len() > 1;
+                let target = if wrap {
+                    (self.index as isize + delta).rem_euclid(self.list.len() as isize) as usize
+                } else {
+                    self.index
+                        .saturating_add_signed(delta)
+                        .min(self.list.len().saturating_sub(1))
+                };
                 if !self.list.is_empty() && target != self.index {
                     self.show_index(target, &sender);
                 }
