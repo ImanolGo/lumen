@@ -23,6 +23,8 @@ pub struct ImageDocument {
     pub metadata: Metadata,
     /// Every frame, for an animated picture (GIF, APNG, WebP…).
     pub animation: Option<Animation>,
+    /// A drawing (SVG): shown sharp at any zoom by rendering it again (see `decode::render_region`).
+    pub vector: bool,
 }
 
 /// The frames of an animation and how long each one stays on screen.
@@ -56,6 +58,7 @@ impl ImageDocument {
             orientation,
             metadata,
             animation: decoded.animation,
+            vector: decoded.vector,
         })
     }
 
@@ -71,8 +74,15 @@ impl ImageDocument {
 }
 
 /// EXIF orientation: how the stored pixels must be transformed to look upright.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Orientation(u8);
+
+/// Upright: what a picture without an orientation tag gets.
+impl Default for Orientation {
+    fn default() -> Self {
+        Self::NORMAL
+    }
+}
 
 impl Orientation {
     pub const NORMAL: Self = Self(1);
@@ -195,6 +205,11 @@ mod tests {
                 p.y()
             );
         }
+    }
+
+    #[test]
+    fn the_default_is_upright() {
+        assert_eq!(Orientation::default(), Orientation::NORMAL);
     }
 
     #[test]

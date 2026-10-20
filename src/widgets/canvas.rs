@@ -103,7 +103,12 @@ pub struct ViewInfo {
     pub last_visible: usize,
     /// The page filling most of the viewport.
     pub current_page: usize,
+    /// Where a picture is scrolled to, in steps of `PAN_STEP` pixels (always 0 for PDFs), so
+    /// a drawing shown sharp can be rendered again where the view has moved.
+    pub pan: (i64, i64),
 }
+
+const PAN_STEP: f64 = 128.0;
 
 impl ViewInfo {
     fn same_as(&self, other: &Self) -> bool {
@@ -112,6 +117,7 @@ impl ViewInfo {
             && self.first_visible == other.first_visible
             && self.last_visible == other.last_visible
             && self.current_page == other.current_page
+            && self.pan == other.pan
     }
 }
 
@@ -175,6 +181,9 @@ mod imp {
         /// The picture being shown (its first frame), to tell a new picture from the next frame.
         pub source: RefCell<Option<gdk::Texture>>,
         pub animation: RefCell<Option<Animation>>,
+        /// A drawing rendered again, sharp, for part of the picture: the texture and the area
+        /// (x, y, w, h) it covers, in the picture's own pixels.
+        pub sharp: RefCell<Option<(gdk::Texture, [f64; 4])>>,
         pub frame: Cell<usize>,
         /// Bumped whenever the content changes; timers of an older animation stop.
         pub animation_generation: Cell<u64>,
@@ -226,6 +235,7 @@ mod imp {
                 texture: RefCell::default(),
                 source: RefCell::default(),
                 animation: RefCell::default(),
+                sharp: RefCell::default(),
                 frame: Cell::new(0),
                 animation_generation: Cell::new(0),
                 orientation: Cell::new(Orientation::NORMAL),
@@ -431,6 +441,16 @@ mod imp {
                         gsk::ScalingFilter::Trilinear
                     };
                     snapshot.append_scaled_texture(texture, filter, &bounds);
+                    // A drawing: the part in view, rendered again at this zoom, over the pixels.
+                    if let Some((tile, [tx, ty, tw, th])) = self.sharp.borrow().as_ref() {
+                        let area = graphene::Rect::new(
+                            (bounds.x() as f64 + tx * zoom) as f32,
+                            (bounds.y() as f64 + ty * zoom) as f32,
+                            (tw * zoom) as f32,
+                            (th * zoom) as f32,
+                        );
+                        snapshot.append_scaled_texture(tile, gsk::ScalingFilter::Linear, &area);
+                    }
                 }
                 // A page that has not been rendered yet: blank paper.
                 None => snapshot.append_color(&gdk::RGBA::WHITE, &bounds),
@@ -479,6 +499,7 @@ impl LumenCanvas {
                     *imp.pages.borrow_mut() = None;
                     *imp.texture.borrow_mut() = Some(image.texture.clone());
                     *imp.source.borrow_mut() = Some(image.texture.clone());
+                    imp.sharp.replace(None);
                     *imp.animation.borrow_mut() = image.animation.clone();
                     self.next_frame_later();
                     imp.orientation.set(image.orientation);
@@ -527,6 +548,30 @@ impl LumenCanvas {
                 }
             }
         }
+    }
+
+    /// Show `tile`, the drawing rendered again for `area` (x, y, w, h in the picture's pixels).
+    pub fn set_sharp(&self, tile: Option<(gdk::Texture, [f64; 4])>) {
+        self.imp().sharp.replace(tile);
+        self.queue_draw();
+    }
+
+    /// The part of the picture in view, with `margin` (a fraction of the view) around it, in
+    /// the picture's own pixels; `None` unless a picture is shown upright.
+    pub fn visible_image_area(&self, margin: f64) -> Option<[f64; 4]> {
+        let imp = self.imp();
+        if imp.pages.borrow().is_some() || imp.orientation.get() != Orientation::NORMAL {
+            return None;
+        }
+        let (w, h) = imp.logical.get()?;
+        let zoom = self.effective_zoom();
+        let (ox, oy) = self.origin();
+        let (vw, vh) = (self.width() as f64 / zoom, self.height() as f64 / zoom);
+        let x1 = ((-ox / zoom) - vw * margin).max(0.0);
+        let y1 = ((-oy / zoom) - vh * margin).max(0.0);
+        let x2 = ((-ox / zoom) + vw * (1.0 + margin)).min(w);
+        let y2 = ((-oy / zoom) + vh * (1.0 + margin)).min(h);
+        (x2 > x1 && y2 > y1).then_some([x1, y1, x2 - x1, y2 - y1])
     }
 
     /// Forget the animation being played, if any; its pending timer becomes a no-op.
@@ -1752,12 +1797,19 @@ impl LumenCanvas {
             }
             None => (0, 0, 0),
         };
+        let pan = if imp.pages.borrow().is_some() {
+            (0, 0)
+        } else {
+            let (x, y) = self.origin();
+            ((x / PAN_STEP).floor() as i64, (y / PAN_STEP).floor() as i64)
+        };
         let info = ViewInfo {
             zoom,
             scale_factor: self.scale_factor(),
             first_visible,
             last_visible,
             current_page,
+            pan,
         };
         if imp.last_view.get().is_some_and(|last| last.same_as(&info)) {
             return;

@@ -21,6 +21,8 @@ pub struct Decoded {
     /// From the file format itself (EXIF in HEIF and friends), if the decoder knows it.
     pub orientation: Option<Orientation>,
     pub animation: Option<Animation>,
+    /// A drawing (SVG) that can be rendered again, sharp, at any zoom with [`render_region`].
+    pub vector: bool,
 }
 
 /// Whether glycin has loaders to work with. Checked once; blocking.
@@ -47,6 +49,7 @@ pub fn decode(path: &Path) -> Result<Decoded> {
             texture,
             orientation: None,
             animation: None,
+            vector: false,
         });
     }
     futures_lite::future::block_on(decode_sandboxed(path))
@@ -57,6 +60,7 @@ async fn decode_sandboxed(path: &Path) -> Result<Decoded> {
     // Lumen applies the orientation itself, so edits and lossless rotation can change it.
     loader.apply_transformations(false);
     let mut image = loader.load().await.map_err(short_error)?;
+    let vector = image.mime_type().as_str().starts_with("image/svg");
     let orientation = Orientation::from_exif(image.transformation_orientation() as u32);
     let first = image.next_frame().await.map_err(short_error)?;
     let texture = first.texture();
@@ -91,6 +95,29 @@ async fn decode_sandboxed(path: &Path) -> Result<Decoded> {
         texture,
         orientation: (orientation != Orientation::NORMAL).then_some(orientation),
         animation,
+        vector,
+    })
+}
+
+/// Render part of a drawing (SVG) as it looks at `scale` times its natural size: the region
+/// `(x, y, w, h)` of the scaled drawing, in pixels. Blocking.
+pub fn render_region(
+    path: &Path,
+    scale: f64,
+    (x, y, w, h): (u32, u32, u32, u32),
+) -> Result<gdk::Texture> {
+    futures_lite::future::block_on(async {
+        let loader = glycin::Loader::new(gio::File::for_path(path));
+        let mut image = loader.load().await.map_err(short_error)?;
+        let (nw, nh) = (image.details().width(), image.details().height());
+        let request = glycin::FrameRequest::new()
+            .scale(
+                ((nw as f64 * scale).round() as u32).max(1),
+                ((nh as f64 * scale).round() as u32).max(1),
+            )
+            .clip(x, y, w.max(1), h.max(1));
+        let frame = image.specific_frame(request).await.map_err(short_error)?;
+        Ok(frame.texture())
     })
 }
 

@@ -230,6 +230,8 @@ pub struct App {
     scale_factor: i32,
     /// Bumped on every render request; only the latest one is acted on.
     render_ticket: u64,
+    /// Bumped whenever the view of a drawing changes; only the latest sharp render is shown.
+    sharp_ticket: u64,
     error: Option<String>,
 }
 
@@ -266,6 +268,15 @@ pub enum AppMsg {
     FileStripChanged,
     /// The canvas zoom or the visible pages changed.
     ViewChanged(ViewInfo),
+    /// The view of a drawing settled: render the part in view sharp (request `ticket`).
+    RenderSharp {
+        ticket: u64,
+    },
+    SharpRendered {
+        ticket: u64,
+        area: [f64; 4],
+        result: Result<gdk::Texture, String>,
+    },
     /// The delay for render request `ticket` has passed.
     RenderPages {
         ticket: u64,
@@ -549,6 +560,68 @@ impl App {
             }
         }
         pdf.renderer.request(jobs);
+    }
+
+    /// The drawing (SVG) on screen, unless it has been edited into pixels.
+    fn shown_drawing(&self) -> Option<&crate::image::ImageDocument> {
+        self.image
+            .as_ref()
+            .filter(|i| i.vector && self.pdf.is_none() && self.edited.is_none())
+    }
+
+    /// A drawing is shown sharp at any zoom: once the view settles, the part in view is
+    /// rendered again at that zoom (see `render_sharp`).
+    fn schedule_sharp(&mut self, sender: &ComponentSender<Self>) {
+        self.sharp_ticket += 1;
+        if self.shown_drawing().is_none() {
+            return;
+        }
+        let (ticket, sender) = (self.sharp_ticket, sender.clone());
+        glib::timeout_add_local_once(
+            std::time::Duration::from_millis(RERENDER_DELAY_MS),
+            move || sender.input(AppMsg::RenderSharp { ticket }),
+        );
+    }
+
+    fn render_sharp(&mut self, ticket: u64, sender: &ComponentSender<Self>) {
+        if ticket != self.sharp_ticket {
+            return;
+        }
+        let Some(drawing) = self.shown_drawing() else {
+            return;
+        };
+        let scale = self.zoom * self.scale_factor as f64;
+        // At its natural size or smaller, the decoded pixels are already exact.
+        if scale <= 1.001 {
+            self.canvas.set_sharp(None);
+            return;
+        }
+        let Some([x, y, w, h]) = self.canvas.visible_image_area(0.25) else {
+            return;
+        };
+        let clip = (
+            (x * scale).floor() as u32,
+            (y * scale).floor() as u32,
+            (w * scale).ceil() as u32,
+            (h * scale).ceil() as u32,
+        );
+        // The area the whole pixels of the clip cover, in the drawing's own pixels.
+        let area = [
+            clip.0 as f64 / scale,
+            clip.1 as f64 / scale,
+            clip.2 as f64 / scale,
+            clip.3 as f64 / scale,
+        ];
+        let (path, sender) = (drawing.path.clone(), sender.clone());
+        relm4::spawn_blocking(move || {
+            let result = crate::image::decode::render_region(&path, scale, clip)
+                .map_err(|e| format!("{e:#}"));
+            sender.input(AppMsg::SharpRendered {
+                ticket,
+                area,
+                result,
+            });
+        });
     }
 
     /// Re-run `render_visible` once `delay_ms` has passed without a newer request.
@@ -2011,6 +2084,7 @@ impl SimpleComponent for App {
             zoom: 0.0,
             scale_factor: 1,
             render_ticket: 0,
+            sharp_ticket: 0,
             document: None,
             image: None,
             edit: None,
@@ -2570,6 +2644,7 @@ impl App {
                 if let Some(page) = self.pending_goto.take() {
                     self.canvas.scroll_to_page(page);
                 }
+                self.schedule_sharp(&sender);
                 let page_changed = self
                     .pdf
                     .as_ref()
@@ -2596,6 +2671,19 @@ impl App {
                     // Rectangles are only computed near the view, so refresh them when it moves.
                     self.request_selection(false);
                     self.request_links();
+                }
+            }
+            AppMsg::RenderSharp { ticket } => self.render_sharp(ticket, &sender),
+            AppMsg::SharpRendered {
+                ticket,
+                area,
+                result,
+            } => {
+                if ticket == self.sharp_ticket {
+                    match result {
+                        Ok(tile) => self.canvas.set_sharp(Some((tile, area))),
+                        Err(err) => tracing::warn!("cannot render the drawing: {err}"),
+                    }
                 }
             }
             AppMsg::RenderPages { ticket } => {

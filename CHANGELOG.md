@@ -4,6 +4,10 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Fixed
+- SVG drawings stay sharp when zoomed in: the part in view is rendered again at the zoom level (in glycin's sandbox) instead of the decoded pixels being enlarged.
+- The orientation glycin reads from a picture (HEIF and other formats Lumen's own EXIF reader does not cover) is used again; pictures without any orientation tag counted as rotated internally.
+
 ## [0.3.0] - 2026-10-20
 
 ### Added

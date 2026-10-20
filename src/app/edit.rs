@@ -279,6 +279,7 @@ impl App {
                         texture: rendered.into_texture(),
                         orientation: Orientation::NORMAL,
                         animation: None,
+                        vector: false,
                         ..original.clone()
                     });
                 }
