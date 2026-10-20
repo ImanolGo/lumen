@@ -27,9 +27,23 @@ jobs:
         run: cargo test --locked
       - name: Translation template is up to date
         run: |
+          # Compare the files themselves rather than asking git: in a container job the
+          # checkout's safe.directory entry lives in its own temporary HOME, so the
+          # repository is not discoverable from later steps.
+          tmp="$(mktemp -d)"
+          cp -r po "$tmp/old"
           ./build-aux/update-pot.sh
           # Only the file locations and the template date may differ; the messages must not.
-          git diff --exit-code -I'^#:' -I'POT-Creation-Date' po/
+          strip() { grep -Ev '^#:|POT-Creation-Date' "$1" || true; }
+          failed=0
+          for f in po/*.pot po/*.po; do
+            name="$(basename "$f")"
+            strip "$tmp/old/$name" > "$tmp/old.msgs"
+            strip "$f" > "$tmp/new.msgs"
+            diff -u --label "committed/$name" --label "regenerated/$name" \
+              "$tmp/old.msgs" "$tmp/new.msgs" || failed=1
+          done
+          [ "$failed" -eq 0 ]
       - name: Desktop file and metadata
         run: |
           desktop-file-validate data/io.github.imanolgo.Lumen.desktop
