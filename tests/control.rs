@@ -500,6 +500,30 @@ fn saving_keeps_the_files_being_browsed() {
 }
 
 #[test]
+fn shows_a_file_again_when_it_changes_on_disk() {
+    let Some(lumen) = Lumen::start("watch", &[]) else {
+        return;
+    };
+    let doc = lumen.path("doc.pdf");
+    std::fs::copy(fixture("pages.pdf"), &doc).unwrap();
+    let state = lumen.call("Open", args(&[paths(&[&doc]), no_options()]));
+    let before = state["page_count"].clone();
+    assert_eq!(before, 5);
+
+    // Another program replaces the file with a different document.
+    std::fs::copy(fixture("form.pdf"), &doc).unwrap();
+    let mut after = before.clone();
+    for _ in 0..50 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        after = lumen.call("GetState", ().to_variant())["page_count"].clone();
+        if after != before {
+            break;
+        }
+    }
+    assert_ne!(after, before, "the changed file was not shown again");
+}
+
+#[test]
 fn protected_pdfs_open_with_their_password_and_never_ask() {
     let Some(lumen) = Lumen::start("password", &[]) else {
         return;

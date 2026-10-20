@@ -210,6 +210,12 @@ pub struct App {
     /// Working copies of the PDF being rearranged (they are the undo history of page changes).
     work: WorkDir,
     reload_generation: u64,
+    /// Watches the open file, so a changed file is shown again (see `watch_file`).
+    watcher: Option<gio::FileMonitor>,
+    /// Identifies the latest change seen in the open file, for the pause before reloading.
+    watch_ticket: u64,
+    /// When Lumen last wrote a file itself, so that is not mistaken for someone else's change.
+    last_save: Option<std::time::Instant>,
     /// Where the reader was before following links and outline entries (and where to go
     /// forward to after going back), as scroll positions in layout points.
     jump_back: Vec<f64>,
@@ -264,6 +270,12 @@ pub enum AppMsg {
     /// A file was saved: show it again, keeping the files being browsed (a copy is added
     /// after the current file).
     ShowSaved(PathBuf),
+    /// The open file changed on disk (change `ticket`, after a pause).
+    FileChanged {
+        ticket: u64,
+    },
+    /// Something happened to the open file; wait a moment for it to settle.
+    FileTouched,
     /// Alt+Left or the toast's button: back to where a link or the outline was followed from.
     JumpBack,
     /// Alt+Right: forward again.
@@ -761,6 +773,53 @@ impl App {
             .request(wanted.filter(|p| !pdf.links_loaded.contains(p)));
     }
 
+    /// Watch the file being shown. When it changes on disk (a document being rebuilt, a
+    /// picture saved by another program) it is shown again.
+    fn watch_file(&mut self, path: &std::path::Path, sender: &ComponentSender<Self>) {
+        self.watcher = None;
+        let file = gio::File::for_path(path);
+        let Ok(monitor) = file.monitor_file(gio::FileMonitorFlags::NONE, gio::Cancellable::NONE)
+        else {
+            return;
+        };
+        let input = sender.input_sender().clone();
+        monitor.connect_changed(move |_, _, _, event| {
+            use gio::FileMonitorEvent as E;
+            if matches!(
+                event,
+                E::Changed | E::ChangesDoneHint | E::Created | E::MovedIn | E::Renamed
+            ) {
+                input.emit(AppMsg::FileTouched);
+            }
+        });
+        self.watcher = Some(monitor);
+    }
+
+    /// The open file changed on disk: show it again, or offer to if there are unsaved edits.
+    fn file_changed(&mut self, sender: &ComponentSender<Self>) {
+        let recently_saved = self
+            .last_save
+            .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(3));
+        if self.saving || recently_saved || self.loading || self.page_busy {
+            return;
+        }
+        let Some(path) = self.list.get(self.index).cloned() else {
+            return;
+        };
+        if self.is_dirty() {
+            self.toast(
+                &tr("This file changed on disk"),
+                Some((
+                    &tr("Reload"),
+                    AppMsg::Discard(Pending::Reload(path)),
+                    sender,
+                )),
+            );
+        } else {
+            sender.input(AppMsg::ShowSaved(path));
+        }
+    }
+
     /// Remember where the reader is before a jump (a link or the outline), so Alt+Left can
     /// come back, and say so.
     fn jumped_from_here(&mut self, page: usize, sender: &ComponentSender<Self>) {
@@ -1166,6 +1225,7 @@ impl App {
         };
         self.jump_back.clear();
         self.jump_forward.clear();
+        self.watch_file(&info.path, sender);
         self.load_markup(opened_annotations);
         self.unprotected_ok = false;
         self.pending_goto = None;
@@ -2212,6 +2272,9 @@ impl SimpleComponent for App {
             pending_goto: None,
             work: WorkDir::default(),
             reload_generation: 0,
+            watcher: None,
+            watch_ticket: 0,
+            last_save: None,
             jump_back: Vec::new(),
             jump_forward: Vec::new(),
             toasts: None,
@@ -2729,6 +2792,18 @@ impl App {
                     }
                 };
                 self.show_index(index, &sender);
+            }
+            AppMsg::FileTouched => {
+                self.watch_ticket += 1;
+                let (ticket, sender) = (self.watch_ticket, sender.clone());
+                glib::timeout_add_local_once(std::time::Duration::from_millis(400), move || {
+                    sender.input(AppMsg::FileChanged { ticket });
+                });
+            }
+            AppMsg::FileChanged { ticket } => {
+                if ticket == self.watch_ticket {
+                    self.file_changed(&sender);
+                }
             }
             AppMsg::JumpBack => self.jump_along(true),
             AppMsg::JumpForward => self.jump_along(false),

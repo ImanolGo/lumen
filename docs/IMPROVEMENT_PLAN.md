@@ -396,7 +396,7 @@ toolbar.
   onto a stack. `Alt+Left` / `Alt+Right` (and mouse buttons 8 and 9) go back and forward. A
   small "← Back to page 12" OSD pill appears for 4 s after a jump.
 
-### - [ ] C3 🟡 Reload when the file changes on disk
+### - [x] C3 🟡 Reload when the file changes on disk
 - Watch the open file with `gio::FileMonitor`. When it changes and nothing is unsaved, reload
   and keep page and zoom (this already works for identical layouts). When there are unsaved
   edits, show a toast: "Changed on disk. Reload". This makes Lumen useful for previewing

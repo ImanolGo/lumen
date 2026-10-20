@@ -51,6 +51,8 @@ pub enum Pending {
     Open(Vec<PathBuf>),
     Navigate(isize),
     GoTo(usize),
+    /// Show this file again, as it is on disk.
+    Reload(PathBuf),
     Close,
 }
 
@@ -581,6 +583,7 @@ impl App {
         sender: &ComponentSender<App>,
     ) {
         self.saving = false;
+        self.last_save = Some(std::time::Instant::now());
         match result {
             Ok(()) => {
                 self.toast(&tr("Saved"), None);
@@ -648,6 +651,7 @@ impl App {
             Pending::Open(paths) => sender.input(AppMsg::Open(paths)),
             Pending::Navigate(delta) => sender.input(AppMsg::Navigate(delta)),
             Pending::GoTo(index) => sender.input(AppMsg::GoTo(index)),
+            Pending::Reload(path) => sender.input(AppMsg::ShowSaved(path)),
             Pending::Close => {
                 if let Some(window) = relm4::main_application().active_window() {
                     window.close();
