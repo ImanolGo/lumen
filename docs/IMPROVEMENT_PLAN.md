@@ -279,7 +279,7 @@ the numbers in the commit message.
 - **Done when:** filling a checkbox on a 20-page form shows no frame with white pages. Check it
   with a Broadway screenshot sequence or by eye.
 
-### - [ ] B3 (not started) 🔍 🟠 Fill forms without reloading the whole document
+### - [x] B3 (investigated, not implemented: a live `text_set_text` on an open Poppler document does change the next render of that page, so in-place filling is possible. It would need every worker's document kept in step, a value-based undo history and a write-on-save step, which is a redesign of the working-copy model for a gain that only shows on very large forms; worth doing only if form filling feels slow in practice.) 🔍 🟠 Fill forms without reloading the whole document
 - **Where:** `src/app/forms.rs:78–120`. Every field change writes a full working copy and
   reopens the PDF, and with B1 not yet done, that is 5 parses.
 - **Do:** Prototype setting the value on the *live* worker document
