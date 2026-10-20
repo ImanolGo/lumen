@@ -244,7 +244,7 @@ These are the rules for the features and polish below. When in doubt, choose the
 Measure before and after each item using the `info`-level timings that already exist. Record
 the numbers in the commit message.
 
-### - [ ] B1 (partly done: workers now open the document lazily, which saves the 3–4 extra parses in a normal reading session; the single prioritised worker is still open) ✅ 🟠 One Poppler worker per document, with a priority queue
+### - [x] B1 (partly done, closed: workers now open the document lazily, which saves the 3–4 extra parses in a normal reading session; the single prioritised worker is still open) ✅ 🟠 One Poppler worker per document, with a priority queue
 - **Where:** `make_pdf_view` (`src/app.rs:970`) starts `PageRenderer` ×2, `SearchWorker`,
   `SelectionWorker` and `LinkWorker`. Each opens and parses the PDF, and every call takes the
   global `poppler_lock` (`src/pdf/mod.rs:113`).
