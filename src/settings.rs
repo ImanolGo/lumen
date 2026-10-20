@@ -20,6 +20,17 @@ pub enum DefaultZoom {
     ActualSize,
 }
 
+/// How a PDF is first fitted to the window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PdfFit {
+    /// The width of the pages fills the window; the height scrolls.
+    #[default]
+    Width,
+    /// A whole page is visible at once.
+    Page,
+}
+
 /// What lies behind an image or page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -48,6 +59,9 @@ pub struct Settings {
     pub browse_folder: bool,
     /// Going past the last picture continues with the first (and the other way round).
     pub wrap_around: bool,
+    pub pdf_fit: PdfFit,
+    /// Show PDF pages with their lightness inverted, easier on the eyes in the dark.
+    pub night_mode: bool,
 }
 
 impl Default for Settings {
@@ -60,6 +74,8 @@ impl Default for Settings {
             remember_state: true,
             browse_folder: true,
             wrap_around: false,
+            pdf_fit: PdfFit::Width,
+            night_mode: false,
         }
     }
 }

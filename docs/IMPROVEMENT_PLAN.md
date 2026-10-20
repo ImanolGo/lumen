@@ -420,7 +420,7 @@ toolbar.
 - Add **Show in Folder** and **Open With…** to the main menu (`gtk::FileLauncher`:
   `open_containing_folder`, and `launch` with `always_ask`).
 
-### - [ ] C7 🟡 PDF reading modes
+### - [x] C7 (fit width/page and night mode; dual-page layout not done; remembered globally, not per document) 🟡 PDF reading modes
 - Fit Page and Fit Width. Today it is always fit-width, capped at 300 % (`canvas.rs:134`),
   which is too big on wide screens. Make it a menu in the zoom pill and remember it per
   document.

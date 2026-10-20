@@ -21,6 +21,8 @@ pub struct PageLayout {
     /// Total size including the margin.
     pub size: (f64, f64),
     pub rects: Vec<PageRect>,
+    /// The height of the tallest page, for fitting a whole page in the window.
+    pub tallest: f64,
 }
 
 impl PageRect {
@@ -48,9 +50,11 @@ impl PageLayout {
             })
             .collect();
         let height = (y - PAGE_GAP + MARGIN).max(2.0 * MARGIN);
+        let tallest = page_sizes.iter().map(|s| s.1).fold(0.0, f64::max);
         Self {
             size: (widest + 2.0 * MARGIN, height),
             rects,
+            tallest,
         }
     }
 

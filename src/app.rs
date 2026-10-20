@@ -303,6 +303,8 @@ pub enum AppMsg {
     },
     /// Something happened to the open file; wait a moment for it to settle.
     FileTouched,
+    SetPdfFit(settings::PdfFit),
+    SetNightMode(bool),
     /// Alt+Left or the toast's button: back to where a link or the outline was followed from.
     JumpBack,
     /// Alt+Right: forward again.
@@ -1162,6 +1164,9 @@ impl App {
         self.canvas.set_smooth_zoom(store.settings.smooth_zoom);
         self.canvas
             .set_start_actual_size(store.settings.default_zoom == DefaultZoom::ActualSize);
+        self.canvas
+            .set_fit_page(store.settings.pdf_fit == settings::PdfFit::Page);
+        self.canvas.set_night(store.settings.night_mode);
     }
 
     /// The viewer state for a PDF shown from `path` (a working copy of `original`).
@@ -2325,6 +2330,11 @@ impl SimpleComponent for App {
         paper_size.append(Some(&tr("Actual Size")), Some("win.print-scaling::actual"));
         print_section.append_submenu(Some(&tr("Size on Paper")), &paper_size);
         main_menu.append_section(None, &print_section);
+        let pdf_view = gio::Menu::new();
+        pdf_view.append(Some(&tr("Fit Width")), Some("win.pdf-fit::width"));
+        pdf_view.append(Some(&tr("Fit Page")), Some("win.pdf-fit::page"));
+        pdf_view.append(Some(&tr("Night Mode")), Some("win.night-mode"));
+        main_menu.append_section(Some(&tr("PDF View")), &pdf_view);
         let view_section = gio::Menu::new();
         view_section.append(Some(&tr("Fullscreen")), Some("win.fullscreen"));
         view_section.append(Some(&tr("Slideshow")), Some("win.slideshow"));
@@ -2838,6 +2848,50 @@ impl SimpleComponent for App {
             }
         });
         widgets.main_window.add_action(&scaling_action);
+
+        // How PDFs are fitted, and night mode: both are kept in the preferences.
+        let fit_action = gio::SimpleAction::new_stateful(
+            "pdf-fit",
+            Some(glib::VariantTy::STRING),
+            &(if store.borrow().settings.pdf_fit == settings::PdfFit::Page {
+                "page"
+            } else {
+                "width"
+            })
+            .to_variant(),
+        );
+        fit_action.connect_activate({
+            let sender = sender.clone();
+            move |action, choice| {
+                if let Some(choice) = choice.and_then(|c| c.str()) {
+                    action.set_state(&choice.to_variant());
+                    sender.input(AppMsg::SetPdfFit(if choice == "page" {
+                        settings::PdfFit::Page
+                    } else {
+                        settings::PdfFit::Width
+                    }));
+                }
+            }
+        });
+        widgets.main_window.add_action(&fit_action);
+        let night_action = gio::SimpleAction::new_stateful(
+            "night-mode",
+            None,
+            &store.borrow().settings.night_mode.to_variant(),
+        );
+        night_action.connect_activate({
+            let sender = sender.clone();
+            move |action, _| {
+                let on = !action
+                    .state()
+                    .and_then(|s| s.get::<bool>())
+                    .unwrap_or(false);
+                action.set_state(&on.to_variant());
+                sender.input(AppMsg::SetNightMode(on));
+            }
+        });
+        widgets.main_window.add_action(&night_action);
+        app.set_accels_for_action("win.night-mode", accels("night-mode"));
 
         app.set_accels_for_action("win.find", accels("find"));
         widgets.search_bar.connect_entry(&widgets.search_entry);
@@ -3532,6 +3586,16 @@ impl App {
                 prefs::show_preferences(&self.store.borrow().settings, move |settings| {
                     sender.input(AppMsg::SettingsChanged(settings));
                 });
+            }
+            AppMsg::SetPdfFit(fit) => {
+                self.store.borrow_mut().settings.pdf_fit = fit;
+                self.store.borrow().save_settings();
+                self.apply_settings();
+            }
+            AppMsg::SetNightMode(on) => {
+                self.store.borrow_mut().settings.night_mode = on;
+                self.store.borrow().save_settings();
+                self.apply_settings();
             }
             AppMsg::SettingsChanged(settings) => {
                 self.store.borrow_mut().settings = settings;

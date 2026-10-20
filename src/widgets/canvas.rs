@@ -128,6 +128,20 @@ const HIT_CURRENT: gdk::RGBA = gdk::RGBA::new(1.0, 0.45, 0.0, 0.6);
 const FORM_FILL: gdk::RGBA = gdk::RGBA::new(0.21, 0.52, 0.89, 0.10);
 const FORM_EDGE: gdk::RGBA = gdk::RGBA::new(0.21, 0.52, 0.89, 0.45);
 /// The soft shadow under each PDF page, so pages read as paper on any background.
+/// Inverts lightness and keeps hue: the colours inverted, then turned half way round the
+/// colour wheel. Pages stay readable and pictures in them do not turn into negatives.
+fn night_colors() -> (graphene::Matrix, graphene::Vec4) {
+    // Column-major, as graphene wants it.
+    #[rustfmt::skip]
+    let matrix = graphene::Matrix::from_float([
+         0.574, -0.426, -0.426, 0.0,
+        -1.430, -0.430, -1.430, 0.0,
+        -0.144, -0.144,  0.856, 0.0,
+         0.0,    0.0,    0.0,   1.0,
+    ]);
+    (matrix, graphene::Vec4::new(1.0, 1.0, 1.0, 0.0))
+}
+
 const PAGE_SHADOW: gdk::RGBA = gdk::RGBA::new(0.0, 0.0, 0.0, 0.22);
 
 /// Fit-to-width never zooms a document past this.
@@ -216,6 +230,10 @@ mod imp {
         pub last_press: Cell<Option<(u32, f64, f64, u32)>>,
         pub zoom: Cell<f64>,
         pub fit: Cell<bool>,
+        /// Fit a whole PDF page in the window instead of the width of the pages.
+        pub fit_page: Cell<bool>,
+        /// Draw PDF pages with their lightness inverted.
+        pub night: Cell<bool>,
         pub pointer: Cell<Option<(f64, f64)>>,
         pub pinch_start_zoom: Cell<f64>,
 
@@ -260,6 +278,8 @@ mod imp {
                 last_press: Cell::new(None),
                 zoom: Cell::new(1.0),
                 fit: Cell::new(true),
+                fit_page: Cell::new(false),
+                night: Cell::new(false),
                 pointer: Cell::new(None),
                 pinch_start_zoom: Cell::new(1.0),
                 hadjustment: RefCell::default(),
@@ -948,6 +968,20 @@ impl LumenCanvas {
         self.imp().start_actual.set(actual);
     }
 
+    /// How PDFs are fitted (a whole page, or the page width); applies to a fitted view now.
+    pub fn set_fit_page(&self, whole_page: bool) {
+        if self.imp().fit_page.replace(whole_page) != whole_page && self.imp().fit.get() {
+            self.best_fit();
+        }
+    }
+
+    /// Show PDF pages with their lightness inverted (hue kept).
+    pub fn set_night(&self, night: bool) {
+        if self.imp().night.replace(night) != night {
+            self.queue_draw();
+        }
+    }
+
     pub fn set_smooth_zoom(&self, smooth: bool) {
         self.imp().smooth_zoom.set(smooth);
     }
@@ -1538,11 +1572,19 @@ impl LumenCanvas {
                 0.0,
                 6.0,
             );
+            let night = self.imp().night.get();
+            if night {
+                let (matrix, offset) = night_colors();
+                snapshot.push_color_matrix(&matrix, &offset);
+            }
             match pages.textures.get(&index) {
                 Some(texture) => {
                     snapshot.append_scaled_texture(texture, gsk::ScalingFilter::Trilinear, &bounds)
                 }
                 None => snapshot.append_color(&gdk::RGBA::WHITE, &bounds),
+            }
+            if night {
+                snapshot.pop();
             }
             // Fields that can be filled in get a light tint and edge, as in other readers.
             for field in pages.forms.get(&index).into_iter().flatten() {
@@ -1614,8 +1656,17 @@ impl LumenCanvas {
         let imp = self.imp();
         match (imp.fit.get(), imp.logical.get()) {
             (true, Some((lw, _))) if imp.pages.borrow().is_some() => {
-                // Documents fit to width; the height scrolls.
-                (width / lw).min(MAX_PAGES_FIT_ZOOM)
+                // By default documents fit to width and the height scrolls; "fit page" shows
+                // the tallest page whole.
+                let by_width = width / lw;
+                let zoom = match imp.pages.borrow().as_ref() {
+                    Some(pages) if imp.fit_page.get() && pages.layout.tallest > 0.0 => {
+                        let tall = pages.layout.tallest + 2.0 * crate::pdf::layout::MARGIN;
+                        by_width.min(height / tall)
+                    }
+                    _ => by_width,
+                };
+                zoom.min(MAX_PAGES_FIT_ZOOM)
             }
             (true, Some(_)) => {
                 let (iw, ih) = self.texture_size().unwrap_or((1.0, 1.0));
