@@ -72,6 +72,11 @@
   </keywords>
   <translation type="gettext">lumen</translation>
   <releases>
+    <release version="0.4.0" date="2026-10-20">
+      <description>
+        <p>Browse the folder of a single picture, go back after following a PDF link, move files to the trash, a night mode for PDFs and a command palette. Saving keeps permissions, symlinks and colour profiles, editing decodes in the sandbox, and thumbnails use the desktop cache.</p>
+      </description>
+    </release>
     <release version="0.3.1" date="2026-10-20">
       <description>
         <p>SVG drawings stay sharp when you zoom in, and pictures take the orientation stored in their file again.</p>

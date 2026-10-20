@@ -4,39 +4,46 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
-### Fixed
-- Saving a picture or PDF no longer replaces the files you are browsing with just the saved one; Save As adds the copy after the current file.
-- A colour-adjust preview that failed to render no longer undoes the last edit you made.
-- Saving over a file keeps its permissions, and follows a symlink or hard link instead of replacing it with a separate file.
-- Saving an edited JPEG, PNG or WebP keeps its embedded colour profile, so wide-gamut photos no longer shift colour.
-- Editing, saving, "Export as PDF" and inserting a picture as a page decode through glycin's sandbox, like viewing does. With glycin installed, AVIF, HEIF, JPEG XL and similar pictures can now be edited and saved as a copy.
-- Pictures you only flip past no longer fill the desktop's recent-files list; only files you open on purpose are added. The remembered state is written at most every two seconds instead of on every file.
-- In a PDF, Space and Shift+Space scroll a screen (and carry on to the next or previous file at the end); Home and End go to the first and last file when a picture is shown. Shift+Left and Shift+Right move a selected annotation in bigger steps.
-- Ctrl+G brings back the faded page controls before focusing the page box, and the box is no longer reset while you type in it.
-- While the markup toolbar is open, V, R, O, A, L, P, T and H choose the tool (shown in the tooltips).
-- Searching waits for a short pause in typing instead of restarting on every key.
-- Filling in a form field or undoing no longer flashes the pages white while they are drawn again.
-- Animated pictures show their first frame at once; the other frames are decoded in the background and join the loop as they arrive.
-- A JPEG inserted into or exported as a PDF is embedded as it is, instead of as large uncompressed pixels.
-- Working copies of an edited PDF live in the cache folder instead of `/tmp` (which is often memory), and the ones undo can no longer reach are deleted.
-- Dragging the colour-adjust sliders on a large picture renders one preview at a time (the newest wins), spread over all cores, instead of piling up renders.
-- Thumbnails use the desktop's thumbnail cache (`~/.cache/thumbnails`): ones the file manager made are reused, and the ones Lumen makes are saved there for next time.
-- Deleting pages shows "1 page deleted · Undo" at the bottom of the window; saving and exporting confirm the same way.
-- After following a link or an outline entry in a PDF, Alt+Left goes back to where you were (and Alt+Right forward again); a toast with a Back button appears too.
+## [0.4.0] - 2026-10-20
+
+### Added
+- Opening a single picture lets you browse the other pictures in its folder (a preference, on by default). Several files, a folder or a PDF open exactly as before.
+- After following a link or an outline entry in a PDF, Alt+Left goes back to where you were and Alt+Right forward again, and a toast has a Back button.
 - The open file is shown again when another program changes it on disk (handy for documents being rebuilt); with unsaved edits, a toast offers to reload instead.
 - Ctrl+Delete (or the main menu) moves the file on screen to the trash and goes on to the next one; the toast's Undo puts it back.
-- Ctrl+C on a picture copies it (and the file, when it has no unsaved edits) to the clipboard. The main menu gains Show in Folder and Open With.
-- Opening a single picture lets you browse the other pictures in its folder (a new preference, on by default, turns this off). Several files, a folder or a PDF open exactly as before.
-- The search bar has Match Case and Whole Words toggles.
-- A slimmer header bar: one menu for what can be done to the document (page changes for a PDF, picture edits for a picture), and Properties moved into the main menu (Alt+Enter still works).
-- A "Wrap around" preference: ←/→ continue past the last or first file.
+- Ctrl+C on a picture copies it (and the file, when it has no unsaved edits). The main menu gains Show in Folder and Open With.
 - PDF view options in the main menu: fit the page width or a whole page, and a night mode (Ctrl+Shift+N) that inverts the lightness of pages and keeps their hues.
-- The empty window shows your recent files with their thumbnails; click one to open it.
-- Moving to a picture that is still being decoded shows its thumbnail, scaled up, which fades into the real picture; the spinner only appears when there is no thumbnail.
-- PDF pages that are still being drawn show their sidebar thumbnail, scaled up, instead of blank paper once that thumbnail exists.
-- One accent colour: the icon's amber replaces the system blue for the selected page, the active tool, suggested actions and switches.
+- The search bar has Match Case and Whole Words toggles.
 - A command palette (Ctrl+Shift+P): type to find any command and run it.
-- PDF workers for search, selection, links and thumbnails open the document only when first used.
+- The empty window shows your recent files with their thumbnails.
+- While the markup toolbar is open, V, R, O, A, L, P, T and H choose the tool (shown in the tooltips).
+- In a PDF, Space and Shift+Space scroll a screen (and carry on to the next or previous file at the end). Home and End go to the first and last file when a picture is shown. Shift+Left and Shift+Right move a selected annotation in bigger steps.
+- A "Wrap around" preference: ←/→ continue past the last or first file.
+- Deleting pages shows "1 page deleted · Undo" at the bottom of the window; saving and exporting confirm the same way.
+
+### Changed
+- One accent colour: the icon's amber replaces the system blue for the selected page, the active tool, suggested actions and switches.
+- A slimmer header bar: one menu for what can be done to the document (page changes for a PDF, picture edits for a picture), and Properties moved into the main menu (Alt+Enter still works).
+- Editing, saving, "Export as PDF" and inserting a picture as a page decode through glycin's sandbox, like viewing does. With glycin installed, AVIF, HEIF, JPEG XL and similar pictures can now be edited and saved as a copy.
+- The shortcuts dialog is built from the same table as the registered shortcuts, so they cannot drift apart.
+
+### Faster
+- Moving to a picture that is still being decoded shows its thumbnail, scaled up, which fades into the real picture. PDF pages still being drawn show their sidebar thumbnail instead of blank paper.
+- Thumbnails use the desktop's thumbnail cache (`~/.cache/thumbnails`): ones the file manager made are reused, and the ones Lumen makes are saved there.
+- Animated pictures show their first frame at once; the other frames are decoded in the background.
+- Dragging the colour-adjust sliders on a large picture renders one preview at a time, spread over all cores.
+- Filling in a form field or undoing no longer flashes the pages white.
+- Searching waits for a short pause in typing. The PDF workers for search, selection, links and thumbnails open the document only when first used.
+- A JPEG inserted into or exported as a PDF is embedded as it is, instead of as large uncompressed pixels.
+- Working copies of an edited PDF live in the cache folder instead of `/tmp` (often memory), and the ones undo can no longer reach are deleted.
+- Pictures you only flip past no longer fill the desktop's recent-files list, and the remembered state is written at most every two seconds.
+
+### Fixed
+- Saving a picture or PDF no longer replaces the files you are browsing with just the saved one; Save As adds the copy after the current file.
+- Saving over a file keeps its permissions and follows a symlink or hard link instead of replacing it with a separate file.
+- Saving an edited JPEG, PNG or WebP keeps its embedded colour profile, so wide-gamut photos no longer shift colour.
+- A colour-adjust preview that failed to render no longer undoes the last edit you made.
+- Ctrl+G brings back the faded page controls before focusing the page box, and the box is no longer reset while you type in it.
 
 ## [0.3.1] - 2026-10-20
 
@@ -89,7 +96,8 @@ First release.
 - Packages: Flatpak, `.deb` for Ubuntu 26.04+ and Debian testing (`make deb`), and `lumen` and `lumen-git` PKGBUILDs for the AUR. The release workflow builds the Flatpak, the `.deb` and a tarball, and can be run by hand without publishing.
 - README, `CONTRIBUTING.md`, `docs/RELEASING.md` and this changelog.
 
-[Unreleased]: https://github.com/ImanolGo/lumen/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/ImanolGo/lumen/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/ImanolGo/lumen/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/ImanolGo/lumen/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/ImanolGo/lumen/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ImanolGo/lumen/compare/v0.1.0...v0.2.0

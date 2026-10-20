@@ -565,7 +565,7 @@ Nothing else. Each new preference needs a reason in the commit message.
 
 ## Phase F: Release
 
-### - [ ] F1 🟢 Cut 0.4.0
+### - [x] F1 (version bumped and release notes written; the Flatpak build, the manual release-workflow run, the tag and the AUR checksum are still to do) 🟢 Cut 0.4.0
 - Follow `docs/RELEASING.md`:
   - Update `metainfo.xml` releases.
   - Update CHANGELOG.
