@@ -224,7 +224,7 @@ These are the rules for the features and polish below. When in doubt, choose the
   Shift+Up and Shift+Down (the shortcuts dialog already implies this).
 - **Done when:** the behaviour matches the shortcuts dialog, which is generated as in E3.
 
-### - [ ] A10 ✅ 🟢 Small inconsistencies
+### - [x] A10 ✅ 🟢 Small inconsistencies
 - `document.rs:110,121–122` and `widgets/properties.rs:54`: "N pages" and "W × H px" are not
   translated. Use `ngettext` (add an `ntr` helper in `i18n.rs`) and `tr_fmt`.
 - Errors shown on the error page are raw developer text ("unsupported file type: text/plain",
