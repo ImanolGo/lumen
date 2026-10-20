@@ -111,6 +111,7 @@ impl App {
             }
             Err(message) => {
                 self.page_busy = false;
+                self.control_finished(super::control::Wait::Reload, Err(message.clone()));
                 super::edit::show_error(&tr("Could Not Fill In the Form"), &message);
             }
         }

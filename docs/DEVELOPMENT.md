@@ -61,28 +61,73 @@ into the binary by `build.rs` (see `data/lumen.gresource.xml`), so they work fro
 without installing anything. Symbolic icons must use plain fills, not strokes: GTK recolours
 fills only. Add new icons to `data/lumen.gresource.xml`.
 
-## Scripting, tests and screenshots
+## Scripting and the control interface
 
-Every window action is on the session bus, so a running Lumen can be driven from a script:
+A running Lumen offers `io.github.imanolgo.Lumen.Control1` at `/io/github/imanolgo/Lumen/Control`
+on the session bus (`src/app/control.rs`). Every method returns JSON, most of them the state
+afterwards (file, kind, page, page count, size, zoom, unsaved changes, undo/redo, markup tool).
+Work that finishes later (opening, saving, page changes, form fields, exports, searching) answers
+when it has finished, or with an error such as `io.github.imanolgo.Lumen.Error.Busy`.
 
 ```sh
-gdbus call --session --dest io.github.imanolgo.Lumen \
-    --object-path /io/github/imanolgo/Lumen/window/1 \
-    --method org.gtk.Actions.Activate screenshot-to "[<'/tmp/lumen.png'>]" "{}"
+lumen() {   # call a method: lumen Method ARG…
+    gdbus call --session --dest io.github.imanolgo.Lumen \
+        --object-path /io/github/imanolgo/Lumen/Control \
+        --method io.github.imanolgo.Lumen.Control1."$@"
+}
+lumen Open "['/tmp/form.pdf']" "{}"
+lumen ListFields                              # each field's id, kind, value and area
+lumen FillField 65537 "<'Ada Lovelace'>"      # an id from ListFields
+lumen Annotate 0 '{"type": "rect", "x": 50, "y": 60, "w": 120, "h": 40, "color": "#e01b24"}'
+lumen Save /tmp/filled.pdf "{}"
 ```
 
-Besides the menu actions there are scripted ones for tests: `crop-to`, `resize-to`, `adjust-to`,
-`save-to`, `add-files`, `markup-draw`, `markup-text`, `markup-tool`, `markup-color`, `markup-size`, `page-op`, `export-pages-to`,
-`export-png-to`, `print-to-file`, `select-text`, `search`, `password` and `screenshot-to`
-(see `src/app.rs` for their arguments).
+| Method | Arguments | Notes |
+|---|---|---|
+| `GetState` | | |
+| `Open` | `as paths`, `a{sv}` | `discard` (b) to drop unsaved edits, `password` (s), `add` (b) to add to the files being browsed |
+| `GotoPage` | `u page` | 0-based |
+| `ListPages`, `ListFields` | | sizes and areas in points from the page's top-left |
+| `FillField` | `i id`, `v value` | `b` for checkboxes and radio buttons, `s` for text, `u` for a list item |
+| `ListAnnotations` | `u page` | in the form `Annotate` takes, plus `id` |
+| `Annotate` | `u page`, `s json` | `type`: rect, ellipse (`x y w h`), line, arrow (`x1 y1 x2 y2`), pen (`points`), ink (`strokes`), text (`x y w h text size`), highlight (`rects`); optional `color`, `fill`, `width` |
+| `DeleteAnnotation` | `u page`, `t id` | |
+| `EditImage` | `s operation`, `a{sv}` | rotate-right, rotate-left, flip-horizontally, flip-vertically, crop (`x y w h`), resize (`w h`), adjust (`exposure contrast saturation`) |
+| `ChangePages` | `s operation`, `au pages`, `a{sv}` | rotate (`degrees`), delete, move (`before`), insert (`at`, `path`) |
+| `Undo`, `Redo` | | |
+| `Save` | `s path`, `a{sv}` | empty path: the open file; `overwrite` (b) to replace a file, `drop-password` (b), `quality` (u, JPEG) |
+| `Export` | `s kind`, `s path`, `a{sv}` | pages (`pages`) and png for PDFs, pdf for pictures, print; `overwrite` (b) |
+| `Search` | `s text` | answers with every hit once the search has finished |
+| `SetMarkup` | `a{sv}` | `open` (b), `tool` (s), `color` (s), `size` (d) |
+| `Screenshot` | `s path` | the window as a PNG |
 
-`build-aux/screenshot.sh` runs Lumen headless on a Broadway display and takes a screenshot after
-applying some actions, without touching your desktop or settings. The screenshots in
-`data/screenshots/` were made with it, from synthetic files (`Mountains.png`, `Quarterly report.pdf`):
+Nothing destructive happens implicitly, and no method waits on a dialog: replacing unsaved edits
+needs `discard`, writing over any file `overwrite`, and saving a rearranged protected PDF without
+its password `drop-password`. A protected PDF opened without the right `password` is an error.
+Pictures use pixels and PDFs points, both from the top-left of the page. The menu actions are on
+the bus too, as GTK's `org.gtk.Actions` at `/io/github/imanolgo/Lumen/window/1`.
+
+### End-to-end tests
+
+`tests/control.rs` starts Lumen on its own D-Bus session bus and Broadway display, with throwaway
+settings, and drives it only through the control interface: opening, forms, annotations, page
+changes, picture edits, passwords, search and export, each checked through what Lumen reports and
+saves. They need `dbus-daemon` and `gtk4-broadwayd` (part of GTK) and are skipped without them:
+
+```sh
+cargo test --test control
+```
+
+### Screenshots
+
+`build-aux/screenshot.sh` runs Lumen headless on a Broadway display and a private session bus (so it
+never reaches a Lumen you have open), applies menu actions and control calls, and saves a
+screenshot. The screenshots in `data/screenshots/` were made with it, from synthetic files:
 
 ```sh
 cargo build --release
 SCHEME=prefer-dark build-aux/screenshot.sh data/screenshots/image-crop.png crop -- Mountains.png
+build-aux/screenshot.sh shot.png markup "ctl:SetMarkup|{'tool': <'arrow'>}" -- report.pdf
 ```
 
 ## Sample files

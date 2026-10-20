@@ -258,25 +258,17 @@ This is the heart of "Preview-like". **Design the model first, UI second.**
 - [x] **7.11 Opening and dropping** — opening one file no longer lists and preloads its whole folder: Lumen shows exactly the files picked (a folder, from the command line or a drop, expands to its pictures and PDFs). Files and folders dropped onto an open window are added to the ones being browsed, from any folder, skipping duplicates and other file types (`folder::expand`, off the main thread). `win.add-files` does the same for scripts.
 - [x] **7.12 Design pass and a crash** — the markup toolbar is centred and compact: tool icons, one colour dot that opens a popover (eight swatches, a custom colour, one size slider that means text size for the Text tool and line width otherwise) and delete. Amber (shapes, text) and yellow (highlighter) from the icon are the defaults. The sidebar switcher is small icon toggles; page thumbnails are plain pages with a ring around the selected one. The title shows unsaved changes as a leading "•" and the subtitle only the position among the open files. The floating controls show for three seconds after opening, zooming, turning a page or moving the pointer, and while the pointer is on them; pointer-motion messages are throttled to five a second. Screenshots retaken at 1024×768. **Crash fixed:** any primary-button press on a picture aborted the app: the crop gesture denied itself while still borrowing the crop state, and the `drag-end` GTK emits during that call borrowed it again; a panic cannot unwind out of a GTK callback, so Rust aborted. Reproduced and checked with real pointer events through Chromium's DevTools protocol on Broadway.
 
-## Phase 8 — Agent control (optional)
+## Phase 8 — Control interface (and, optionally, agents)
 
-Let an AI agent drive Lumen through an MCP server. Optional: do it after Phase 7, and only if it is still wanted.
+Lumen exports a typed D-Bus interface for scripts and end-to-end tests. Driving it from an AI agent
+(an MCP server) stays optional: build it only if the "agent annotates while I watch" workflow is
+wanted, and then as a separate package, so the viewer stays a viewer. None of this is part of the
+pitch in the README.
 
-Lumen already exports its actions on the session D-Bus (that is how the features were tested), and the editing logic is plain Rust. What is missing is a way to read state back and to learn whether an operation worked.
-
-- [ ] **8.1 Control interface** — a D-Bus interface on the application (for example `io.github.imanolgo.Lumen.Control`) with typed methods that return JSON, replacing the ad-hoc `win.*` test hooks. First slice:
-  - `state()`: open file, kind, page and page count, zoom, dirty flag, selection, annotations of the current page, edit stack.
-  - `open(path)`, `list_pages()`, `goto_page(n)`.
-  - Page operations: rotate, delete, move, insert, export.
-  - Image edits: rotate, flip, crop, resize, adjust.
-  - Markup: `annotate(shape…)`, `list_annotations()`, `delete_annotation(id)`.
-  - `save(path?)`, `export(…)`, `screenshot()`.
-  - Every method reports success or a clear error, including for work that finishes later.
-- [ ] **8.2 Safety** — session bus only; destructive calls (overwriting a file, discarding edits) refuse unless the caller passes an explicit flag; dialogs that need a person (password, unsaved changes) become errors or explicit parameters, never silent blocks.
-- [ ] **8.3 MCP server** — a small separate binary (`lumen-mcp`, stdio transport, `rmcp` crate) that exposes the control interface as MCP tools with JSON schemas, plus a `screenshot` tool so the agent can see the result. Document how to register it in Claude Code and OpenCode.
-- [ ] **8.4 Tests** — drive the control interface from an integration test: open a fixture, edit, save, and check the file.
-- **Done when:** an agent can open a PDF, rearrange and annotate it, save the result and check it, using only the MCP tools.
-- **Not included:** a GUI-free engine. That would mean splitting the project into a core crate and a UI crate, and is a separate, larger decision.
+- [x] **8.1 Control interface** — `io.github.imanolgo.Lumen.Control1` (`src/app/control.rs`, documented in docs/DEVELOPMENT.md): state, open, pages, form fields, annotations, picture edits, page changes, undo/redo, save, export, search, markup settings and screenshots, returning JSON. Work that finishes later answers when it has, or with an error. It replaced the ad-hoc `win.*` test actions.
+- [x] **8.2 Safety** — session bus only; replacing unsaved edits needs `discard`, writing over a file `overwrite`, saving a rearranged protected PDF without its password `drop-password`; passwords are options, so no call ever waits on a dialog.
+- [ ] **8.3 MCP server** (optional) — a separate `lumen-mcp` binary (stdio, `rmcp`) exposing the control interface as tools, plus `Screenshot` so the agent can see the result. Only if wanted; ship it as its own package.
+- [x] **8.4 Tests** — `tests/control.rs` runs the real binary on a private bus and Broadway display and checks seven end-to-end flows. Writing them found a bug: after saving a PDF, reopening it asked about unsaved changes.
 
 ---
 

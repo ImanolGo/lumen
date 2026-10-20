@@ -4,8 +4,13 @@
 #
 #   build-aux/screenshot.sh OUT.png [ACTION...] -- FILE...
 #
-# Each ACTION is a window action, as `name` or `name=<GVariant>`, applied in order:
-#   build-aux/screenshot.sh shot.png markup "markup-tool=<'arrow'>" -- photo.png
+# Each ACTION is applied in order. It is either a window action (a menu entry), as `name` or
+# `name=<GVariant>`, or a call on the control interface, as `ctl:Method|arg|arg…` with each
+# argument in GVariant text (see docs/DEVELOPMENT.md):
+#   build-aux/screenshot.sh shot.png markup \
+#       "ctl:SetMarkup|{'tool': <'arrow'>}" \
+#       "ctl:Annotate|0|'{\"type\": \"arrow\", \"x1\": 10, \"y1\": 10, \"x2\": 90, \"y2\": 60}'" \
+#       -- photo.png
 #
 # Environment: LUMEN_BIN (default target/release/lumen), SCHEME (prefer-light or
 # prefer-dark), WIN_W and WIN_H (window size, at most 1024×768 here).
@@ -16,7 +21,10 @@ set -eu
 # Run in a private session bus: otherwise a Lumen the user already has open would receive the
 # files and the actions (GApplication hands both to the running instance).
 if [ -z "${LUMEN_PRIVATE_BUS:-}" ]; then
-    exec env LUMEN_PRIVATE_BUS=1 dbus-run-session -- "$0" "$@"
+    # The services that start on the fresh bus (portals, keyring) are chatty; keep real errors.
+    exec env LUMEN_PRIVATE_BUS=1 dbus-run-session -- "$0" "$@" \
+        > >(grep --line-buffered -v '^GNOME_KEYRING') \
+        2> >(grep --line-buffered -vE "dbus-daemon\[|desktop-portal|keyring|fusermount|atk-bridge|AT-SPI|RealtimeKit|secret proxy|connection to the bus can't be made|^$" >&2)
 fi
 
 out=$(realpath -m "$1")
@@ -61,6 +69,10 @@ call() {
     gdbus call --session --dest io.github.imanolgo.Lumen --object-path "$object" \
         --method org.gtk.Actions.Activate "$1" "$2" "{}" >/dev/null
 }
+control() {
+    gdbus call --session --dest io.github.imanolgo.Lumen --object-path /io/github/imanolgo/Lumen/Control \
+        --method "io.github.imanolgo.Lumen.Control1.$1" "${@:2}" >/dev/null
+}
 for _ in $(seq 50); do
     gdbus introspect --session --dest io.github.imanolgo.Lumen --object-path "$object" \
         >/dev/null 2>&1 && break
@@ -69,6 +81,10 @@ done
 sleep 2
 for action in "${actions[@]}"; do
     case "$action" in
+        ctl:*)
+            IFS='|' read -r -a parts <<< "${action#ctl:}"
+            control "${parts[@]}"
+            ;;
         *=*) call "${action%%=*}" "[${action#*=}]" ;;
         *) call "$action" "[]" ;;
     esac
@@ -78,7 +94,7 @@ sleep 0.5
 # The first frames can take a moment (more so on a fresh bus); try until one is written.
 rm -f "$out"
 for _ in $(seq 20); do
-    call screenshot-to "[<'$out'>]"
+    control Screenshot "$out" 2>/dev/null || true
     sleep 0.5
     [ -f "$out" ] && break
 done

@@ -307,6 +307,7 @@ impl App {
                 self.page_busy = false;
                 self.loading = false;
                 self.insert_queue.clear();
+                self.control_finished(super::control::Wait::Reload, Err(message.clone()));
                 super::edit::show_error(&tr("Could Not Change the Pages"), &message);
             }
         }
@@ -348,6 +349,10 @@ impl App {
                 &tr("Could Not Reload the Document"),
                 &tr("The edited document could not be opened."),
             );
+            self.control_finished(
+                super::control::Wait::Reload,
+                Err(tr("The edited document could not be opened.")),
+            );
             return;
         };
         let Some(info) = opened.pdf else { return };
@@ -383,6 +388,9 @@ impl App {
         self.restart_search();
         // Several files were queued for insertion: carry on with the next.
         self.next_insert(sender);
+        if !self.page_busy {
+            self.control_finished(super::control::Wait::Reload, Ok(()));
+        }
     }
 
     // --- export --------------------------------------------------------------------
@@ -527,10 +535,11 @@ impl App {
         });
     }
 
-    pub(super) fn exported(&self, result: Result<(), String>) {
-        if let Err(message) = result {
-            super::edit::show_error(&tr("Could Not Export"), &message);
+    pub(super) fn exported(&mut self, result: Result<(), String>) {
+        if let Err(message) = &result {
+            super::edit::show_error(&tr("Could Not Export"), message);
         }
+        self.control_finished(super::control::Wait::Export, result);
     }
 }
 

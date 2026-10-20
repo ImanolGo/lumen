@@ -1,5 +1,6 @@
 //! Root Relm4 component: the main window.
 
+mod control;
 mod edit;
 mod forms;
 mod markup;
@@ -210,6 +211,8 @@ pub struct App {
     /// Files still to insert, and the page the next one goes in front of.
     insert_queue: Vec<PathBuf>,
     insert_at: usize,
+    /// Calls on the control interface that are waiting for work to finish.
+    control: control::ControlState,
     /// Saved signatures, and the toolbar button whose menu lists them.
     signatures: crate::signatures::Signatures,
     signature_button: gtk::MenuButton,
@@ -301,6 +304,12 @@ pub enum AppMsg {
     },
     /// Put the selected text on the clipboard.
     Copy,
+    /// A call on the control interface (see `control`); its invocation waits under `id`.
+    Control {
+        id: u64,
+        method: String,
+        params: glib::Variant,
+    },
     /// Stamp saved signature `index` onto the page.
     PlaceSignature(usize),
     /// Draw a new signature.
@@ -418,13 +427,6 @@ pub enum AppMsg {
     MarkupText {
         page: usize,
         id: u64,
-        text: String,
-    },
-    /// Place a text annotation without the editor popover (scripted use).
-    MarkupAddText {
-        page: usize,
-        x: f64,
-        y: f64,
         text: String,
     },
     /// The window is closing with unsaved edits.
@@ -1013,6 +1015,7 @@ impl App {
         self.restart_search();
         self.preload_neighbours(sender);
         self.wake_controls(sender);
+        self.control_finished(control::Wait::Load, Ok(()));
     }
 
     /// Decode the files around the current one and drop the ones that are now far away.
@@ -1042,6 +1045,17 @@ impl App {
     /// Show the error page, or ask for the password if that is what is missing.
     fn open_failed(&mut self, err: OpenError, sender: &ComponentSender<Self>) {
         match err {
+            // Opened for a call: use the password it gave, and never show a dialog.
+            OpenError::PasswordRequired { retry } if self.control_loading() => {
+                match self.control_password().filter(|_| !retry) {
+                    Some(password) => sender.input(AppMsg::OpenWithPassword(password)),
+                    None => self.fail(if retry {
+                        tr("The password is incorrect.")
+                    } else {
+                        tr("The PDF is protected; pass its password.")
+                    }),
+                }
+            }
             OpenError::PasswordRequired { retry } => {
                 self.loading = false;
                 let name = self
@@ -1065,6 +1079,7 @@ impl App {
         self.load_markup(None);
         self.page_strip.clear();
         self.properties.set_image(None);
+        self.control_finished(control::Wait::Load, Err(err.clone()));
         self.error = Some(err);
         self.sync_canvas();
     }
@@ -2023,6 +2038,7 @@ impl SimpleComponent for App {
             insert_at: 0,
             crop_choice: 0,
             style_color: Rc::new(Cell::new(annotate::Style::default().stroke)),
+            control: control::ControlState::default(),
             signatures: crate::signatures::Signatures::user(),
             signature_button: gtk::MenuButton::builder()
                 .icon_name("lumen-signature-symbolic")
@@ -2279,35 +2295,6 @@ impl SimpleComponent for App {
         }
         widgets.main_window.add_action(&find_action);
 
-        // `win.select-text` takes (page, x1, y1, x2, y2) in points from the page's top-left
-        // and selects the text between those two points, as a drag would.
-        let select_action = gio::SimpleAction::new(
-            "select-text",
-            Some(&<(u32, f64, f64, f64, f64)>::static_variant_type()),
-        );
-        {
-            let sender = sender.clone();
-            select_action.connect_activate(move |_, args| {
-                let Some((page, x1, y1, x2, y2)) =
-                    args.and_then(|a| a.get::<(u32, f64, f64, f64, f64)>())
-                else {
-                    return;
-                };
-                let page = page as usize;
-                for gesture in [
-                    SelectGesture::Start {
-                        point: PagePoint { page, x: x1, y: y1 },
-                        clicks: 1,
-                    },
-                    SelectGesture::Extend(PagePoint { page, x: x2, y: y2 }),
-                    SelectGesture::End { moved: true },
-                ] {
-                    sender.input(AppMsg::Select(gesture));
-                }
-            });
-        }
-        widgets.main_window.add_action(&select_action);
-
         // Radio items in the print menu: how big the content is on paper.
         let scaling_action = gio::SimpleAction::new_stateful(
             "print-scaling",
@@ -2322,329 +2309,6 @@ impl SimpleComponent for App {
         });
         widgets.main_window.add_action(&scaling_action);
 
-        // `win.print-to-file` takes a path and writes the document there as a PDF, as
-        // "Print to File" would, without showing the dialog.
-        let export_action = gio::SimpleAction::new("print-to-file", Some(glib::VariantTy::STRING));
-        {
-            let sender = sender.clone();
-            export_action.connect_activate(move |_, path| {
-                if let Some(path) = path.and_then(|p| p.str()) {
-                    sender.input(AppMsg::Print(Some(PathBuf::from(path))));
-                }
-            });
-        }
-        widgets.main_window.add_action(&export_action);
-
-        // Scripted edits, for tests: `win.crop-to` takes (x, y, w, h), `win.resize-to` (w, h),
-        // `win.adjust-to` (exposure, contrast, saturation) while the Adjust bar is open, `win.apply-tool`
-        // to confirm it, and `win.save-to` a path whose extension picks the format.
-        let crop_action = gio::SimpleAction::new(
-            "crop-to",
-            Some(&<(u32, u32, u32, u32)>::static_variant_type()),
-        );
-        {
-            let sender = sender.clone();
-            crop_action.connect_activate(move |_, args| {
-                if let Some((x, y, w, h)) = args.and_then(|a| a.get::<(u32, u32, u32, u32)>()) {
-                    sender.input(AppMsg::Edit(EditOp::Crop(crate::edit::CropRect {
-                        x,
-                        y,
-                        w,
-                        h,
-                    })));
-                }
-            });
-        }
-        widgets.main_window.add_action(&crop_action);
-        let resize_action =
-            gio::SimpleAction::new("resize-to", Some(&<(u32, u32)>::static_variant_type()));
-        {
-            let sender = sender.clone();
-            resize_action.connect_activate(move |_, args| {
-                if let Some((w, h)) = args.and_then(|a| a.get::<(u32, u32)>()) {
-                    sender.input(AppMsg::Edit(EditOp::Resize { w, h }));
-                }
-            });
-        }
-        widgets.main_window.add_action(&resize_action);
-        let adjust_action =
-            gio::SimpleAction::new("adjust-to", Some(&<(f64, f64, f64)>::static_variant_type()));
-        {
-            let sender = sender.clone();
-            adjust_action.connect_activate(move |_, args| {
-                if let Some((exposure, contrast, saturation)) =
-                    args.and_then(|a| a.get::<(f64, f64, f64)>())
-                {
-                    sender.input(AppMsg::AdjustField(AdjustField::Exposure, exposure as f32));
-                    sender.input(AppMsg::AdjustField(AdjustField::Contrast, contrast as f32));
-                    sender.input(AppMsg::AdjustField(
-                        AdjustField::Saturation,
-                        saturation as f32,
-                    ));
-                }
-            });
-        }
-        widgets.main_window.add_action(&adjust_action);
-        let save_to_action = gio::SimpleAction::new("save-to", Some(glib::VariantTy::STRING));
-        {
-            let sender = sender.clone();
-            save_to_action.connect_activate(move |_, path| {
-                if let Some(path) = path.and_then(|p| p.str()) {
-                    let dest = PathBuf::from(path);
-                    let format = Format::from_path(&dest).unwrap_or(Format::Png);
-                    sender.input(AppMsg::SaveTo { dest, format });
-                }
-            });
-        }
-        widgets.main_window.add_action(&save_to_action);
-
-        // Scripted markup, for tests: `win.markup-draw` takes (tool, page, x1, y1, x2, y2) and drags
-        // that tool across the page; `win.markup-text` takes (page, x, y, text) and places text.
-        let draw_action = gio::SimpleAction::new(
-            "markup-draw",
-            Some(&<(String, u32, f64, f64, f64, f64)>::static_variant_type()),
-        );
-        {
-            let sender = sender.clone();
-            draw_action.connect_activate(move |_, args| {
-                let Some((tool, page, x1, y1, x2, y2)) =
-                    args.and_then(|a| a.get::<(String, u32, f64, f64, f64, f64)>())
-                else {
-                    return;
-                };
-                let tool = match tool.as_str() {
-                    "rectangle" => Tool::Rectangle,
-                    "ellipse" => Tool::Ellipse,
-                    "arrow" => Tool::Arrow,
-                    "line" => Tool::Line,
-                    "pen" => Tool::Pen,
-                    "text" => Tool::Text,
-                    "highlight" => Tool::Highlight,
-                    _ => Tool::Select,
-                };
-                let (page, a, b) = (
-                    page as usize,
-                    annotate::Point::new(x1, y1),
-                    annotate::Point::new(x2, y2),
-                );
-                sender.input(AppMsg::SetTool(tool));
-                sender.input(AppMsg::Markup(MarkupEvent::Press {
-                    page,
-                    point: a,
-                    tolerance: 4.0,
-                    clicks: 1,
-                }));
-                sender.input(AppMsg::Markup(MarkupEvent::Drag(annotate::Point::new(
-                    (x1 + x2) / 2.0,
-                    (y1 + y2) / 2.0,
-                ))));
-                sender.input(AppMsg::Markup(MarkupEvent::Release(b)));
-            });
-        }
-        widgets.main_window.add_action(&draw_action);
-        let tool_action = gio::SimpleAction::new("markup-tool", Some(glib::VariantTy::STRING));
-        {
-            let sender = sender.clone();
-            tool_action.connect_activate(move |_, name| {
-                let tool = match name.and_then(|n| n.str()) {
-                    Some("rectangle") => Tool::Rectangle,
-                    Some("ellipse") => Tool::Ellipse,
-                    Some("arrow") => Tool::Arrow,
-                    Some("line") => Tool::Line,
-                    Some("pen") => Tool::Pen,
-                    Some("text") => Tool::Text,
-                    Some("highlight") => Tool::Highlight,
-                    _ => Tool::Select,
-                };
-                sender.input(AppMsg::SetTool(tool));
-            });
-        }
-        widgets.main_window.add_action(&tool_action);
-        // `win.markup-color` takes a colour such as "#e5a50a"; `win.markup-size` the slider value.
-        let color_action = gio::SimpleAction::new("markup-color", Some(glib::VariantTy::STRING));
-        {
-            let sender = sender.clone();
-            color_action.connect_activate(move |_, text| {
-                if let Some(c) = text
-                    .and_then(|t| t.str())
-                    .and_then(|t| gdk::RGBA::parse(t).ok())
-                {
-                    sender.input(AppMsg::SetColor(annotate::Color::rgba(
-                        c.red(),
-                        c.green(),
-                        c.blue(),
-                        c.alpha(),
-                    )));
-                }
-            });
-        }
-        widgets.main_window.add_action(&color_action);
-        let size_action = gio::SimpleAction::new("markup-size", Some(glib::VariantTy::DOUBLE));
-        {
-            let sender = sender.clone();
-            size_action.connect_activate(move |_, size| {
-                if let Some(size) = size.and_then(|s| s.get::<f64>()) {
-                    sender.input(AppMsg::SetSize(size));
-                }
-            });
-        }
-        widgets.main_window.add_action(&size_action);
-        let text_action = gio::SimpleAction::new(
-            "markup-text",
-            Some(&<(u32, f64, f64, String)>::static_variant_type()),
-        );
-        {
-            let sender = sender.clone();
-            text_action.connect_activate(move |_, args| {
-                if let Some((page, x, y, text)) =
-                    args.and_then(|a| a.get::<(u32, f64, f64, String)>())
-                {
-                    sender.input(AppMsg::MarkupAddText {
-                        page: page as usize,
-                        x,
-                        y,
-                        text,
-                    });
-                }
-            });
-        }
-        widgets.main_window.add_action(&text_action);
-
-        // Scripted page operations, for tests: `win.page-op` takes (kind, pages, number, path) with kind
-        // "rotate" (number = degrees), "delete", "move" (number = before) or "insert" (number = at, path = file).
-        let page_op_action = gio::SimpleAction::new(
-            "page-op",
-            Some(&<(String, Vec<u32>, i32, String)>::static_variant_type()),
-        );
-        {
-            let sender = sender.clone();
-            page_op_action.connect_activate(move |_, args| {
-                let Some((kind, pages, number, path)) =
-                    args.and_then(|a| a.get::<(String, Vec<u32>, i32, String)>())
-                else {
-                    return;
-                };
-                let pages: Vec<usize> = pages.into_iter().map(|p| p as usize).collect();
-                let request = match kind.as_str() {
-                    "rotate" => PageRequest::Rotate {
-                        pages,
-                        degrees: number,
-                    },
-                    "delete" => PageRequest::Delete(pages),
-                    "move" => PageRequest::Move {
-                        pages,
-                        before: number as usize,
-                    },
-                    "insert" => PageRequest::Insert {
-                        at: number as usize,
-                        file: PathBuf::from(path),
-                    },
-                    _ => return,
-                };
-                sender.input(AppMsg::PageRequest(request));
-            });
-        }
-        widgets.main_window.add_action(&page_op_action);
-        let export_pages_action = gio::SimpleAction::new(
-            "export-pages-to",
-            Some(&<(String, Vec<u32>)>::static_variant_type()),
-        );
-        {
-            let sender = sender.clone();
-            export_pages_action.connect_activate(move |_, args| {
-                if let Some((path, pages)) = args.and_then(|a| a.get::<(String, Vec<u32>)>()) {
-                    let pages = pages.into_iter().map(|p| p as usize).collect();
-                    sender.input(AppMsg::ExportPagesTo {
-                        dest: PathBuf::from(path),
-                        pages,
-                    });
-                }
-            });
-        }
-        widgets.main_window.add_action(&export_pages_action);
-        let export_png_action =
-            gio::SimpleAction::new("export-png-to", Some(glib::VariantTy::STRING));
-        {
-            let sender = sender.clone();
-            export_png_action.connect_activate(move |_, path| {
-                if let Some(path) = path.and_then(|p| p.str()) {
-                    sender.input(AppMsg::ExportPngTo {
-                        dest: PathBuf::from(path),
-                    });
-                }
-            });
-        }
-        widgets.main_window.add_action(&export_png_action);
-        let export_image_action =
-            gio::SimpleAction::new("export-image-pdf-to", Some(glib::VariantTy::STRING));
-        {
-            let sender = sender.clone();
-            export_image_action.connect_activate(move |_, path| {
-                if let Some(path) = path.and_then(|p| p.str()) {
-                    sender.input(AppMsg::ExportImagePdfTo {
-                        dest: PathBuf::from(path),
-                    });
-                }
-            });
-        }
-        widgets.main_window.add_action(&export_image_action);
-
-        // `win.screenshot-to` takes a path and writes the window there as a PNG (for scripts,
-        // the screenshots in `data/screenshots` and checking the UI without a display).
-        let screenshot_action =
-            gio::SimpleAction::new("screenshot-to", Some(glib::VariantTy::STRING));
-        {
-            let window = widgets.main_window.clone();
-            screenshot_action.connect_activate(move |_, path| {
-                if let Some(path) = path.and_then(|p| p.str())
-                    && let Err(err) = screenshot(&window, path)
-                {
-                    tracing::warn!(path, "screenshot failed: {err}");
-                }
-            });
-        }
-        widgets.main_window.add_action(&screenshot_action);
-
-        // `win.add-files` takes a list of paths and adds them as dropping them onto the window would.
-        let add_action = gio::SimpleAction::new("add-files", Some(glib::VariantTy::STRING_ARRAY));
-        {
-            let sender = sender.clone();
-            add_action.connect_activate(move |_, paths| {
-                if let Some(paths) = paths.and_then(|p| p.get::<Vec<String>>()) {
-                    sender.input(AppMsg::Add(paths.into_iter().map(PathBuf::from).collect()));
-                }
-            });
-        }
-        widgets.main_window.add_action(&add_action);
-
-        // `win.password` answers the password dialog without typing (for scripts and tests).
-        let password_action = gio::SimpleAction::new("password", Some(glib::VariantTy::STRING));
-        {
-            let sender = sender.clone();
-            password_action.connect_activate(move |_, text| {
-                if let Some(text) = text.and_then(|t| t.str()) {
-                    sender.input(AppMsg::OpenWithPassword(text.to_owned()));
-                }
-            });
-        }
-        widgets.main_window.add_action(&password_action);
-
-        // `win.search` takes the text to look for: opens the bar and fills it in.
-        let search_action = gio::SimpleAction::new("search", Some(glib::VariantTy::STRING));
-        {
-            let (bar, entry, canvas) = (
-                widgets.search_bar.clone(),
-                widgets.search_entry.clone(),
-                canvas.clone(),
-            );
-            search_action.connect_activate(move |_, text| {
-                if let (true, Some(text)) = (canvas.has_pages(), text.and_then(|t| t.str())) {
-                    bar.set_search_mode(true);
-                    entry.set_text(text);
-                }
-            });
-        }
-        widgets.main_window.add_action(&search_action);
         app.set_accels_for_action("win.find", &["<Control>f"]);
         widgets.search_bar.connect_entry(&widgets.search_entry);
 
@@ -2734,6 +2398,8 @@ impl SimpleComponent for App {
             }
         });
         widgets.main_window.add_action(&open_recent);
+
+        control::register(&sender);
 
         // Drop files onto the window to open them.
         let drop = gtk::DropTarget::new(gdk::FileList::static_type(), gdk::DragAction::COPY);
@@ -3084,6 +2750,7 @@ impl App {
             }
             AppMsg::Copy => self.request_selection(true),
             AppMsg::FillForm { id, value } => self.fill_form(id, value, &sender),
+            AppMsg::Control { id, method, params } => self.control(id, &method, params, &sender),
             AppMsg::PlaceSignature(index) => self.place_signature(index, &sender),
             AppMsg::NewSignature => self.new_signature(&sender),
             AppMsg::SignatureDrawn(strokes) => self.signature_drawn(strokes, &sender),
@@ -3261,9 +2928,6 @@ impl App {
                 self.markup_nudge(dx, dy, &sender);
             }
             AppMsg::MarkupText { page, id, text } => self.markup_text(page, id, &text, &sender),
-            AppMsg::MarkupAddText { page, x, y, text } => {
-                self.markup_add_text(page, x, y, &text, &sender)
-            }
             AppMsg::CropAspect(index) => {
                 self.crop_choice = index.min(CropAspect::CHOICES.len() - 1);
                 if self.edit_mode == EditMode::Crop {
@@ -3321,7 +2985,10 @@ impl App {
                             self.select_hit((page, 0));
                         }
                     }
-                    SearchEvent::Done { id } if id == self.search_id => self.searching = false,
+                    SearchEvent::Done { id } if id == self.search_id => {
+                        self.searching = false;
+                        self.search_finished();
+                    }
                     _ => {}
                 }
             }

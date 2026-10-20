@@ -126,7 +126,7 @@ impl App {
     }
 
     /// The file being shown: the image being edited, or the PDF.
-    fn document_path(&self) -> Option<PathBuf> {
+    pub(super) fn document_path(&self) -> Option<PathBuf> {
         match (&self.pdf, &self.edit) {
             (Some(pdf), _) => Some(pdf.original.clone()),
             (None, Some(session)) => Some(session.path.clone()),
@@ -549,14 +549,27 @@ impl App {
             Ok(()) => {
                 self.overwrite_ok.insert(dest.clone());
                 self.reset_edit_session();
+                // What was saved is the new clean state: reopening the saved file below
+                // must not ask about unsaved changes.
+                let saved_state = self.markup.pdf_history.present().clone();
+                self.markup.pdf_history = crate::annotate::History::new(saved_state);
+                self.markup.pdf_dirty = false;
                 match self.after_save.take() {
                     // The user was on their way somewhere else.
-                    Some(pending) => sender.input(AppMsg::Replay(pending)),
-                    None => sender.input(AppMsg::Open(vec![dest])),
+                    Some(pending) => {
+                        self.control_finished(super::control::Wait::Save, Ok(()));
+                        sender.input(AppMsg::Replay(pending));
+                    }
+                    // The saved file is opened again; a call answers once it is.
+                    None => {
+                        self.control_saved_reopens();
+                        sender.input(AppMsg::Open(vec![dest]));
+                    }
                 }
             }
             Err(message) => {
                 self.after_save = None;
+                self.control_finished(super::control::Wait::Save, Err(message.clone()));
                 show_error(&tr("Could Not Save"), &message);
             }
         }

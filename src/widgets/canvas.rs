@@ -765,6 +765,16 @@ impl LumenCanvas {
         self.queue_draw();
     }
 
+    /// The form fields of every page that has some.
+    pub fn forms(&self) -> std::collections::BTreeMap<usize, Vec<FormField>> {
+        self.imp()
+            .pages
+            .borrow()
+            .as_ref()
+            .map(|p| p.forms.iter().map(|(k, v)| (*k, v.clone())).collect())
+            .unwrap_or_default()
+    }
+
     /// The point of `page` at the centre of the view, in document units.
     pub fn view_center(&self, page: usize) -> Option<annotate::Point> {
         self.doc_point(page, self.width() as f64 / 2.0, self.height() as f64 / 2.0)

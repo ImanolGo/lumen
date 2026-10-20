@@ -223,29 +223,6 @@ impl App {
         self.finish_markup(outcome, sender);
     }
 
-    /// Place text directly, as the Text tool plus the editor would.
-    pub(super) fn markup_add_text(
-        &mut self,
-        page: usize,
-        x: f64,
-        y: f64,
-        text: &str,
-        sender: &ComponentSender<App>,
-    ) {
-        let outcome = {
-            let mut store = self.markup.store.borrow_mut();
-            let editor = &mut self.markup.editor;
-            editor.tool = Tool::Text;
-            let placed = editor.press(&mut store, page, crate::annotate::Point::new(x, y), 4.0, 1);
-            match placed.edit_text {
-                Some((page, id)) => editor.set_text(&mut store, page, id, text),
-                None => placed,
-            }
-        };
-        self.markup.open = true;
-        self.finish_markup(outcome, sender);
-    }
-
     pub(super) fn markup_delete(&mut self, sender: &ComponentSender<App>) {
         if !self.markup.open {
             return;

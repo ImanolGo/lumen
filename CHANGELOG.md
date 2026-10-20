@@ -4,6 +4,16 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Added
+- A D-Bus control interface, `io.github.imanolgo.Lumen.Control1`, for scripts and tests: open, navigate, fill in forms, annotate, edit pictures, change pages, undo, save, export, search and take screenshots, with JSON answers. Nothing destructive happens without an explicit flag, and no call waits on a dialog. See docs/DEVELOPMENT.md.
+- End-to-end tests that drive the real app through that interface.
+
+### Fixed
+- After saving a PDF, Lumen asked whether to save the changes it had just saved.
+
+### Removed
+- The ad-hoc `win.*` actions for tests (`save-to`, `markup-draw`, `page-op` and so on); the control interface does what they did.
+
 ## [0.2.0] - 2026-10-20
 
 ### Added
