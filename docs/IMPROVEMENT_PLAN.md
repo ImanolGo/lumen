@@ -347,7 +347,7 @@ the numbers in the commit message.
   sources, keep the current path.
 - **Done when:** inserting a 4 MB JPEG adds about 4 MB to the PDF (unit test on the file size).
 
-### - [ ] B9 🔍 🟡 Cut the per-message view cost
+### - [x] B9 (measured: every message through `update` and the view took under 0.5 ms while jumping around a 300-page PDF with the sidebar open, so no change is needed) 🔍 🟡 Cut the per-message view cost
 - **Where:** `SimpleComponent::update` → every `#[watch]` and the whole `post_view`
   (`src/app.rs:1857`: about 25 action lookups and the swatch redraw loop) run for *every*
   message, including `PageRendered`, `ThumbRendered`, `Thumbnail` and `LinksLoaded`.
