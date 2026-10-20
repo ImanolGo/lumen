@@ -370,7 +370,7 @@ the numbers in the commit message.
 - **Done when:** 30 rotations of a 50 MB PDF leave at most (history size × file) on disk, not in
   RAM, and the folder is gone after quitting.
 
-### - [ ] B11 🟢 Debounce search typing
+### - [x] B11 🟢 Debounce search typing
 - `AppMsg::SearchChanged` (`src/app.rs:3053`) restarts the search on every keystroke. Wait
   150 ms after the last keystroke. Enter searches at once.
 
@@ -433,7 +433,7 @@ toolbar.
   `FindFlags::CASE_SENSITIVE | WHOLE_WORDS_ONLY`). Show the hit count per page in the page
   sidebar as a small badge.
 
-### - [ ] C9 🟢 Markup: tool shortcuts
+### - [x] C9 🟢 Markup: tool shortcuts
 - While the markup toolbar is open: `V` select, `R` rectangle, `O` ellipse, `A` arrow,
   `L` line, `P` pen, `T` text, `H` highlight, `S` signature. Shown in tooltips
   ("Rectangle (R)"). These go through the existing plain-key controller, so they never steal

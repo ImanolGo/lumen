@@ -59,6 +59,8 @@ const RECENT_LIMIT: usize = 10;
 const PRELOAD_RADIUS: usize = 1;
 /// Wait this long after the zoom stops changing before re-rendering pages.
 const RERENDER_DELAY_MS: u64 = 150;
+/// Wait this long after the last keystroke before searching.
+const SEARCH_DELAY_MS: u64 = 150;
 /// Scrolling needs no such patience, just a moment to coalesce events.
 const SCROLL_RENDER_DELAY_MS: u64 = 20;
 /// Memory the rendered pages may use (4 bytes per pixel).
@@ -144,6 +146,8 @@ pub struct App {
     search_text: String,
     /// Identifies the running search; events from older ones are dropped.
     search_id: u64,
+    /// Identifies the latest change of the search text, for the typing pause.
+    search_ticket: u64,
     searching: bool,
     hits: BTreeMap<usize, Vec<HitRect>>,
     /// The selected hit: page and index within that page.
@@ -256,6 +260,8 @@ pub enum AppMsg {
     ShowSaved(PathBuf),
     /// The remembered state is due to be written (see `save_state_soon`).
     SaveState,
+    /// A tool's letter key: choose the tool while the markup toolbar is open.
+    ToolKey(Tool),
     /// Space (1) or Shift+Space (-1): scroll a PDF a screen, or move through the files.
     Screen(isize),
     /// Home (false) or End (true): the first or last page of a PDF, or file.
@@ -351,6 +357,10 @@ pub enum AppMsg {
     },
     /// The search text changed.
     SearchChanged(String),
+    /// The search text has stayed the same since change `ticket`: search for it.
+    SearchTyped {
+        ticket: u64,
+    },
     Search {
         doc_key: u64,
         event: SearchEvent,
@@ -1428,56 +1438,56 @@ impl SimpleComponent for App {
                         set_spacing: 2,
                         gtk::ToggleButton {
                             set_icon_name: "lumen-tool-select-symbolic",
-                            set_tooltip_text: Some(&tr("Select")),
+                            set_tooltip_text: Some(&format!("{} ({})", tr("Select"), "V")),
                             #[watch]
                             set_active: model.markup_tool() == Tool::Select,
                             connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Select)),
                         },
                         gtk::ToggleButton {
                             set_icon_name: "lumen-tool-rectangle-symbolic",
-                            set_tooltip_text: Some(&tr("Rectangle")),
+                            set_tooltip_text: Some(&format!("{} ({})", tr("Rectangle"), "R")),
                             #[watch]
                             set_active: model.markup_tool() == Tool::Rectangle,
                             connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Rectangle)),
                         },
                         gtk::ToggleButton {
                             set_icon_name: "lumen-tool-ellipse-symbolic",
-                            set_tooltip_text: Some(&tr("Ellipse")),
+                            set_tooltip_text: Some(&format!("{} ({})", tr("Ellipse"), "O")),
                             #[watch]
                             set_active: model.markup_tool() == Tool::Ellipse,
                             connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Ellipse)),
                         },
                         gtk::ToggleButton {
                             set_icon_name: "lumen-tool-arrow-symbolic",
-                            set_tooltip_text: Some(&tr("Arrow")),
+                            set_tooltip_text: Some(&format!("{} ({})", tr("Arrow"), "A")),
                             #[watch]
                             set_active: model.markup_tool() == Tool::Arrow,
                             connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Arrow)),
                         },
                         gtk::ToggleButton {
                             set_icon_name: "lumen-tool-line-symbolic",
-                            set_tooltip_text: Some(&tr("Line")),
+                            set_tooltip_text: Some(&format!("{} ({})", tr("Line"), "L")),
                             #[watch]
                             set_active: model.markup_tool() == Tool::Line,
                             connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Line)),
                         },
                         gtk::ToggleButton {
                             set_icon_name: "lumen-tool-pen-symbolic",
-                            set_tooltip_text: Some(&tr("Pen")),
+                            set_tooltip_text: Some(&format!("{} ({})", tr("Pen"), "P")),
                             #[watch]
                             set_active: model.markup_tool() == Tool::Pen,
                             connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Pen)),
                         },
                         gtk::ToggleButton {
                             set_icon_name: "lumen-tool-text-symbolic",
-                            set_tooltip_text: Some(&tr("Text")),
+                            set_tooltip_text: Some(&format!("{} ({})", tr("Text"), "T")),
                             #[watch]
                             set_active: model.markup_tool() == Tool::Text,
                             connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Text)),
                         },
                         gtk::ToggleButton {
                             set_icon_name: "lumen-tool-highlight-symbolic",
-                            set_tooltip_text: Some(&tr("Highlight")),
+                            set_tooltip_text: Some(&format!("{} ({})", tr("Highlight"), "H")),
                             #[watch]
                             set_active: model.markup_tool() == Tool::Highlight,
                             connect_clicked[sender] => move |_| sender.input(AppMsg::SetTool(Tool::Highlight)),
@@ -2082,6 +2092,7 @@ impl SimpleComponent for App {
             search_open: false,
             search_text: String::new(),
             search_id: 0,
+            search_ticket: 0,
             searching: false,
             hits: BTreeMap::new(),
             current_hit: None,
@@ -2283,6 +2294,22 @@ impl SimpleComponent for App {
             ("page-prev", || AppMsg::PageBy(-1), &["Page_Up"]),
             ("page-first", || AppMsg::Edge(false), &["Home"]),
             ("page-last", || AppMsg::Edge(true), &["End"]),
+            ("tool-select", || AppMsg::ToolKey(Tool::Select), &["v"]),
+            (
+                "tool-rectangle",
+                || AppMsg::ToolKey(Tool::Rectangle),
+                &["r"],
+            ),
+            ("tool-ellipse", || AppMsg::ToolKey(Tool::Ellipse), &["o"]),
+            ("tool-arrow", || AppMsg::ToolKey(Tool::Arrow), &["a"]),
+            ("tool-line", || AppMsg::ToolKey(Tool::Line), &["l"]),
+            ("tool-pen", || AppMsg::ToolKey(Tool::Pen), &["p"]),
+            ("tool-text", || AppMsg::ToolKey(Tool::Text), &["t"]),
+            (
+                "tool-highlight",
+                || AppMsg::ToolKey(Tool::Highlight),
+                &["h"],
+            ),
             ("screen-down", || AppMsg::Screen(1), &["space"]),
             ("screen-up", || AppMsg::Screen(-1), &["<Shift>space"]),
             ("next", || AppMsg::Navigate(1), &["Right"]),
@@ -2630,6 +2657,11 @@ impl App {
             AppMsg::SaveState => {
                 self.state_save_pending = false;
                 self.store.borrow().save_state();
+            }
+            AppMsg::ToolKey(tool) => {
+                if self.markup.open && self.edit_mode == EditMode::None {
+                    self.set_tool(tool);
+                }
             }
             AppMsg::Screen(direction) => {
                 let at_end = self.pdf.is_some() && !self.canvas.scroll_screen(direction as i32);
@@ -3138,7 +3170,22 @@ impl App {
             AppMsg::Replay(pending) => self.replay(pending, &sender),
             AppMsg::SearchChanged(text) => {
                 self.search_text = text;
-                self.restart_search();
+                self.search_ticket += 1;
+                if self.search_text.is_empty() {
+                    self.restart_search();
+                } else {
+                    // Wait for a pause in typing, so each keystroke does not restart the search.
+                    let (ticket, sender) = (self.search_ticket, sender.clone());
+                    glib::timeout_add_local_once(
+                        std::time::Duration::from_millis(SEARCH_DELAY_MS),
+                        move || sender.input(AppMsg::SearchTyped { ticket }),
+                    );
+                }
+            }
+            AppMsg::SearchTyped { ticket } => {
+                if ticket == self.search_ticket {
+                    self.restart_search();
+                }
             }
             AppMsg::SearchOpened(open) => {
                 self.search_open = open;

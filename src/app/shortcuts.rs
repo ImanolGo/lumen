@@ -75,6 +75,10 @@ const SECTIONS: &[(&str, &[(&str, &str)])] = &[
                 n_("Move in bigger steps"),
                 "<Shift>Left <Shift>Right <Shift>Up <Shift>Down",
             ),
+            (
+                n_("Choose a tool: select, rectangle, ellipse, arrow, line, pen, text, highlight"),
+                "v r o a l p t h",
+            ),
             (n_("Finish editing text"), "Return"),
             (n_("New line in text"), "<Shift>Return"),
             (n_("Apply the open tool"), "Return"),

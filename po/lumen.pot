@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: lumen\n"
 "Report-Msgid-Bugs-To: https://github.com/ImanolGo/lumen/issues\n"
-"POT-Creation-Date: 2026-10-20 12:43+0200\n"
+"POT-Creation-Date: 2026-10-20 12:44+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -26,7 +26,7 @@ msgstr ""
 msgid "Could Not Save"
 msgstr ""
 
-#: src/app/edit.rs:667 src/app.rs:784
+#: src/app/edit.rs:667 src/app.rs:794
 msgid "_OK"
 msgstr ""
 
@@ -42,7 +42,7 @@ msgid ""
 msgstr ""
 
 #: src/app/edit.rs:689 src/app/edit.rs:730 src/app/edit.rs:755
-#: src/app/edit.rs:869 src/app/edit.rs:906 src/app.rs:3219
+#: src/app/edit.rs:869 src/app/edit.rs:906 src/app.rs:3288
 #: src/app/signature.rs:338
 msgid "_Cancel"
 msgstr ""
@@ -90,7 +90,7 @@ msgstr ""
 msgid "_Replace"
 msgstr ""
 
-#: src/app/edit.rs:801 src/app.rs:1227
+#: src/app/edit.rs:801 src/app.rs:1237
 msgid "PDF Documents"
 msgstr ""
 
@@ -279,7 +279,7 @@ msgstr ""
 msgid "Animate zoom changes"
 msgstr ""
 
-#: src/app/prefs.rs:113 src/app.rs:2013 src/app/shortcuts.rs:18
+#: src/app/prefs.rs:113 src/app.rs:2026 src/app/shortcuts.rs:18
 msgid "Slideshow"
 msgstr ""
 
@@ -303,7 +303,7 @@ msgstr ""
 msgid "Window size, the sidebar and the page a PDF was left on"
 msgstr ""
 
-#: src/app/prefs.rs:160 src/app.rs:2016 src/app/shortcuts.rs:15
+#: src/app/prefs.rs:160 src/app.rs:2029 src/app/shortcuts.rs:15
 msgid "Preferences"
 msgstr ""
 
@@ -311,388 +311,388 @@ msgstr ""
 msgid "A fast image and PDF viewer with light editing and markup."
 msgstr ""
 
-#: src/app.rs:494
+#: src/app.rs:504
 msgid "Loading…"
 msgstr ""
 
-#: src/app.rs:497
+#: src/app.rs:507
 #, rust-format
 msgid "{index} of {total}"
 msgstr ""
 
-#: src/app.rs:544
+#: src/app.rs:554
 #, rust-format
 msgid "of {total}"
 msgstr ""
 
-#: src/app.rs:783
+#: src/app.rs:793
 msgid "Could Not Print"
 msgstr ""
 
-#: src/app.rs:860
+#: src/app.rs:870
 #, rust-format
 msgid "{current} of {total}"
 msgstr ""
 
-#: src/app.rs:871
+#: src/app.rs:881
 msgid "Searching…"
 msgstr ""
 
-#: src/app.rs:872
+#: src/app.rs:882
 msgid "No results"
 msgstr ""
 
-#: src/app.rs:1147
+#: src/app.rs:1157
 msgid "The password is incorrect."
 msgstr ""
 
-#: src/app.rs:1149
+#: src/app.rs:1159
 msgid "The PDF is protected; pass its password."
 msgstr ""
 
-#: src/app.rs:1206
+#: src/app.rs:1216
 msgid "Could Not Open File"
 msgstr ""
 
-#: src/app.rs:1208
+#: src/app.rs:1218
 msgid "Open a Picture or PDF"
 msgstr ""
 
-#: src/app.rs:1216
+#: src/app.rs:1226
 msgid "Drop a file here, or press Ctrl+O"
 msgstr ""
 
-#: src/app.rs:1222
+#: src/app.rs:1232
 msgid "Images"
 msgstr ""
 
-#: src/app.rs:1231
+#: src/app.rs:1241
 msgid "Images and PDFs"
 msgstr ""
 
-#: src/app.rs:1241 src/app/shortcuts.rs:12 src/i18n.rs:89
+#: src/app.rs:1251 src/app/shortcuts.rs:12 src/i18n.rs:89
 msgid "Open"
 msgstr ""
 
-#: src/app.rs:1307
+#: src/app.rs:1317
 msgid "Sidebar (F9)"
 msgstr ""
 
-#: src/app.rs:1319
+#: src/app.rs:1329
 msgid "Open… (Ctrl+O)"
 msgstr ""
 
-#: src/app.rs:1320
+#: src/app.rs:1330
 msgid "Recent Files"
 msgstr ""
 
-#: src/app.rs:1327
+#: src/app.rs:1337
 msgid "Main Menu"
 msgstr ""
 
-#: src/app.rs:1334 src/app.rs:1672 src/widgets/properties.rs:75
+#: src/app.rs:1344 src/app.rs:1682 src/widgets/properties.rs:75
 msgid "Pages"
 msgstr ""
 
-#: src/app.rs:1342
+#: src/app.rs:1352
 msgid "Edit"
 msgstr ""
 
-#: src/app.rs:1350
+#: src/app.rs:1360
 msgid "Markup (Ctrl+Shift+A)"
 msgstr ""
 
-#: src/app.rs:1360
+#: src/app.rs:1370
 msgid "Properties (Alt+Enter)"
 msgstr ""
 
-#: src/app.rs:1394
+#: src/app.rs:1404
 msgid "Find in document"
 msgstr ""
 
-#: src/app.rs:1409
+#: src/app.rs:1419
 msgid "Previous Match (Shift+Enter)"
 msgstr ""
 
-#: src/app.rs:1414
+#: src/app.rs:1424
 msgid "Next Match (Enter)"
 msgstr ""
 
-#: src/app.rs:1431
+#: src/app.rs:1441
 msgid "Select"
 msgstr ""
 
-#: src/app.rs:1438
+#: src/app.rs:1448
 msgid "Rectangle"
 msgstr ""
 
-#: src/app.rs:1445
+#: src/app.rs:1455
 msgid "Ellipse"
 msgstr ""
 
-#: src/app.rs:1452
+#: src/app.rs:1462
 msgid "Arrow"
 msgstr ""
 
-#: src/app.rs:1459
+#: src/app.rs:1469
 msgid "Line"
 msgstr ""
 
-#: src/app.rs:1466
+#: src/app.rs:1476
 msgid "Pen"
 msgstr ""
 
-#: src/app.rs:1473
+#: src/app.rs:1483
 msgid "Text"
 msgstr ""
 
-#: src/app.rs:1480
+#: src/app.rs:1490
 msgid "Highlight"
 msgstr ""
 
-#: src/app.rs:1491
+#: src/app.rs:1501
 msgid "Colour and Size"
 msgstr ""
 
-#: src/app.rs:1510
+#: src/app.rs:1520
 msgid "Custom Colour…"
 msgstr ""
 
-#: src/app.rs:1556
+#: src/app.rs:1566
 msgid "Delete the selected annotation (Delete)"
 msgstr ""
 
-#: src/app.rs:1573
+#: src/app.rs:1583
 msgid "Aspect ratio"
 msgstr ""
 
-#: src/app.rs:1574
+#: src/app.rs:1584
 msgid "Free"
 msgstr ""
 
-#: src/app.rs:1574
+#: src/app.rs:1584
 msgid "Original"
 msgstr ""
 
-#: src/app.rs:1574
+#: src/app.rs:1584
 msgid "1:1"
 msgstr ""
 
-#: src/app.rs:1574
+#: src/app.rs:1584
 msgid "4:3"
 msgstr ""
 
-#: src/app.rs:1574
+#: src/app.rs:1584
 msgid "3:2"
 msgstr ""
 
-#: src/app.rs:1574
+#: src/app.rs:1584
 msgid "16:9"
 msgstr ""
 
-#: src/app.rs:1590 src/widgets/properties.rs:60
+#: src/app.rs:1600 src/widgets/properties.rs:60
 msgid "Exposure"
 msgstr ""
 
-#: src/app.rs:1601
+#: src/app.rs:1611
 msgid "Contrast"
 msgstr ""
 
-#: src/app.rs:1612
+#: src/app.rs:1622
 msgid "Saturation"
 msgstr ""
 
-#: src/app.rs:1628
+#: src/app.rs:1638
 msgid "Cancel"
 msgstr ""
 
-#: src/app.rs:1629
+#: src/app.rs:1639
 msgid "Cancel (Esc)"
 msgstr ""
 
-#: src/app.rs:1633
+#: src/app.rs:1643
 msgid "Apply"
 msgstr ""
 
-#: src/app.rs:1634
+#: src/app.rs:1644
 msgid "Apply (Enter)"
 msgstr ""
 
-#: src/app.rs:1663
+#: src/app.rs:1673
 msgid "Files"
 msgstr ""
 
-#: src/app.rs:1679
+#: src/app.rs:1689
 msgid "Outline"
 msgstr ""
 
-#: src/app.rs:1718
+#: src/app.rs:1728
 msgid "Open…"
 msgstr ""
 
-#: src/app.rs:1755
+#: src/app.rs:1765
 msgid "Previous (Left)"
 msgstr ""
 
-#: src/app.rs:1773
+#: src/app.rs:1783
 msgid "Next (Right)"
 msgstr ""
 
-#: src/app.rs:1803
+#: src/app.rs:1813
 msgid "Previous Page (Page Up)"
 msgstr ""
 
-#: src/app.rs:1812
+#: src/app.rs:1822
 msgid "Go to page (Ctrl+G)"
 msgstr ""
 
-#: src/app.rs:1827
+#: src/app.rs:1835
 msgid "Next Page (Page Down)"
 msgstr ""
 
-#: src/app.rs:1839
+#: src/app.rs:1847
 msgid "Zoom Out (Ctrl+−)"
 msgstr ""
 
-#: src/app.rs:1845
+#: src/app.rs:1853
 msgid "Fit to Window (Ctrl+0)"
 msgstr ""
 
-#: src/app.rs:1853
+#: src/app.rs:1861
 msgid "Zoom In (Ctrl+=)"
 msgstr ""
 
-#: src/app.rs:1956 src/app/shortcuts.rs:58
+#: src/app.rs:1969 src/app/shortcuts.rs:58
 msgid "Undo"
 msgstr ""
 
-#: src/app.rs:1957 src/app/shortcuts.rs:59
+#: src/app.rs:1970 src/app/shortcuts.rs:59
 msgid "Redo"
 msgstr ""
 
-#: src/app.rs:1960 src/app.rs:1984
+#: src/app.rs:1973 src/app.rs:1997
 msgid "Rotate Right"
 msgstr ""
 
-#: src/app.rs:1961 src/app.rs:1985
+#: src/app.rs:1974 src/app.rs:1998
 msgid "Rotate Left"
 msgstr ""
 
-#: src/app.rs:1962
+#: src/app.rs:1975
 msgid "Flip Horizontally"
 msgstr ""
 
-#: src/app.rs:1963
+#: src/app.rs:1976
 msgid "Flip Vertically"
 msgstr ""
 
-#: src/app.rs:1966
+#: src/app.rs:1979
 msgid "Crop…"
 msgstr ""
 
-#: src/app.rs:1967
+#: src/app.rs:1980
 msgid "Resize…"
 msgstr ""
 
-#: src/app.rs:1968
+#: src/app.rs:1981
 msgid "Adjust Colour…"
 msgstr ""
 
-#: src/app.rs:1971
+#: src/app.rs:1984
 msgid "Export as PDF…"
 msgstr ""
 
-#: src/app.rs:1974 src/app/shortcuts.rs:70
+#: src/app.rs:1987 src/app/shortcuts.rs:70
 msgid "Markup"
 msgstr ""
 
-#: src/app.rs:1977 src/app/shortcuts.rs:65
+#: src/app.rs:1990 src/app/shortcuts.rs:65
 msgid "Save"
 msgstr ""
 
-#: src/app.rs:1978
+#: src/app.rs:1991
 msgid "Save As…"
 msgstr ""
 
-#: src/app.rs:1988
+#: src/app.rs:2001
 msgid "Delete Pages"
 msgstr ""
 
-#: src/app.rs:1990
+#: src/app.rs:2003
 msgid "Insert Pages from File…"
 msgstr ""
 
-#: src/app.rs:1996
+#: src/app.rs:2009
 msgid "Export Selected Pages…"
 msgstr ""
 
-#: src/app.rs:1999
+#: src/app.rs:2012
 msgid "Export Page as PNG…"
 msgstr ""
 
-#: src/app.rs:2005
+#: src/app.rs:2018
 msgid "Print…"
 msgstr ""
 
-#: src/app.rs:2007
+#: src/app.rs:2020
 msgid "Fit to Page"
 msgstr ""
 
-#: src/app.rs:2008
+#: src/app.rs:2021
 msgid "Actual Size"
 msgstr ""
 
-#: src/app.rs:2009
+#: src/app.rs:2022
 msgid "Size on Paper"
 msgstr ""
 
-#: src/app.rs:2012 src/app/shortcuts.rs:17
+#: src/app.rs:2025 src/app/shortcuts.rs:17
 msgid "Fullscreen"
 msgstr ""
 
-#: src/app.rs:2019
+#: src/app.rs:2032
 msgid "Keyboard Shortcuts"
 msgstr ""
 
-#: src/app.rs:2020
+#: src/app.rs:2033
 msgid "About Lumen"
 msgstr ""
 
-#: src/app.rs:2141
+#: src/app.rs:2155
 msgid "Signature"
 msgstr ""
 
-#: src/app.rs:2181
+#: src/app.rs:2195
 msgid "Page number"
 msgstr ""
 
-#: src/app.rs:2185
+#: src/app.rs:2199
 msgid "Search in the document"
 msgstr ""
 
-#: src/app.rs:2585
+#: src/app.rs:2632
 msgid "There are no pictures or PDFs to open there."
 msgstr ""
 
-#: src/app.rs:3206
+#: src/app.rs:3275
 #, rust-format
 msgid "The password for “{name}” was incorrect. Try again."
 msgstr ""
 
-#: src/app.rs:3211
+#: src/app.rs:3280
 #, rust-format
 msgid "“{name}” is protected. Enter its password to open it."
 msgstr ""
 
-#: src/app.rs:3215
+#: src/app.rs:3284
 msgid "Password Required"
 msgstr ""
 
-#: src/app.rs:3220
+#: src/app.rs:3289
 msgid "_Open"
 msgstr ""
 
-#: src/app.rs:3274
+#: src/app.rs:3343
 msgid "No Recent Files"
 msgstr ""
 
@@ -840,19 +840,24 @@ msgstr ""
 msgid "Move in bigger steps"
 msgstr ""
 
-#: src/app/shortcuts.rs:78
+#: src/app/shortcuts.rs:79
+msgid ""
+"Choose a tool: select, rectangle, ellipse, arrow, line, pen, text, highlight"
+msgstr ""
+
+#: src/app/shortcuts.rs:82
 msgid "Finish editing text"
 msgstr ""
 
-#: src/app/shortcuts.rs:79
+#: src/app/shortcuts.rs:83
 msgid "New line in text"
 msgstr ""
 
-#: src/app/shortcuts.rs:80
+#: src/app/shortcuts.rs:84
 msgid "Apply the open tool"
 msgstr ""
 
-#: src/app/shortcuts.rs:81
+#: src/app/shortcuts.rs:85
 msgid "Cancel the open tool"
 msgstr ""
 

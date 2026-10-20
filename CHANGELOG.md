@@ -13,6 +13,8 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - Pictures you only flip past no longer fill the desktop's recent-files list; only files you open on purpose are added. The remembered state is written at most every two seconds instead of on every file.
 - In a PDF, Space and Shift+Space scroll a screen (and carry on to the next or previous file at the end); Home and End go to the first and last file when a picture is shown. Shift+Left and Shift+Right move a selected annotation in bigger steps.
 - Ctrl+G brings back the faded page controls before focusing the page box, and the box is no longer reset while you type in it.
+- While the markup toolbar is open, V, R, O, A, L, P, T and H choose the tool (shown in the tooltips).
+- Searching waits for a short pause in typing instead of restarting on every key.
 
 ## [0.3.1] - 2026-10-20
 
