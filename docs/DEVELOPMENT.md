@@ -70,16 +70,16 @@ Work that finishes later (opening, saving, page changes, form fields, exports, s
 when it has finished, or with an error such as `io.github.imanolgo.Lumen.Error.Busy`.
 
 ```sh
-lumen() {   # call a method: lumen Method ARG…
+ctl() {   # call a method: ctl Method ARG…
     gdbus call --session --dest io.github.imanolgo.Lumen \
         --object-path /io/github/imanolgo/Lumen/Control \
         --method io.github.imanolgo.Lumen.Control1."$@"
 }
-lumen Open "['/tmp/form.pdf']" "{}"
-lumen ListFields                              # each field's id, kind, value and area
-lumen FillField 65537 "<'Ada Lovelace'>"      # an id from ListFields
-lumen Annotate 0 '{"type": "rect", "x": 50, "y": 60, "w": 120, "h": 40, "color": "#e01b24"}'
-lumen Save /tmp/filled.pdf "{}"
+ctl Open "['/tmp/form.pdf']" "{}"
+ctl ListFields                              # each field's id, kind, value and area
+ctl FillField 65537 "<'Ada Lovelace'>"      # an id from ListFields
+ctl Annotate 0 '{"type": "rect", "x": 50, "y": 60, "w": 120, "h": 40, "color": "#e01b24"}'
+ctl Save /tmp/filled.pdf "{}"
 ```
 
 | Method | Arguments | Notes |

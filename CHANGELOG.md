@@ -4,6 +4,11 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-10-20
+
+### Changed
+- The program installs as `lumen-viewer`, and the packages are `lumen-viewer` (AUR and `.deb`) and `lumen-viewer-git` (AUR). The project and the window are still Lumen, but the AUR name `lumen` and `/usr/bin/lumen` belong to an unrelated program, so the two could not coexist. Nothing else moves: the app ID, the icons and `~/.config/lumen` are unchanged.
+
 ## [0.4.1] - 2026-10-20
 
 ### Fixed
@@ -101,7 +106,8 @@ First release.
 - Packages: Flatpak, `.deb` for Ubuntu 26.04+ and Debian testing (`make deb`), and `lumen` and `lumen-git` PKGBUILDs for the AUR. The release workflow builds the Flatpak, the `.deb` and a tarball, and can be run by hand without publishing.
 - README, `CONTRIBUTING.md`, `docs/RELEASING.md` and this changelog.
 
-[Unreleased]: https://github.com/ImanolGo/lumen/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/ImanolGo/lumen/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/ImanolGo/lumen/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/ImanolGo/lumen/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/ImanolGo/lumen/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/ImanolGo/lumen/compare/v0.3.0...v0.3.1

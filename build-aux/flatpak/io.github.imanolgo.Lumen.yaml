@@ -10,7 +10,7 @@ runtime-version: '50'
 sdk: org.gnome.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
-command: lumen
+command: lumen-viewer
 
 finish-args:
   - --share=ipc

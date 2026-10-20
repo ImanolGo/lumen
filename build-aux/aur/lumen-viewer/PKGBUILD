@@ -1,6 +1,9 @@
 # Maintainer: Imanol Gomez <imanol@steinergomez.com>
-pkgname=lumen
-pkgver=0.4.1
+# The project is Lumen, but the package is `lumen-viewer`: `lumen` is another program on the
+# AUR, and both would install /usr/bin/lumen. The binary is installed as `lumen-viewer`.
+pkgname=lumen-viewer
+_pkgname=lumen
+pkgver=0.4.2
 pkgrel=1
 pkgdesc='Fast image and PDF viewer with light editing, markup and page management'
 arch=('x86_64' 'aarch64')
@@ -14,26 +17,26 @@ source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
 sha256sums=('ae9a8d79eafa8b551b26653bdd1f99c05ff9c3827685e9c69d6be16e2b4242ed')
 
 prepare() {
-    cd "$pkgname-$pkgver"
+    cd "$_pkgname-$pkgver"
     export RUSTUP_TOOLCHAIN=stable
     cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
 }
 
 build() {
-    cd "$pkgname-$pkgver"
+    cd "$_pkgname-$pkgver"
     export RUSTUP_TOOLCHAIN=stable
     export CARGO_TARGET_DIR=target
     make build translations
 }
 
 check() {
-    cd "$pkgname-$pkgver"
+    cd "$_pkgname-$pkgver"
     desktop-file-validate data/io.github.imanolgo.Lumen.desktop
     appstreamcli validate --no-net data/io.github.imanolgo.Lumen.metainfo.xml
 }
 
 package() {
-    cd "$pkgname-$pkgver"
+    cd "$_pkgname-$pkgver"
     make install-files DESTDIR="$pkgdir" PREFIX=/usr
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

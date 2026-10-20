@@ -1,6 +1,6 @@
 # Maintainer: Imanol Gomez <imanol@steinergomez.com>
-# Builds the latest commit on main. For releases, see the `lumen` package.
-pkgname=lumen-git
+# Builds the latest commit on main. For releases, see the `lumen-viewer` package.
+pkgname=lumen-viewer-git
 _pkgname=lumen
 pkgver=0.1.0.r37.gefa2a87
 pkgrel=1
@@ -11,8 +11,8 @@ license=('GPL-3.0-or-later')
 depends=('gtk4>=4.16' 'libadwaita>=1.8' 'poppler-glib>=25.06' 'glib2' 'cairo' 'glycin' 'libseccomp')
 makedepends=('cargo' 'gettext' 'git')
 checkdepends=('desktop-file-utils' 'appstream')
-provides=("$_pkgname")
-conflicts=("$_pkgname")
+provides=('lumen-viewer')
+conflicts=('lumen-viewer')
 source=("$_pkgname::git+$url.git")
 sha256sums=('SKIP')
 
@@ -50,5 +50,5 @@ check() {
 package() {
     cd "$_pkgname"
     make install-files DESTDIR="$pkgdir" PREFIX=/usr
-    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$_pkgname/LICENSE"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

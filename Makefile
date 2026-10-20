@@ -11,6 +11,9 @@ PREFIX  ?= /usr
 DESTDIR ?=
 ID      := io.github.imanolgo.Lumen
 BIN     := target/release/lumen
+# The project is Lumen, but it is installed as `lumen-viewer`: the AUR name `lumen` and the
+# command `lumen` belong to another program, and packages cannot share a file.
+APP     := lumen-viewer
 CARGO   ?= cargo
 
 .PHONY: all build translations install install-files uninstall check deb
@@ -27,7 +30,7 @@ install: build translations install-files
 
 # Only copy files into place (the Flatpak builds first, offline, then calls this).
 install-files:
-	install -Dm755 $(BIN) $(DESTDIR)$(PREFIX)/bin/lumen
+	install -Dm755 $(BIN) $(DESTDIR)$(PREFIX)/bin/$(APP)
 	install -Dm644 data/$(ID).desktop $(DESTDIR)$(PREFIX)/share/applications/$(ID).desktop
 	install -Dm644 data/$(ID).metainfo.xml $(DESTDIR)$(PREFIX)/share/metainfo/$(ID).metainfo.xml
 	install -Dm644 data/icons/hicolor/scalable/apps/$(ID).svg $(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps/$(ID).svg
@@ -42,7 +45,7 @@ install-files:
 	done
 
 uninstall:
-	rm -f $(DESTDIR)$(PREFIX)/bin/lumen
+	rm -f $(DESTDIR)$(PREFIX)/bin/$(APP)
 	rm -f $(DESTDIR)$(PREFIX)/share/applications/$(ID).desktop
 	rm -f $(DESTDIR)$(PREFIX)/share/metainfo/$(ID).metainfo.xml
 	rm -f $(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps/$(ID).svg

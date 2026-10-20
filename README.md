@@ -37,7 +37,7 @@
 
 ## Installing
 
-The latest release is 0.4.1. Lumen is not on Flathub yet; install it from a release, the AUR or source.
+The latest release is 0.4.2. Lumen is not on Flathub yet; install it from a release, the AUR or source.
 
 ### From a release
 
@@ -46,23 +46,23 @@ Each tagged release on the [releases page](https://github.com/ImanolGo/lumen/rel
 | Package | Install | Works on |
 |---|---|---|
 | `lumen.flatpak` | `flatpak install --user lumen.flatpak` | Any distribution with Flatpak (brings its own GNOME 50 runtime) |
-| `lumen_X.Y.Z-1_amd64.deb` | `sudo apt install ./lumen_X.Y.Z-1_amd64.deb` | Ubuntu 26.04 or later, Debian testing |
+| `lumen-viewer_X.Y.Z-1_amd64.deb` | `sudo apt install ./lumen-viewer_X.Y.Z-1_amd64.deb` | Ubuntu 26.04 or later, Debian testing |
 | `lumen-vX.Y.Z-x86_64-linux.tar.gz` | `sudo tar -C / -xzf lumen-vX.Y.Z-x86_64-linux.tar.gz` | Distributions with GTK 4.16+, libadwaita 1.8+, poppler-glib 25.06+ and libseccomp (plus the glycin loaders for sandboxed decoding) |
 
 If your distribution is older than that, use the Flatpak.
 
 ### Arch Linux (AUR)
 
-Two packages are maintained in [`build-aux/aur/`](build-aux/aur/): `lumen` builds the latest release and `lumen-git` the latest commit. Once they are on the AUR:
+Two packages are maintained in [`build-aux/aur/`](build-aux/aur/): `lumen-viewer` builds the latest release and `lumen-viewer-git` the latest commit. The project is called Lumen, but the packages and the command are `lumen-viewer` (an unrelated program already owns `lumen` on the AUR). Once they are on the AUR:
 
 ```sh
-yay -S lumen        # or lumen-git
+yay -S lumen-viewer        # or lumen-viewer-git
 ```
 
 Or build one straight from this repository:
 
 ```sh
-cd build-aux/aur/lumen-git && makepkg -si
+cd build-aux/aur/lumen-viewer-git && makepkg -si
 ```
 
 ### Debian and Ubuntu, from source
@@ -71,7 +71,7 @@ On Ubuntu 26.04+ or Debian testing, `build-aux/debian/build-deb.sh` builds a `.d
 
 ```sh
 make deb
-sudo apt install ./lumen_*.deb
+sudo apt install ./lumen-viewer_*.deb
 ```
 
 ### From source
@@ -105,9 +105,9 @@ Remove an installed copy with `make uninstall` (use the same `PREFIX`).
 ## Usage
 
 ```sh
-lumen                      # empty window, Ctrl+O to open
-lumen photo.jpg report.pdf # open files directly
-lumen ~/Pictures/Trip      # or every picture and PDF in a folder
+lumen-viewer                      # empty window, Ctrl+O to open
+lumen-viewer photo.jpg report.pdf # open files directly
+lumen-viewer ~/Pictures/Trip      # or every picture and PDF in a folder
 ```
 
 Drop more files or folders onto the window to add them to the ones you are browsing.

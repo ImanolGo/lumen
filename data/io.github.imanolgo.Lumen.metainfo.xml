@@ -72,6 +72,11 @@
   </keywords>
   <translation type="gettext">lumen</translation>
   <releases>
+    <release version="0.4.2" date="2026-10-20">
+      <description>
+        <p>The program is installed as "lumen-viewer", and the packages are named after it, so Lumen can live on the AUR next to an unrelated program that owns the name "lumen". The project is still Lumen; settings, icons and the app ID are unchanged.</p>
+      </description>
+    </release>
     <release version="0.4.1" date="2026-10-20">
       <description>
         <p>The menu in the header no longer closes by itself: the Edit menu of a picture and the Pages menu of a document stay open until you pick something.</p>

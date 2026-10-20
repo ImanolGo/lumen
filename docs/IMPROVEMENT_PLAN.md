@@ -388,7 +388,7 @@ toolbar.
   exactly one *picture* is opened (not a PDF and not a folder), show it first. Then list its
   folder off the main thread and splice the siblings in around it without changing `index`'s
   file. Preloading starts after the first paint.
-- **Done when:** `lumen ~/Pictures/a.jpg` shows `a.jpg` with no slower first paint, then → goes
+- **Done when:** `lumen-viewer ~/Pictures/a.jpg` shows `a.jpg` with no slower first paint, then → goes
   to the next file in the folder.
 
 ### - [x] C2 (Alt+Left/Right and a Back toast; mouse buttons 8/9 not wired) 🟢 Back and forward after following a link

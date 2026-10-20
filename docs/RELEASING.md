@@ -2,7 +2,7 @@
 
 ## Before tagging
 
-1. Set the version in `Cargo.toml`, `build-aux/aur/lumen/PKGBUILD` (`pkgver`, and `pkgrel=1`) and add a
+1. Set the version in `Cargo.toml`, `build-aux/aur/lumen-viewer/PKGBUILD` (`pkgver`, and `pkgrel=1`) and add a
    `<release>` to `data/io.github.imanolgo.Lumen.metainfo.xml` with today's date.
 2. Move the `Unreleased` entries in `CHANGELOG.md` under the new version, with the same date.
 3. Run `make check` and, if the dependencies changed, `build-aux/update-cargo-sources.sh`.
@@ -28,13 +28,16 @@ The tag runs the release workflow again, which this time attaches the three file
 
 ## AUR
 
-There are two packages: `lumen` (releases) and `lumen-git` (the main branch). Each AUR package is
-its own git repository; publishing needs an AUR account with your SSH key.
+There are two packages: `lumen-viewer` (releases) and `lumen-viewer-git` (the main branch). The
+project is Lumen, but the packages and the command are `lumen-viewer`: the AUR name `lumen` (and
+`/usr/bin/lumen`) belongs to another program. Each AUR package is its own git repository;
+publishing needs an AUR account with your SSH key, and the PKGBUILD must be reachable at the root
+of a public git repository, which is what the AUR "Git Clone URL" in the submission form points at.
 
 After the tag exists, update the checksum of the release package and regenerate `.SRCINFO`:
 
 ```sh
-cd build-aux/aur/lumen
+cd build-aux/aur/lumen-viewer
 updpkgsums
 makepkg -f                      # check that it builds
 makepkg --printsrcinfo > .SRCINFO
@@ -43,15 +46,15 @@ makepkg --printsrcinfo > .SRCINFO
 Commit those changes here, then push the two files to the AUR:
 
 ```sh
-git clone ssh://aur@aur.archlinux.org/lumen.git /tmp/aur-lumen
-cp build-aux/aur/lumen/{PKGBUILD,.SRCINFO} /tmp/aur-lumen/
-git -C /tmp/aur-lumen add PKGBUILD .SRCINFO
-git -C /tmp/aur-lumen commit -m "Update to 0.1.0"
-git -C /tmp/aur-lumen push
+git clone ssh://aur@aur.archlinux.org/lumen-viewer.git /tmp/aur-lumen-viewer
+cp build-aux/aur/lumen-viewer/{PKGBUILD,.SRCINFO} /tmp/aur-lumen-viewer/
+git -C /tmp/aur-lumen-viewer add PKGBUILD .SRCINFO
+git -C /tmp/aur-lumen-viewer commit -m "Update to 0.4.2"
+git -C /tmp/aur-lumen-viewer push
 ```
 
-`lumen-git` is published the same way (`ssh://aur@aur.archlinux.org/lumen-git.git`). It works out its
-version from git, so it only needs pushing again when the PKGBUILD itself changes.
+`lumen-viewer-git` is published the same way (`ssh://aur@aur.archlinux.org/lumen-viewer-git.git`).
+It works out its version from git, so it only needs pushing again when the PKGBUILD itself changes.
 
 ## Debian and Ubuntu
 

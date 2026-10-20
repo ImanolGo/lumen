@@ -4,7 +4,7 @@ Thanks for helping. Bug reports, translations and pull requests are all welcome.
 
 ## Reporting bugs
 
-Open an [issue](https://github.com/ImanolGo/lumen/issues) with your distro, Lumen version, how you installed it (Flatpak, package or source) and what you did. If you can, run `RUST_LOG=lumen=debug lumen` and attach the log. For a file-specific problem, say what kind of file it is and attach it if it is not private.
+Open an [issue](https://github.com/ImanolGo/lumen/issues) with your distro, Lumen version, how you installed it (Flatpak, package or source) and what you did. If you can, run `RUST_LOG=lumen=debug lumen-viewer` and attach the log. For a file-specific problem, say what kind of file it is and attach it if it is not private.
 
 ## Setting up
 

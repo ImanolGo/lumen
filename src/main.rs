@@ -39,7 +39,7 @@ fn main() -> glib::ExitCode {
     gio::resources_register_include!("lumen.gresource").expect("the bundled resources are valid");
 
     // HANDLES_OPEN makes GApplication parse file arguments itself, so the CLI,
-    // "Open With…" and a second `lumen file` launch all end up in `open`.
+    // "Open With…" and a second `lumen-viewer file` launch all end up in `open`.
     let app = adw::Application::builder()
         .application_id(APP_ID)
         .flags(gio::ApplicationFlags::HANDLES_OPEN)

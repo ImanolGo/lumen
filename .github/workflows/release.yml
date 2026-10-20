@@ -63,12 +63,12 @@ jobs:
         run: build-aux/debian/build-deb.sh
       - name: Check that it installs
         run: |
-          apt-get install -y ./lumen_*.deb
-          dpkg -L lumen | grep -q /usr/bin/lumen
+          apt-get install -y ./lumen-viewer_*.deb
+          dpkg -L lumen-viewer | grep -q /usr/bin/lumen-viewer
       - uses: actions/upload-artifact@v4
         with:
           name: deb
-          path: lumen_*.deb
+          path: lumen-viewer_*.deb
 
   publish:
     needs: [tarball, flatpak, deb]
@@ -83,5 +83,5 @@ jobs:
           files: |
             lumen-*.tar.gz
             lumen.flatpak
-            lumen_*.deb
+            lumen-viewer_*.deb
           generate_release_notes: true
