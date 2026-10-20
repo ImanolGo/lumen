@@ -546,7 +546,7 @@ Nothing else. Each new preference needs a reason in the commit message.
 - Add `cargo deny check licenses advisories`. The GPL-3.0 app must not pull in incompatible
   crates.
 
-### - [ ] E6 🟡 Test gaps to close alongside the fixes
+### - [x] E6 (done: A1, C1, C3 end-to-end tests, A3/A4/B8/E2/E3 unit tests, damaged-file test; not done: Space scrolling, link back, and trash end-to-end, which need pointer/keyboard or trash support in the test environment) 🟡 Test gaps to close alongside the fixes
 - End-to-end tests (control interface):
   - A1: the list survives a save.
   - A9: Space scrolls a PDF.

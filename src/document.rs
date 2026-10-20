@@ -185,6 +185,32 @@ mod tests {
         assert_eq!(pdf.password.as_deref(), Some("secret"));
     }
 
+    /// Damaged files must come back as errors (or open with what could be read), never panic.
+    #[test]
+    fn truncated_files_do_not_panic() {
+        let dir = std::env::temp_dir().join(format!("lumen-truncated-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in [
+            "form.pdf",
+            "links.pdf",
+            "pages.pdf",
+            "selection.pdf",
+            "encrypted.pdf",
+        ] {
+            let bytes = std::fs::read(fixture(name)).unwrap();
+            for keep in [0, 1, 8, bytes.len() / 4, bytes.len() / 2, bytes.len() - 1] {
+                let path = dir.join(format!("{keep}-{name}"));
+                std::fs::write(&path, &bytes[..keep]).unwrap();
+                let _ = open(&path, Some("secret"));
+            }
+        }
+        // Not a picture, whatever the name says.
+        let fake = dir.join("fake.png");
+        std::fs::write(&fake, b"this is not a PNG").unwrap();
+        assert!(open(&fake, None).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[test]
     fn plain_pdf_needs_no_password() {
         let opened = open(&fixture("selection.pdf"), None).expect("opens");
