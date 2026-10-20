@@ -272,6 +272,10 @@ pub enum AppMsg {
     ShowSaved(PathBuf),
     /// Move the file on screen to the trash (Ctrl+Delete).
     Trash,
+    /// Show the file on screen in the file manager.
+    ShowInFolder,
+    /// Open the file on screen with another program (the system's chooser).
+    OpenWith,
     /// A file was moved to the trash from list position `index`.
     Trashed {
         path: PathBuf,
@@ -1336,6 +1340,44 @@ impl App {
         self.watcher = None;
     }
 
+    /// Put the picture on screen on the clipboard: its pixels (as edited), and the file
+    /// itself too when it has no unsaved edits, so a file manager can paste it.
+    fn copy_picture(&self) {
+        let (Some(image), Some(display)) = (self.shown_image(), gdk::Display::default()) else {
+            return;
+        };
+        let mut providers = vec![gdk::ContentProvider::for_value(&image.texture.to_value())];
+        if self.edited.is_none() {
+            let list = gdk::FileList::from_array(&[gio::File::for_path(&image.path)]);
+            providers.push(gdk::ContentProvider::for_value(&list.to_value()));
+        }
+        let _ = display
+            .clipboard()
+            .set_content(Some(&gdk::ContentProvider::new_union(&providers)));
+        self.toast(&tr("Picture copied"), None);
+    }
+
+    /// Give the file on screen to the file manager (`show_folder`) or to a program the
+    /// user picks.
+    fn hand_over(&self, show_folder: bool) {
+        let Some(path) = self.list.get(self.index) else {
+            return;
+        };
+        let launcher = gtk::FileLauncher::new(Some(&gio::File::for_path(path)));
+        let parent = relm4::main_application().active_window();
+        let log = |result: Result<(), glib::Error>| {
+            if let Err(err) = result {
+                tracing::warn!("could not hand the file over: {err}");
+            }
+        };
+        if show_folder {
+            launcher.open_containing_folder(parent.as_ref(), gio::Cancellable::NONE, log);
+        } else {
+            launcher.set_always_ask(true);
+            launcher.launch(parent.as_ref(), gio::Cancellable::NONE, log);
+        }
+    }
+
     /// Move the file on screen to the trash, and offer to bring it back.
     fn trash_current(&mut self, sender: &ComponentSender<Self>) {
         if self.is_dirty() || self.loading || self.page_busy || self.saving {
@@ -2150,6 +2192,8 @@ impl SimpleComponent for App {
             ("export-image-pdf", model.can_edit()),
             ("print", model.has_document()),
             ("trash", model.has_document() && !model.is_dirty()),
+            ("show-in-folder", model.has_document()),
+            ("open-with", model.has_document()),
         ];
         for (name, enabled) in states {
             if let Some(action) = widgets
@@ -2245,6 +2289,8 @@ impl SimpleComponent for App {
         view_section.append(Some(&tr("Slideshow")), Some("win.slideshow"));
         main_menu.append_section(None, &view_section);
         let file_section = gio::Menu::new();
+        file_section.append(Some(&tr("Show in Folder")), Some("win.show-in-folder"));
+        file_section.append(Some(&tr("Open With…")), Some("win.open-with"));
         file_section.append(Some(&tr("Move to Trash")), Some("win.trash"));
         main_menu.append_section(None, &file_section);
         let prefs_section = gio::Menu::new();
@@ -2540,6 +2586,8 @@ impl SimpleComponent for App {
                 &["h"],
             ),
             ("trash", || AppMsg::Trash, &["<Control>Delete"]),
+            ("show-in-folder", || AppMsg::ShowInFolder, &[]),
+            ("open-with", || AppMsg::OpenWith, &[]),
             ("jump-back", || AppMsg::JumpBack, &["<Alt>Left"]),
             ("jump-forward", || AppMsg::JumpForward, &["<Alt>Right"]),
             ("screen-down", || AppMsg::Screen(1), &["space"]),
@@ -2887,6 +2935,8 @@ impl App {
                 self.show_index(index, &sender);
             }
             AppMsg::Trash => self.trash_current(&sender),
+            AppMsg::ShowInFolder => self.hand_over(true),
+            AppMsg::OpenWith => self.hand_over(false),
             AppMsg::Trashed {
                 path,
                 index,
@@ -3221,7 +3271,13 @@ impl App {
                     self.canvas.set_links(loaded.page, loaded.links);
                 }
             }
-            AppMsg::Copy => self.request_selection(true),
+            AppMsg::Copy => {
+                if self.pdf.is_some() {
+                    self.request_selection(true);
+                } else {
+                    self.copy_picture();
+                }
+            }
             AppMsg::FillForm { id, value } => self.fill_form(id, value, &sender),
             AppMsg::Control { id, method, params } => self.control(id, &method, params, &sender),
             AppMsg::PlaceSignature(index) => self.place_signature(index, &sender),

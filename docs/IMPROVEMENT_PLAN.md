@@ -408,13 +408,13 @@ toolbar.
   the trash via `trash:///`, or keeps the path and moves the file back.
 - Guard it so it never applies to a dirty document.
 
-### - [ ] C5 🟢 Copy and paste pictures
+### - [x] C5 (copy only; paste not done) 🟢 Copy and paste pictures
 - `Ctrl+C` with a picture shown and no text selection puts the *shown* image (with edits and
   markup flattened) on the clipboard as a texture, plus the file as `text/uri-list`.
 - `Ctrl+V` with a picture on the clipboard opens it as an unsaved image ("Pasted image"; Save
   asks for a name).
 
-### - [ ] C6 🟢 Drag out, Show in Folder, Open With
+### - [x] C6 (Show in Folder and Open With; drag-out not done) 🟢 Drag out, Show in Folder, Open With
 - Add a `gtk::DragSource` on the canvas that drags the current file. Use middle-drag or
   Alt+drag, so it does not clash with panning.
 - Add **Show in Folder** and **Open With…** to the main menu (`gtk::FileLauncher`:
