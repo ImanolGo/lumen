@@ -494,7 +494,7 @@ Nothing else. Each new preference needs a reason in the commit message.
 - Check every screen in light, dark and high-contrast, and at 1× and 2×, and retake the
   screenshots with `build-aux/screenshot.sh`.
 
-### - [ ] D6 🟡 Optional: command palette (`Ctrl+Shift+P`)
+### - [x] D6 🟡 Optional: command palette (`Ctrl+Shift+P`)
 - Only if D1–D5 are done and it still feels useful. A searchable list of every window action
   (built from the same action table as E3), with its shortcut. It makes everything
   discoverable without adding chrome. Leave it out if it grows beyond about 200 lines.

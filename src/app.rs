@@ -307,6 +307,8 @@ pub enum AppMsg {
     FileTouched,
     SetPdfFit(settings::PdfFit),
     SetNightMode(bool),
+    /// Ctrl+Shift+P: the command palette.
+    Palette,
     /// Alt+Left or the toast's button: back to where a link or the outline was followed from.
     JumpBack,
     /// Alt+Right: forward again.
@@ -2694,6 +2696,7 @@ impl SimpleComponent for App {
                 accels("show-in-folder"),
             ),
             ("open-with", || AppMsg::OpenWith, accels("open-with")),
+            ("palette", || AppMsg::Palette, accels("palette")),
             ("jump-back", || AppMsg::JumpBack, accels("jump-back")),
             (
                 "jump-forward",
@@ -3172,6 +3175,14 @@ impl App {
             AppMsg::FileChanged { ticket } => {
                 if ticket == self.watch_ticket {
                     self.file_changed(&sender);
+                }
+            }
+            AppMsg::Palette => {
+                if let Some(window) = relm4::main_application()
+                    .active_window()
+                    .and_downcast::<adw::ApplicationWindow>()
+                {
+                    shortcuts::show_palette(&window);
                 }
             }
             AppMsg::JumpBack => self.jump_along(true),

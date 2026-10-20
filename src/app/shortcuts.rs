@@ -1,7 +1,10 @@
 //! The keyboard shortcuts: the one table of accelerators the window registers, and the
 //! shortcuts dialog built from it, so the two cannot drift apart.
 
-use relm4::adw::{self, prelude::*};
+use relm4::{
+    adw::{self, prelude::*},
+    gtk::{self, gio},
+};
 
 use crate::i18n::{n_, tr};
 
@@ -65,6 +68,7 @@ pub const ACCELS: &[(&str, &[&str])] = &[
     ("best-fit", &["<Control>0"]),
     ("actual-size", &["<Control>1"]),
     ("night-mode", &["<Control><Shift>n"]),
+    ("palette", &["<Control><Shift>p"]),
     ("find", &["<Control>f"]),
     ("goto-page", &["<Control>g"]),
     ("open", &["<Control>o"]),
@@ -105,6 +109,7 @@ const SECTIONS: &[(&str, &[(&str, Keys)])] = &[
             (n_("Toggle markup toolbar"), Action("markup")),
             (n_("Preferences"), Action("preferences")),
             (n_("Keyboard shortcuts"), Action("shortcuts")),
+            (n_("Command palette"), Action("palette")),
             (n_("Fullscreen"), Action("fullscreen")),
             (n_("Slideshow"), Action("slideshow")),
             (n_("Leave fullscreen or the slideshow"), Literal("Escape")),
@@ -199,6 +204,122 @@ pub fn show() {
         dialog.add(section);
     }
     dialog.present(relm4::main_application().active_window().as_ref());
+}
+
+/// A searchable list of every command that has a name in the shortcuts dialog, with its keys.
+/// Choosing one runs it. Disabled commands (nothing open to apply them to) are left out.
+pub fn show_palette(window: &adw::ApplicationWindow) {
+    let dialog = adw::Dialog::builder()
+        .title(tr("Command Palette"))
+        .content_width(420)
+        .content_height(460)
+        .build();
+    let entry = gtk::SearchEntry::builder()
+        .placeholder_text(tr("Type a command"))
+        .margin_start(12)
+        .margin_end(12)
+        .margin_top(12)
+        .build();
+    let list = gtk::ListBox::builder()
+        .selection_mode(gtk::SelectionMode::Single)
+        .css_classes(["navigation-sidebar"])
+        .build();
+    let mut rows: Vec<(String, &'static str)> = Vec::new();
+    for (_, items) in SECTIONS {
+        for (title, keys) in *items {
+            let Action(name) = keys else { continue };
+            let enabled = window
+                .lookup_action(name)
+                .is_none_or(|action| action.is_enabled());
+            if enabled && *name != "palette" && !rows.iter().any(|(_, n)| n == name) {
+                rows.push((tr(title), name));
+            }
+        }
+    }
+    for (title, name) in &rows {
+        let row = gtk::Box::builder().spacing(12).build();
+        row.append(
+            &gtk::Label::builder()
+                .label(title)
+                .xalign(0.0)
+                .hexpand(true)
+                .build(),
+        );
+        row.append(
+            &gtk::Label::builder()
+                .label(
+                    accels(name)
+                        .first()
+                        .and_then(|a| gtk::ShortcutTrigger::parse_string(a))
+                        .map(|t| t.to_label(&gtk::gdk::Display::default().expect("a display")))
+                        .unwrap_or_default(),
+                )
+                .css_classes(["dim-label"])
+                .build(),
+        );
+        list.append(&row);
+    }
+    list.select_row(list.row_at_index(0).as_ref());
+    // Typing narrows the list.
+    let titles: std::rc::Rc<Vec<String>> =
+        std::rc::Rc::new(rows.iter().map(|(t, _)| t.to_lowercase()).collect());
+    list.set_filter_func({
+        let (entry, titles) = (entry.clone(), titles.clone());
+        move |row| {
+            let query = entry.text().to_lowercase();
+            titles
+                .get(row.index() as usize)
+                .is_some_and(|title| title.contains(&query))
+        }
+    });
+    entry.connect_search_changed({
+        let list = list.clone();
+        move |_| {
+            list.invalidate_filter();
+            let first = (0..)
+                .map_while(|i| list.row_at_index(i))
+                .find(|row| row.is_child_visible());
+            list.select_row(first.as_ref());
+        }
+    });
+    let run = {
+        let (window, dialog) = (window.clone(), dialog.clone());
+        let names: Vec<&'static str> = rows.iter().map(|(_, n)| *n).collect();
+        move |row: &gtk::ListBoxRow| {
+            if let Some(name) = names.get(row.index() as usize) {
+                dialog.close();
+                gio::prelude::ActionGroupExt::activate_action(&window, name, None);
+            }
+        }
+    };
+    list.connect_row_activated({
+        let run = run.clone();
+        move |_, row| run(row)
+    });
+    entry.connect_activate({
+        let list = list.clone();
+        move |_| {
+            if let Some(row) = list.selected_row() {
+                run(&row);
+            }
+        }
+    });
+    let scroller = gtk::ScrolledWindow::builder()
+        .child(&list)
+        .vexpand(true)
+        .margin_top(6)
+        .build();
+    let content = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .build();
+    content.append(&entry);
+    content.append(&scroller);
+    let view = adw::ToolbarView::new();
+    view.add_top_bar(&adw::HeaderBar::new());
+    view.set_content(Some(&content));
+    dialog.set_child(Some(&view));
+    dialog.set_focus(Some(&entry));
+    dialog.present(Some(window));
 }
 
 #[cfg(test)]
