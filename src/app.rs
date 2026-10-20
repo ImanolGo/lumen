@@ -256,6 +256,10 @@ pub enum AppMsg {
     ShowSaved(PathBuf),
     /// The remembered state is due to be written (see `save_state_soon`).
     SaveState,
+    /// Space (1) or Shift+Space (-1): scroll a PDF a screen, or move through the files.
+    Screen(isize),
+    /// Home (false) or End (true): the first or last page of a PDF, or file.
+    Edge(bool),
     /// Move by this many files in the list.
     Navigate(isize),
     /// Jump to a list index (sidebar click).
@@ -2213,6 +2217,8 @@ impl SimpleComponent for App {
             ("Down", || AppMsg::MarkupNudge(0.0, 1.0)),
             ("<Shift>Up", || AppMsg::MarkupNudge(0.0, -10.0)),
             ("<Shift>Down", || AppMsg::MarkupNudge(0.0, 10.0)),
+            ("<Shift>Left", || AppMsg::MarkupNudge(-10.0, 0.0)),
+            ("<Shift>Right", || AppMsg::MarkupNudge(10.0, 0.0)),
         ] {
             let sender = sender.clone();
             shortcuts.add_shortcut(gtk::Shortcut::new(
@@ -2255,9 +2261,11 @@ impl SimpleComponent for App {
         let nav_actions: &[NavAction] = &[
             ("page-next", || AppMsg::PageBy(1), &["Page_Down"]),
             ("page-prev", || AppMsg::PageBy(-1), &["Page_Up"]),
-            ("page-first", || AppMsg::GotoPage(0), &["Home"]),
-            ("page-last", || AppMsg::GotoPage(usize::MAX), &["End"]),
-            ("next", || AppMsg::Navigate(1), &["Right", "space"]),
+            ("page-first", || AppMsg::Edge(false), &["Home"]),
+            ("page-last", || AppMsg::Edge(true), &["End"]),
+            ("screen-down", || AppMsg::Screen(1), &["space"]),
+            ("screen-up", || AppMsg::Screen(-1), &["<Shift>space"]),
+            ("next", || AppMsg::Navigate(1), &["Right"]),
             ("prev", || AppMsg::Navigate(-1), &["Left", "BackSpace"]),
             ("toggle-sidebar", || AppMsg::ToggleSidebar, &["F9"]),
             (
@@ -2602,6 +2610,21 @@ impl App {
             AppMsg::SaveState => {
                 self.state_save_pending = false;
                 self.store.borrow().save_state();
+            }
+            AppMsg::Screen(direction) => {
+                let at_end = self.pdf.is_some() && !self.canvas.scroll_screen(direction as i32);
+                if self.pdf.is_none() || at_end {
+                    sender.input(AppMsg::Navigate(direction));
+                }
+            }
+            AppMsg::Edge(last) => {
+                if self.pdf.is_some() {
+                    self.goto_page(if last { usize::MAX } else { 0 });
+                    self.wake_controls(&sender);
+                } else if !self.list.is_empty() {
+                    let target = if last { self.list.len() - 1 } else { 0 };
+                    sender.input(AppMsg::GoTo(target));
+                }
             }
             AppMsg::Navigate(delta) => {
                 // With an annotation selected, the arrow keys move it instead.
@@ -3311,7 +3334,9 @@ fn screenshot(window: &adw::ApplicationWindow, path: &str) -> Result<(), String>
 
 /// Whether `accel` is a key without modifiers that text entries also use (not a function key).
 fn is_plain_key(accel: &str) -> bool {
-    !accel.starts_with('<') && !(accel.starts_with('F') && accel[1..].parse::<u8>().is_ok())
+    // Shift alone still types characters.
+    let key = accel.strip_prefix("<Shift>").unwrap_or(accel);
+    !key.starts_with('<') && !(key.starts_with('F') && key[1..].parse::<u8>().is_ok())
 }
 
 /// Whether keys should go to something other than the view: a text field, a dialog
@@ -3353,10 +3378,25 @@ mod tests {
 
     #[test]
     fn plain_keys_are_those_text_entries_use() {
-        for key in ["Right", "space", "BackSpace", "Page_Down", "Home", "Escape"] {
+        for key in [
+            "Right",
+            "space",
+            "<Shift>space",
+            "BackSpace",
+            "Page_Down",
+            "Home",
+            "Escape",
+        ] {
             assert!(is_plain_key(key), "{key}");
         }
-        for key in ["<Control>p", "<Shift>F3", "F3", "F11", "<Alt>Return"] {
+        for key in [
+            "<Control>p",
+            "<Shift>F3",
+            "F3",
+            "F11",
+            "<Alt>Return",
+            "<Control><Shift>z",
+        ] {
             assert!(!is_plain_key(key), "{key}");
         }
     }

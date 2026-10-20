@@ -25,7 +25,9 @@ const SECTIONS: &[(&str, &[(&str, &str)])] = &[
     (
         n_("Pictures and zoom"),
         &[
-            (n_("Next file"), "Right space"),
+            (n_("Next file"), "Right"),
+            (n_("First file"), "Home"),
+            (n_("Last file"), "End"),
             (n_("Previous file"), "Left BackSpace"),
             (n_("Zoom in"), "<Control>plus"),
             (n_("Zoom out"), "<Control>minus"),
@@ -36,6 +38,8 @@ const SECTIONS: &[(&str, &[(&str, &str)])] = &[
     (
         n_("PDF documents"),
         &[
+            (n_("Scroll down a screen"), "space"),
+            (n_("Scroll up a screen"), "<Shift>space"),
             (n_("Next page"), "Page_Down"),
             (n_("Previous page"), "Page_Up"),
             (n_("First page"), "Home"),
@@ -67,7 +71,10 @@ const SECTIONS: &[(&str, &[(&str, &str)])] = &[
         &[
             (n_("Delete the selected annotation"), "Delete"),
             (n_("Move the selected annotation"), "Left Right Up Down"),
-            (n_("Move in bigger steps"), "<Shift>Up <Shift>Down"),
+            (
+                n_("Move in bigger steps"),
+                "<Shift>Left <Shift>Right <Shift>Up <Shift>Down",
+            ),
             (n_("Finish editing text"), "Return"),
             (n_("New line in text"), "<Shift>Return"),
             (n_("Apply the open tool"), "Return"),

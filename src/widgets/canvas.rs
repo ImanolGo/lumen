@@ -630,6 +630,17 @@ impl LumenCanvas {
         self.scroll_to_point(index, None);
     }
 
+    /// Scroll down (`direction` 1) or up (-1) by nearly one screen. Returns whether the view
+    /// moved, so the caller can go on to the next file at the end.
+    pub fn scroll_screen(&self, direction: i32) -> bool {
+        let Some(adj) = self.adjustment(gtk::Orientation::Vertical) else {
+            return false;
+        };
+        let before = adj.value();
+        adj.set_value(before + direction as f64 * adj.page_increment());
+        (adj.value() - before).abs() > 0.5
+    }
+
     /// Scroll to `y` points below the top of page `index` (the page top if `None`).
     pub fn scroll_to_point(&self, index: usize, y: Option<f64>) {
         let top = {

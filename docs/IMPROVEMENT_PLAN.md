@@ -212,7 +212,7 @@ These are the rules for the features and polish below. When in doubt, choose the
     the entry has focus (count focus like `controls_hovered`).
 - **Done when:** `Ctrl+G`, type `120`, `Enter` works every time on a 300-page PDF.
 
-### - [ ] A9 ✅ 🟢 Keys that do the wrong thing in PDFs
+### - [x] A9 ✅ 🟢 Keys that do the wrong thing in PDFs
 - **Where:** `src/app.rs:2242–2243` (`space` and `BackSpace` are bound to next or previous
   *file*).
 - **Problem:** In a PDF, Space should scroll down a screen (every reader does this). Today it

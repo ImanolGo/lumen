@@ -11,6 +11,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - Saving an edited JPEG, PNG or WebP keeps its embedded colour profile, so wide-gamut photos no longer shift colour.
 - Editing, saving, "Export as PDF" and inserting a picture as a page decode through glycin's sandbox, like viewing does. With glycin installed, AVIF, HEIF, JPEG XL and similar pictures can now be edited and saved as a copy.
 - Pictures you only flip past no longer fill the desktop's recent-files list; only files you open on purpose are added. The remembered state is written at most every two seconds instead of on every file.
+- In a PDF, Space and Shift+Space scroll a screen (and carry on to the next or previous file at the end); Home and End go to the first and last file when a picture is shown. Shift+Left and Shift+Right move a selected annotation in bigger steps.
 
 ## [0.3.1] - 2026-10-20
 
