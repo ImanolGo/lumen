@@ -135,6 +135,8 @@ pub fn open_files(files: &[gio::File]) {
 
 pub struct App {
     recent_menu: gio::Menu,
+    /// The recent files shown in the empty window.
+    recent_row: gtk::Box,
     /// What the document menu in the header shows: the picture edits or the page changes.
     edit_menu: gio::Menu,
     pages_menu: gio::Menu,
@@ -2029,14 +2031,25 @@ impl SimpleComponent for App {
                                 set_description: Some(&model.status_description()),
 
                                 #[wrap(Some)]
-                                set_child = &gtk::Button {
-                                    set_label: &tr("Open…"),
-                                    set_halign: gtk::Align::Center,
-                                    set_action_name: Some("win.open"),
-                                    add_css_class: "pill",
-                                    add_css_class: "suggested-action",
+                                set_child = &gtk::Box {
+                                    set_orientation: gtk::Orientation::Vertical,
+                                    set_spacing: 24,
                                     #[watch]
                                     set_visible: model.document.is_none() && !model.loading,
+
+                                    gtk::Button {
+                                        set_label: &tr("Open…"),
+                                        set_halign: gtk::Align::Center,
+                                        set_action_name: Some("win.open"),
+                                        add_css_class: "pill",
+                                        add_css_class: "suggested-action",
+                                    },
+
+                                    #[local_ref]
+                                    recent_row -> gtk::Box {
+                                        set_halign: gtk::Align::Center,
+                                        set_spacing: 6,
+                                    },
                                 },
                             },
 
@@ -2371,6 +2384,7 @@ impl SimpleComponent for App {
         });
         let mut model = App {
             recent_menu: recent_menu.clone(),
+            recent_row: gtk::Box::new(gtk::Orientation::Horizontal, 6),
             edit_menu: edit_menu.clone(),
             pages_menu: pages_menu.clone(),
             strip,
@@ -2506,6 +2520,8 @@ impl SimpleComponent for App {
         let signature_button = model.signature_button.clone();
         model.refresh_signature_menu(&sender);
         let model_options = Rc::new(Cell::new(pdf::SearchOptions::default()));
+        let recent_row = model.recent_row.clone();
+        refresh_recent_row(&recent_row, &sender);
         let sidebar_stack = model.sidebar_stack.clone();
         sidebar_stack.add_named(model.strip.root(), Some("files"));
         sidebar_stack.add_named(model.page_strip.root(), Some("pages"));
@@ -3037,6 +3053,7 @@ impl App {
                     recent.add_item(&gio::File::for_path(path).uri());
                 }
                 refresh_recent_menu(&self.recent_menu);
+                refresh_recent_row(&self.recent_row, &sender);
                 // One picture opened on its own: its folder is listed once it is on screen.
                 self.browse_after = match paths.as_slice() {
                     [one]
@@ -3860,10 +3877,8 @@ fn open_logged(path: &std::path::Path, password: Option<&str>) -> Result<Opened,
     })
 }
 
-/// Rebuild the "Recent Files" menu from the desktop-wide recent list.
-fn refresh_recent_menu(menu: &gio::Menu) {
-    menu.remove_all();
-
+/// The files the desktop lists as recent that still exist and can be opened, newest first.
+fn recent_files() -> Vec<gtk::RecentInfo> {
     let mut items: Vec<_> = gtk::RecentManager::default()
         .items()
         .into_iter()
@@ -3872,8 +3887,14 @@ fn refresh_recent_menu(menu: &gio::Menu) {
         })
         .collect();
     items.sort_by_key(|item| std::cmp::Reverse(item.modified().to_unix()));
+    items
+}
 
-    for info in items.into_iter().take(RECENT_LIMIT) {
+/// Rebuild the "Recent Files" menu from the desktop-wide recent list.
+fn refresh_recent_menu(menu: &gio::Menu) {
+    menu.remove_all();
+
+    for info in recent_files().into_iter().take(RECENT_LIMIT) {
         let item = gio::MenuItem::new(Some(&info.display_name()), None);
         item.set_action_and_target_value(Some("win.open-recent"), Some(&info.uri().to_variant()));
         menu.append_item(&item);
@@ -3882,6 +3903,72 @@ fn refresh_recent_menu(menu: &gio::Menu) {
     if menu.n_items() == 0 {
         // No such action, so the entry shows up disabled.
         menu.append(Some(&tr("No Recent Files")), Some("win.none"));
+    }
+}
+
+/// How many recent files the empty window shows.
+const RECENT_ON_START: usize = 6;
+
+/// Fill the empty window's row of recent files, each with its thumbnail (when the desktop
+/// has one) and its name. Clicking one opens it.
+fn refresh_recent_row(row: &gtk::Box, sender: &ComponentSender<App>) {
+    while let Some(child) = row.first_child() {
+        row.remove(&child);
+    }
+    for info in recent_files().into_iter().take(RECENT_ON_START) {
+        let Some(path) = gio::File::for_uri(&info.uri()).path() else {
+            continue;
+        };
+        let picture = gtk::Picture::builder()
+            .content_fit(gtk::ContentFit::Cover)
+            .width_request(112)
+            .height_request(84)
+            .overflow(gtk::Overflow::Hidden)
+            .css_classes(["card"])
+            .build();
+        match crate::thumbnails::cached(&path) {
+            Some(texture) => picture.set_paintable(Some(&texture)),
+            None => {
+                let icon = if DocumentKind::from_mime(&info.mime_type()) == Some(DocumentKind::Pdf)
+                {
+                    "x-office-document-symbolic"
+                } else {
+                    "image-x-generic-symbolic"
+                };
+                if let Some(display) = gdk::Display::default() {
+                    let paintable = gtk::IconTheme::for_display(&display).lookup_icon(
+                        icon,
+                        &[],
+                        48,
+                        picture.scale_factor(),
+                        gtk::TextDirection::None,
+                        gtk::IconLookupFlags::empty(),
+                    );
+                    picture.set_paintable(Some(&paintable));
+                    picture.set_content_fit(gtk::ContentFit::ScaleDown);
+                }
+            }
+        }
+        let label = gtk::Label::builder()
+            .label(info.display_name())
+            .ellipsize(gtk::pango::EllipsizeMode::Middle)
+            .max_width_chars(14)
+            .css_classes(["caption"])
+            .build();
+        let content = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(6)
+            .build();
+        content.append(&picture);
+        content.append(&label);
+        let button = gtk::Button::builder()
+            .child(&content)
+            .css_classes(["flat"])
+            .tooltip_text(path.display().to_string())
+            .build();
+        let sender = sender.clone();
+        button.connect_clicked(move |_| sender.input(AppMsg::Open(vec![path.clone()])));
+        row.append(&button);
     }
 }
 

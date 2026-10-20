@@ -31,6 +31,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - A slimmer header bar: one menu for what can be done to the document (page changes for a PDF, picture edits for a picture), and Properties moved into the main menu (Alt+Enter still works).
 - A "Wrap around" preference: ←/→ continue past the last or first file.
 - PDF view options in the main menu: fit the page width or a whole page, and a night mode (Ctrl+Shift+N) that inverts the lightness of pages and keeps their hues.
+- The empty window shows your recent files with their thumbnails; click one to open it.
 - PDF workers for search, selection, links and thumbnails open the document only when first used.
 
 ## [0.3.1] - 2026-10-20

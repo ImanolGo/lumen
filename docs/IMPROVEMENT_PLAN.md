@@ -439,7 +439,7 @@ toolbar.
   ("Rectangle (R)"). These go through the existing plain-key controller, so they never steal
   keys from text entries.
 
-### - [ ] C10 🟢 Empty state that does something
+### - [x] C10 🟢 Empty state that does something
 - Replace the bare "Open a Picture or PDF" page with the same status page plus a row of up to 6
   **recent files** as thumbnails (from the B5 cache). Clicking one opens it. The page stays
   minimal: no grid browser.

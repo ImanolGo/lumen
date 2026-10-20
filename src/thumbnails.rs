@@ -100,7 +100,7 @@ impl ThumbnailLoader {
 }
 
 /// The thumbnail the file manager (or an earlier run) already made, if it is still valid.
-fn cached(path: &std::path::Path) -> Option<gdk::Texture> {
+pub fn cached(path: &std::path::Path) -> Option<gdk::Texture> {
     let info = gio::File::for_path(path)
         .query_info(
             "thumbnail::path,thumbnail::is-valid",
