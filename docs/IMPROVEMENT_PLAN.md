@@ -244,7 +244,7 @@ These are the rules for the features and polish below. When in doubt, choose the
 Measure before and after each item using the `info`-level timings that already exist. Record
 the numbers in the commit message.
 
-### - [ ] B1 ✅ 🟠 One Poppler worker per document, with a priority queue
+### - [ ] B1 (partly done: workers now open the document lazily, which saves the 3–4 extra parses in a normal reading session; the single prioritised worker is still open) ✅ 🟠 One Poppler worker per document, with a priority queue
 - **Where:** `make_pdf_view` (`src/app.rs:970`) starts `PageRenderer` ×2, `SearchWorker`,
   `SelectionWorker` and `LinkWorker`. Each opens and parses the PDF, and every call takes the
   global `poppler_lock` (`src/pdf/mod.rs:113`).
@@ -279,7 +279,7 @@ the numbers in the commit message.
 - **Done when:** filling a checkbox on a 20-page form shows no frame with white pages. Check it
   with a Broadway screenshot sequence or by eye.
 
-### - [ ] B3 🔍 🟠 Fill forms without reloading the whole document
+### - [ ] B3 (not started) 🔍 🟠 Fill forms without reloading the whole document
 - **Where:** `src/app/forms.rs:78–120`. Every field change writes a full working copy and
   reopens the PDF, and with B1 not yet done, that is 5 parses.
 - **Do:** Prototype setting the value on the *live* worker document
@@ -290,7 +290,7 @@ the numbers in the commit message.
 - **Done when:** typing into 10 fields of a 100-page form gives no reload (no `PdfReloaded` in
   the log) and the saved file still shows all 10 values in Okular and Firefox.
 
-### - [ ] B4 ✅ 🟠 Sharp, fast PDF pages at high zoom (tiles)
+### - [ ] B4 (re-measured: a page is capped at 32 MP, which is about 800 % on a 1× screen or 400 % on a 2× screen for a Letter page, so sharpness is only lost beyond that; the gain from tiles is mostly speed and memory at high zoom, so this is lower priority than first thought) ✅ 🟠 Sharp, fast PDF pages at high zoom (tiles)
 - **Where:** `effective_scale` caps a page at 32 MP (`src/pdf/mod.rs:33–34,197`), so text gets
   blurry above roughly 300–400 % on HiDPI. Every render at that cap redraws the whole page.
 - **Do:** Above a threshold (page wider than 2× the viewport), render only the visible region
