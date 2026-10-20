@@ -151,7 +151,7 @@ These are the rules for the features and polish below. When in doubt, choose the
   still has the same profile bytes.
 - **Status:** the ICC profile is now carried over for JPEG, PNG and WebP (test in `save.rs`). **Still open:** the `image` crate cannot write lossy WebP, so lossy sources are still saved lossless (needs another encoder, e.g. the `webp` crate); the JPEG-quality preference moves to C11.
 
-### - [ ] A5 ✅ 🟠 Editing decodes outside the sandbox (README claim is not true)
+### - [x] A5 ✅ 🟠 Editing decodes outside the sandbox (README claim is not true)
 - **Where:** `image::open` in `src/app/edit.rs:249`, `src/save.rs:138`,
   `src/app/pages.rs:520`, `src/pdf/compose.rs:152`. `can_edit` (`save.rs:36`) also limits
   editing to formats the `image` crate reads.

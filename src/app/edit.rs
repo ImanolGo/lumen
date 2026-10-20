@@ -250,7 +250,8 @@ impl App {
                 let pixels = match &stored {
                     Some(pixels) => Arc::clone(pixels),
                     None => Arc::new(
-                        image::open(&path).map_err(|e| format!("cannot read the image: {e}"))?,
+                        crate::image::decode::pixels(&path)
+                            .map_err(|e| format!("cannot read the image: {e:#}"))?,
                     ),
                 };
                 let rendered = edit::render(&pixels, base, &ops);

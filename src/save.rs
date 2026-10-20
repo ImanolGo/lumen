@@ -35,10 +35,25 @@ pub enum Format {
     WebP,
 }
 
-/// Whether the pixels of the picture at `path` can be read back for editing. Viewing goes
-/// through GTK's loaders and accepts more (SVG, AVIF, HEIF…), but those cannot be edited.
+/// Whether the pixels of the picture at `path` can be read back for editing: the formats the
+/// `image` crate reads, and, with glycin's sandboxed decoders installed, the other pictures
+/// (AVIF, HEIF, JPEG XL…). Drawings (SVG) are not edited.
 pub fn can_edit(path: &Path) -> bool {
+    readable_by_image_crate(path) || (is_other_raster(path) && crate::image::decode::sandboxed())
+}
+
+fn readable_by_image_crate(path: &Path) -> bool {
     image::ImageFormat::from_path(path).is_ok_and(|format| format.reading_enabled())
+}
+
+/// Pictures that only glycin's decoders read.
+fn is_other_raster(path: &Path) -> bool {
+    const EXTENSIONS: [&str; 12] = [
+        "avif", "heic", "heif", "jxl", "jp2", "j2k", "qoi", "tga", "ico", "exr", "ppm", "pnm",
+    ];
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
 }
 
 impl Format {
@@ -130,7 +145,7 @@ fn set_orientation(path: &Path, orientation: Orientation) -> Result<()> {
 }
 
 fn write_reencoded(request: &SaveRequest, temp: &Path) -> Result<()> {
-    let stored = image::open(&request.source)
+    let stored = crate::image::decode::pixels(&request.source)
         .with_context(|| format!("cannot read {}", request.source.display()))?;
     let mut rendered = edit::render(&stored, request.base_orientation, request.edits.active());
     // Annotations are part of the picture once saved.
@@ -234,10 +249,16 @@ mod tests {
     #[test]
     fn only_formats_the_image_crate_reads_are_editable() {
         for name in ["a.jpg", "a.PNG", "a.webp", "a.gif", "a.bmp", "a.tiff"] {
-            assert!(can_edit(Path::new(name)), "{name}");
+            assert!(readable_by_image_crate(Path::new(name)), "{name}");
         }
         for name in ["a.svg", "a.avif", "a.heic", "a.pdf", "a"] {
-            assert!(!can_edit(Path::new(name)), "{name}");
+            assert!(!readable_by_image_crate(Path::new(name)), "{name}");
+        }
+        for name in ["a.avif", "a.HEIC", "a.jxl"] {
+            assert!(is_other_raster(Path::new(name)), "{name}");
+        }
+        for name in ["a.svg", "a.pdf", "a.png"] {
+            assert!(!is_other_raster(Path::new(name)), "{name}");
         }
     }
 

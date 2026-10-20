@@ -9,6 +9,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - A colour-adjust preview that failed to render no longer undoes the last edit you made.
 - Saving over a file keeps its permissions, and follows a symlink or hard link instead of replacing it with a separate file.
 - Saving an edited JPEG, PNG or WebP keeps its embedded colour profile, so wide-gamut photos no longer shift colour.
+- Editing, saving, "Export as PDF" and inserting a picture as a page decode through glycin's sandbox, like viewing does. With glycin installed, AVIF, HEIF, JPEG XL and similar pictures can now be edited and saved as a copy.
 
 ## [0.3.1] - 2026-10-20
 

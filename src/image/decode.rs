@@ -99,6 +99,42 @@ async fn decode_sandboxed(path: &Path) -> Result<Decoded> {
     })
 }
 
+/// The stored pixels of the picture at `path` (orientation not applied), for editing and
+/// saving. Decoded in glycin's sandbox like everything else; only without glycin's loaders
+/// does the `image` crate read the file inside Lumen. Blocking.
+pub fn pixels(path: &Path) -> Result<image::DynamicImage> {
+    if !sandboxed() {
+        return image::open(path).with_context(|| format!("cannot read {}", path.display()));
+    }
+    let texture = futures_lite::future::block_on(async {
+        let mut loader = glycin::Loader::new(gio::File::for_path(path));
+        loader.apply_transformations(false);
+        let mut image = loader.load().await.map_err(short_error)?;
+        let frame = image.next_frame().await.map_err(short_error)?;
+        Ok::<_, anyhow::Error>(frame.texture())
+    })?;
+    texture_pixels(&texture)
+}
+
+/// The pixels of `texture` as 8-bit RGB, or RGBA if any of them is see-through.
+fn texture_pixels(texture: &gdk::Texture) -> Result<image::DynamicImage> {
+    let (w, h) = (texture.width() as u32, texture.height() as u32);
+    let mut downloader = gdk::TextureDownloader::new(texture);
+    downloader.set_format(gdk::MemoryFormat::R8g8b8a8);
+    let (bytes, stride) = downloader.download_bytes();
+    let mut raw = Vec::with_capacity(w as usize * h as usize * 4);
+    for row in bytes.chunks(stride).take(h as usize) {
+        raw.extend_from_slice(&row[..w as usize * 4]);
+    }
+    let rgba = image::RgbaImage::from_raw(w, h, raw).context("the picture has no pixels")?;
+    let opaque = rgba.pixels().all(|p| p.0[3] == 255);
+    Ok(if opaque {
+        image::DynamicImage::ImageRgba8(rgba).to_rgb8().into()
+    } else {
+        rgba.into()
+    })
+}
+
 /// Render part of a drawing (SVG) as it looks at `scale` times its natural size: the region
 /// `(x, y, w, h)` of the scaled drawing, in pixels. Blocking.
 pub fn render_region(
@@ -196,6 +232,26 @@ mod tests {
             w as usize * 4,
         )
         .upcast()
+    }
+
+    #[test]
+    fn opaque_textures_become_rgb_and_see_through_ones_keep_alpha() {
+        let opaque = texture_pixels(&solid(4, 3)).unwrap();
+        assert_eq!(opaque.color(), image::ColorType::Rgb8);
+        assert_eq!(opaque.to_rgb8().get_pixel(0, 0).0, [200, 100, 50]);
+
+        let pixels = [10u8, 20, 30, 128].repeat(6);
+        let clear: gdk::Texture = gdk::MemoryTexture::new(
+            3,
+            2,
+            gdk::MemoryFormat::R8g8b8a8,
+            &relm4::gtk::glib::Bytes::from_owned(pixels),
+            12,
+        )
+        .upcast();
+        let clear = texture_pixels(&clear).unwrap();
+        assert_eq!(clear.color(), image::ColorType::Rgba8);
+        assert_eq!(clear.to_rgba8().get_pixel(2, 1).0[3], 128);
     }
 
     #[test]

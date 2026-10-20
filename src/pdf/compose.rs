@@ -148,8 +148,7 @@ pub fn compose(base: &Source, extras: &[Source], plan: &[Entry], out: &Path) -> 
 /// A one-page PDF showing the picture at `source`, upright, one pixel per 0.75 point
 /// (the size it has on screen).
 pub fn image_to_pdf(source: &Path, dest: &Path) -> Result<()> {
-    let mut picture =
-        image::open(source).with_context(|| format!("cannot read {}", source.display()))?;
+    let mut picture = crate::image::decode::pixels(source)?;
     if let Some(orientation) =
         image::metadata::Orientation::from_exif(Metadata::read(source).orientation.exif_value())
     {

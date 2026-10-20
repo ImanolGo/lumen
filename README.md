@@ -21,7 +21,7 @@
 ## Features
 
 - **Fast.** Pictures and pages load in the background, so the UI never freezes. A 50 MP JPEG is on screen in about half a second and a 500-page PDF opens in about 50 ms (release build, measured on a 2020 laptop).
-- **Safe with files from anywhere.** Pictures are decoded by [glycin](https://gitlab.gnome.org/GNOME/glycin), which runs each decoder in its own sandboxed process, so a malicious file cannot reach your system. That also brings HEIC, AVIF, JPEG XL, JPEG 2000, OpenEXR and animated GIF, APNG and WebP.
+- **Safe with files from anywhere.** Pictures are decoded by [glycin](https://gitlab.gnome.org/GNOME/glycin), which runs each decoder in its own sandboxed process, so a malicious file cannot reach your system. Editing and saving use the same decoders; Lumen itself only reads a picture's metadata (EXIF, colour profile) in-process. That also brings HEIC, AVIF, JPEG XL, JPEG 2000, OpenEXR and animated GIF, APNG and WebP.
 - **Pictures and PDFs in one app.** Open the files you pick, or a whole folder, then drop in more from anywhere and flip through them with thumbnails. Zoom and pan smoothly, honour EXIF orientation, run a slideshow or go fullscreen.
 - **Light editing.** Rotate, flip, crop, resize and adjust colour, with undo and redo. Rotating a JPEG does not recompress it.
 - **Markup.** Rectangles, ellipses, arrows, lines, pen strokes, text and highlights on pictures and PDFs. PDF annotations are real annotations, so other readers can still edit them.

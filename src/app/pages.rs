@@ -517,7 +517,7 @@ impl App {
                     return compose::image_to_pdf(&path, &dest);
                 }
                 // Render what is on screen into a temporary PNG, which becomes the page.
-                let stored = image::open(&path)
+                let stored = crate::image::decode::pixels(&path)
                     .with_context(|| format!("cannot read {}", path.display()))?;
                 let mut shown = crate::edit::render(&stored, base, stack.active());
                 if let Some(layer) = layer {
