@@ -77,6 +77,14 @@ impl Lumen {
         let address = address.trim().to_owned();
         children.push(daemon);
 
+        // Broadway's socket lives in the runtime directory, which containers often lack.
+        let runtime = dir.join("runtime");
+        std::fs::create_dir_all(&runtime).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
         let display = format!(
             ":{}",
             40 + (std::process::id() % 400) + 10 * NEXT_DISPLAY.fetch_add(1, Ordering::SeqCst)
@@ -84,8 +92,9 @@ impl Lumen {
         children.push(
             Command::new("gtk4-broadwayd")
                 .arg(&display)
+                .env("XDG_RUNTIME_DIR", &runtime)
                 .stdout(Stdio::null())
-                .stderr(Stdio::null())
+                .stderr(std::fs::File::create(dir.join("broadway.log")).unwrap())
                 .spawn()
                 .unwrap(),
         );
@@ -102,6 +111,7 @@ impl Lumen {
                 .env("XDG_DATA_HOME", dir.join("data"))
                 .env("XDG_CACHE_HOME", dir.join("cache"))
                 .env("GSETTINGS_BACKEND", "memory")
+                .env("XDG_RUNTIME_DIR", &runtime)
                 .stdout(Stdio::null())
                 .stderr(log)
                 .spawn()
@@ -126,11 +136,16 @@ impl Lumen {
             {
                 break;
             }
-            assert!(
-                Instant::now() < deadline,
-                "Lumen did not start: see {}",
-                lumen.dir.display()
-            );
+            if Instant::now() >= deadline {
+                let read =
+                    |name: &str| std::fs::read_to_string(lumen.dir.join(name)).unwrap_or_default();
+                panic!(
+                    "Lumen did not start\n--- lumen.log ---\n{}\n--- broadway.log ---\n{}\n--- last answer ---\n{:?}",
+                    read("lumen.log"),
+                    read("broadway.log"),
+                    lumen.try_call("GetState", ().to_variant()),
+                );
+            }
             std::thread::sleep(Duration::from_millis(100));
         }
         Some(lumen)
