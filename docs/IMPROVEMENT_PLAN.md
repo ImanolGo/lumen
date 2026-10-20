@@ -526,7 +526,7 @@ Nothing else. Each new preference needs a reason in the commit message.
   dialog from the same `nav_actions` / `view_actions` tables (add a section and a title to each
   entry). Add a unit test that every registered accelerator appears in the dialog.
 
-### - [ ] E4 🟢 Docs drift
+### - [x] E4 🟢 Docs drift
 - **ARCHITECTURE.md:**
   - Remove "Target layout (Phase N)" and list the real modules.
   - Replace "a single render-worker thread owns the document" with what is actually true

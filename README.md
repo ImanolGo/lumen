@@ -84,7 +84,7 @@ You need a C toolchain, Rust 1.93 or newer, GTK ≥ 4.16, libadwaita ≥ 1.8, po
 | Fedora | `sudo dnf install gcc cargo gtk4-devel libadwaita-devel poppler-glib-devel libseccomp-devel gettext glycin-loaders` |
 | Debian / Ubuntu | `sudo apt install build-essential cargo libgtk-4-dev libadwaita-1-dev libpoppler-glib-dev libseccomp-dev gettext glycin-loaders` |
 
-These are GNOME 49-era libraries, so distributions released before late 2025 (for example Debian 13 and Ubuntu 24.04) are too old; use the Flatpak there. Check what you have with `pkg-config --modversion gtk4 libadwaita-1 poppler-glib`, and use [rustup](https://rustup.rs) if your Rust is older than 1.92.
+These are GNOME 49-era libraries, so distributions released before late 2025 (for example Debian 13 and Ubuntu 24.04) are too old; use the Flatpak there. Check what you have with `pkg-config --modversion gtk4 libadwaita-1 poppler-glib`, and use [rustup](https://rustup.rs) if your Rust is older than 1.93.
 
 ```sh
 git clone https://github.com/ImanolGo/lumen.git

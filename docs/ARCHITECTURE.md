@@ -7,35 +7,47 @@
 | UI toolkit | GTK 4 + libadwaita | Native Linux look, HiDPI, print dialog, portals, accessibility |
 | App structure | [Relm4](https://relm4.org) | Elm-style `Model → view → Msg → update`; avoids `Rc<RefCell>` spaghetti |
 | Custom drawing | GTK widget subclass + `GtkSnapshot` (GPU) / Cairo (CPU, export, print) | |
-| Images | `gdk::Texture` (Phase 1), `image` crate for edits (Phase 4), optional `glycin` | |
+| Images | glycin (sandboxed decoding) → `gdk::Texture`; `image` crate for edits and encoding | Decoders never run inside Lumen |
 | PDF | `poppler-rs` (render, text, search, annotations), `lopdf` (page restructuring) | |
 | Printing | `gtk::PrintOperation` → Cairo | Poppler renders straight into the print context |
 
 > **License note:** Poppler is GPL, so Lumen is **GPL-3.0-or-later**. To go
 > permissive later you'd swap in `pdfium-render` (BSD) and bundle PDFium.
 
-## Target module layout
-
-Modules marked *(Phase N)* don't exist yet; they're created by that phase of [PLAN.md](PLAN.md).
+## Module layout
 
 ```
 src/
-├── main.rs              entry point, logging, RelmApp
-├── app.rs               root component: window, header bar, actions, routing
+├── main.rs              entry point, logging, resources, GApplication
+├── app.rs               root Relm4 component: window, header bar, actions, message routing
+├── app/                 the parts of the window's behaviour, one file each
+│   ├── edit.rs          edit stack, crop/adjust modes, saving, guarding unsaved work
+│   ├── pages.rs         PDF page operations, working copies, exports
+│   ├── markup.rs        markup toolbar state and history
+│   ├── forms.rs         filling in PDF forms
+│   ├── signature.rs     the signature pad and menu
+│   ├── prefs.rs         preferences and About dialogs
+│   ├── shortcuts.rs     the shortcuts dialog
+│   └── control.rs       the D-Bus control interface (scripts and end-to-end tests)
 ├── document.rs          file-type detection, open/probe
-├── geometry.rs          (Phase 1) widget ↔ document ↔ page coordinate transforms
-├── widgets/
-│   └── canvas.rs        (Phase 1) LumenCanvas: zoom/pan/draw, shared by images and PDF pages
-├── image/               (Phase 1) ImageDocument, folder browsing, loading
-├── pdf/                 (Phase 2) PdfDocument, render worker, page cache, search
-├── print.rs             (Phase 3)
-├── edit/                (Phase 4) EditOp, EditStack (undo/redo), save/export
-└── annotate/            (Phase 5)
-    ├── model.rs         pure Rust: shapes, hit-testing, no GTK
-    ├── render.rs        draw an AnnotationLayer on a cairo::Context
-    ├── tools.rs         tool state machine
-    └── pdf_io.rs        model ⇄ poppler annotations
+├── folder.rs            natural ordering, listing folders
+├── fsutil.rs            replacing files without losing permissions, symlinks or hard links
+├── i18n.rs              gettext helpers
+├── settings.rs          preferences and remembered state (TOML)
+├── signatures.rs        saved signatures
+├── thumbnails.rs        background file thumbnails and the desktop thumbnail cache
+├── print.rs             GtkPrintOperation
+├── save.rs              writing edited pictures (lossless JPEG rotation, ICC profile kept)
+├── widgets/             LumenCanvas (zoom, pan, pages, markup, crop), sidebars, properties
+├── image/               ImageDocument, glycin decoding (sandboxed), EXIF metadata
+├── edit/                EditOp, EditStack (undo/redo), crop, colour adjustment
+├── annotate/            pure-Rust annotation model, editor state machine, Cairo renderer
+└── pdf/                 Poppler access: renderer, search, selection, links, forms,
+                         annotations (Poppler C API), page operations and composing (lopdf)
 ```
+
+There is no separate `geometry.rs` yet: the widget, document and page transforms live in
+`widgets/canvas.rs` (see the improvement plan, E2).
 
 ## Data flow
 
@@ -48,9 +60,12 @@ src/
                                               #[watch] view refresh
 ```
 
-- **The main thread only does UI.** Decoding, PDF rendering and saving run on workers and report back via messages (Relm4 commands).
-- **Poppler is not thread-safe.** A single render-worker thread owns the `poppler::Document` and takes requests over a channel.
-- **Documents are immutable plus an edit stack.** What you see = original + `EditStack` ops + annotation layer. Saving is the only time bytes are written.
+- **The main thread only does UI.** Decoding, PDF rendering and saving run on workers and report back via messages. Every request carries a ticket or generation number, and results from older requests are dropped.
+- **Poppler is not thread-safe.** Each document has a few worker threads (page renderer, thumbnail renderer, search, selection, links), each with its own `poppler::Document` opened on its first job. All Poppler calls take one process-wide lock (`pdf::poppler_lock`).
+- **Pictures are decoded in glycin's sandbox**, for viewing, thumbnails, editing and saving alike (`image::decode`). Only metadata (EXIF, colour profile) is read in-process.
+- **Documents are immutable plus a history.** What you see = original + edit stack + annotation layer. A picture's edits live in `EditStack`. A PDF's page changes and form fills each write a *working copy* of the file (in the cache folder), and the history of (working copy, annotations) states is the undo history; the original is only replaced on save.
+- **Shared state** between the canvas and the markup code (`annotate::Store`) is the one place that uses `Rc<RefCell<…>>`, because the canvas draws it while the window edits it.
+- **Scripts and tests** drive the real app through the `io.github.imanolgo.Lumen.Control1` D-Bus interface (`app/control.rs`, `tests/control.rs`).
 
 ## Coordinate spaces
 

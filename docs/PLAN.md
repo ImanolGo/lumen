@@ -283,6 +283,12 @@ pitch in the README.
 
 ---
 
+## Phase 9 — Improvement plan
+
+The review after 0.3.1 and its follow-up work are in [IMPROVEMENT_PLAN.md](IMPROVEMENT_PLAN.md).
+
+---
+
 ## Cross-cutting rules (apply at every step)
 
 1. **Keep logic out of widgets.** Geometry, edit ops and the annotation model live in plain Rust modules with unit tests. Widgets just draw and forward events.
