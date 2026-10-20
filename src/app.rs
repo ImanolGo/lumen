@@ -1103,12 +1103,17 @@ impl App {
         self.strip.select(index);
 
         if let Some(pos) = self.cache.iter().position(|(p, _)| *p == path) {
+            self.canvas.set_placeholder(None);
             let (_, opened) = self.cache.swap_remove(pos);
             self.apply(opened, sender);
         } else if self.preloading.contains(&path) {
             self.loading = true;
-            self.awaiting = Some(path);
+            self.awaiting = Some(path.clone());
+            self.canvas
+                .set_placeholder(crate::thumbnails::cached(&path));
         } else {
+            self.canvas
+                .set_placeholder(crate::thumbnails::cached(&path));
             self.loading = true;
             self.load_started = Some(std::time::Instant::now());
             let generation = self.generation;
@@ -2067,7 +2072,7 @@ impl SimpleComponent for App {
                             set_height_request: 48,
                             set_can_target: false,
                             #[watch]
-                            set_visible: model.loading,
+                            set_visible: model.loading && !model.canvas.has_placeholder(),
                         },
 
                         add_overlay = &gtk::Revealer {

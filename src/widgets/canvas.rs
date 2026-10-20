@@ -142,6 +142,9 @@ fn night_colors() -> (graphene::Matrix, graphene::Vec4) {
     (matrix, graphene::Vec4::new(1.0, 1.0, 1.0, 0.0))
 }
 
+/// How long the stand-in picture takes to fade out.
+const PLACEHOLDER_FADE_MS: u32 = 150;
+
 const PAGE_SHADOW: gdk::RGBA = gdk::RGBA::new(0.0, 0.0, 0.0, 0.22);
 
 /// Fit-to-width never zooms a document past this.
@@ -230,6 +233,11 @@ mod imp {
         pub last_press: Cell<Option<(u32, f64, f64, u32)>>,
         pub zoom: Cell<f64>,
         pub fit: Cell<bool>,
+        /// A stand-in (the file's thumbnail) shown, scaled up, while the real picture loads,
+        /// and how opaque it still is while it fades out.
+        pub placeholder: RefCell<Option<gdk::Texture>>,
+        pub placeholder_opacity: Cell<f64>,
+        pub placeholder_animation: RefCell<Option<adw::TimedAnimation>>,
         /// Fit a whole PDF page in the window instead of the width of the pages.
         pub fit_page: Cell<bool>,
         /// Draw PDF pages with their lightness inverted.
@@ -278,6 +286,9 @@ mod imp {
                 last_press: Cell::new(None),
                 zoom: Cell::new(1.0),
                 fit: Cell::new(true),
+                placeholder: RefCell::default(),
+                placeholder_opacity: Cell::new(1.0),
+                placeholder_animation: RefCell::default(),
                 fit_page: Cell::new(false),
                 night: Cell::new(false),
                 pointer: Cell::new(None),
@@ -319,6 +330,70 @@ mod imp {
             }
             *slot.borrow_mut() = adjustment;
             self.obj().update_adjustments();
+        }
+    }
+
+    impl LumenCanvas {
+        fn draw_content(&self, snapshot: &gtk::Snapshot) {
+            let canvas = self.obj();
+            let Some((logical_w, logical_h)) = self.logical.get() else {
+                return;
+            };
+            canvas.snapshot_background(snapshot);
+            let zoom = canvas.effective_zoom();
+            let (x, y) = canvas.origin();
+            if let Some(pages) = self.pages.borrow().as_ref() {
+                canvas.snapshot_pages(snapshot, pages, zoom, (x, y));
+                return;
+            }
+            // Draw the stored pixels centred on the origin, then rotate/flip
+            // them into place inside the (oriented) bounds.
+            let (w, h) = (logical_w * zoom, logical_h * zoom);
+            let (shown_w, shown_h) = if self.orientation.get().swaps_axes() {
+                (h, w)
+            } else {
+                (w, h)
+            };
+            let bounds =
+                graphene::Rect::new((-w / 2.0) as f32, (-h / 2.0) as f32, w as f32, h as f32);
+
+            if self.background.get() == Background::Checkerboard {
+                canvas.snapshot_checkerboard(
+                    snapshot,
+                    &graphene::Rect::new(x as f32, y as f32, shown_w as f32, shown_h as f32),
+                );
+            }
+            snapshot.save();
+            snapshot.translate(&graphene::Point::new(
+                (x + shown_w / 2.0) as f32,
+                (y + shown_h / 2.0) as f32,
+            ));
+            snapshot.transform(Some(&self.orientation.get().transform()));
+            match self.texture.borrow().as_ref() {
+                Some(texture) => {
+                    let filter = if self.crisp.get() && zoom > NEAREST_ABOVE {
+                        gsk::ScalingFilter::Nearest
+                    } else {
+                        gsk::ScalingFilter::Trilinear
+                    };
+                    snapshot.append_scaled_texture(texture, filter, &bounds);
+                    // A drawing: the part in view, rendered again at this zoom, over the pixels.
+                    if let Some((tile, [tx, ty, tw, th])) = self.sharp.borrow().as_ref() {
+                        let area = graphene::Rect::new(
+                            (bounds.x() as f64 + tx * zoom) as f32,
+                            (bounds.y() as f64 + ty * zoom) as f32,
+                            (tw * zoom) as f32,
+                            (th * zoom) as f32,
+                        );
+                        snapshot.append_scaled_texture(tile, gsk::ScalingFilter::Linear, &area);
+                    }
+                }
+                // A page that has not been rendered yet: blank paper.
+                None => snapshot.append_color(&gdk::RGBA::WHITE, &bounds),
+            }
+            snapshot.restore();
+            canvas.snapshot_crop(snapshot, zoom, (x, y));
+            canvas.snapshot_markup(snapshot, 0, (x, y), zoom);
         }
     }
 
@@ -419,65 +494,8 @@ mod imp {
         }
 
         fn snapshot(&self, snapshot: &gtk::Snapshot) {
-            let canvas = self.obj();
-            let Some((logical_w, logical_h)) = self.logical.get() else {
-                return;
-            };
-            canvas.snapshot_background(snapshot);
-            let zoom = canvas.effective_zoom();
-            let (x, y) = canvas.origin();
-            if let Some(pages) = self.pages.borrow().as_ref() {
-                canvas.snapshot_pages(snapshot, pages, zoom, (x, y));
-                return;
-            }
-            // Draw the stored pixels centred on the origin, then rotate/flip
-            // them into place inside the (oriented) bounds.
-            let (w, h) = (logical_w * zoom, logical_h * zoom);
-            let (shown_w, shown_h) = if self.orientation.get().swaps_axes() {
-                (h, w)
-            } else {
-                (w, h)
-            };
-            let bounds =
-                graphene::Rect::new((-w / 2.0) as f32, (-h / 2.0) as f32, w as f32, h as f32);
-
-            if self.background.get() == Background::Checkerboard {
-                canvas.snapshot_checkerboard(
-                    snapshot,
-                    &graphene::Rect::new(x as f32, y as f32, shown_w as f32, shown_h as f32),
-                );
-            }
-            snapshot.save();
-            snapshot.translate(&graphene::Point::new(
-                (x + shown_w / 2.0) as f32,
-                (y + shown_h / 2.0) as f32,
-            ));
-            snapshot.transform(Some(&self.orientation.get().transform()));
-            match self.texture.borrow().as_ref() {
-                Some(texture) => {
-                    let filter = if self.crisp.get() && zoom > NEAREST_ABOVE {
-                        gsk::ScalingFilter::Nearest
-                    } else {
-                        gsk::ScalingFilter::Trilinear
-                    };
-                    snapshot.append_scaled_texture(texture, filter, &bounds);
-                    // A drawing: the part in view, rendered again at this zoom, over the pixels.
-                    if let Some((tile, [tx, ty, tw, th])) = self.sharp.borrow().as_ref() {
-                        let area = graphene::Rect::new(
-                            (bounds.x() as f64 + tx * zoom) as f32,
-                            (bounds.y() as f64 + ty * zoom) as f32,
-                            (tw * zoom) as f32,
-                            (th * zoom) as f32,
-                        );
-                        snapshot.append_scaled_texture(tile, gsk::ScalingFilter::Linear, &area);
-                    }
-                }
-                // A page that has not been rendered yet: blank paper.
-                None => snapshot.append_color(&gdk::RGBA::WHITE, &bounds),
-            }
-            snapshot.restore();
-            canvas.snapshot_crop(snapshot, zoom, (x, y));
-            canvas.snapshot_markup(snapshot, 0, (x, y), zoom);
+            self.draw_content(snapshot);
+            self.obj().snapshot_placeholder(snapshot);
         }
     }
 
@@ -501,6 +519,7 @@ impl LumenCanvas {
         let imp = self.imp();
         match content {
             CanvasContent::None => {
+                self.fade_placeholder();
                 self.stop_animation();
                 if imp.logical.get().is_some() {
                     *imp.pages.borrow_mut() = None;
@@ -515,6 +534,7 @@ impl LumenCanvas {
                     && imp.source.borrow().as_ref() == Some(&image.texture)
                     && imp.orientation.get() == image.orientation;
                 if !unchanged {
+                    self.fade_placeholder();
                     self.stop_animation();
                     *imp.pages.borrow_mut() = None;
                     *imp.texture.borrow_mut() = Some(image.texture.clone());
@@ -534,6 +554,7 @@ impl LumenCanvas {
             CanvasContent::Pages { key, layout } => {
                 let same = imp.pages.borrow().is_some() && imp.content_key.get() == key;
                 if !same {
+                    self.fade_placeholder();
                     // A new version of the same pages (a form filled in, an undo) keeps the
                     // zoom and scroll position; anything else starts fitted, at the top.
                     let keep_view = imp
@@ -966,6 +987,77 @@ impl LumenCanvas {
 
     pub fn set_start_actual_size(&self, actual: bool) {
         self.imp().start_actual.set(actual);
+    }
+
+    /// Show `texture` (a thumbnail) scaled to the window until real content arrives.
+    pub fn set_placeholder(&self, texture: Option<gdk::Texture>) {
+        let imp = self.imp();
+        if let Some(animation) = imp.placeholder_animation.borrow_mut().take() {
+            animation.pause();
+        }
+        imp.placeholder_opacity.set(1.0);
+        *imp.placeholder.borrow_mut() = texture;
+        self.queue_draw();
+    }
+
+    /// Whether a stand-in is on screen.
+    pub fn has_placeholder(&self) -> bool {
+        self.imp().placeholder.borrow().is_some()
+    }
+
+    /// Real content arrived: fade the stand-in out.
+    fn fade_placeholder(&self) {
+        let imp = self.imp();
+        if imp.placeholder.borrow().is_none() || imp.placeholder_animation.borrow().is_some() {
+            return;
+        }
+        if !self.settings().is_gtk_enable_animations() {
+            self.set_placeholder(None);
+            return;
+        }
+        let canvas = self.downgrade();
+        let animation = adw::TimedAnimation::new(
+            self,
+            1.0,
+            0.0,
+            PLACEHOLDER_FADE_MS,
+            adw::CallbackAnimationTarget::new(move |opacity| {
+                if let Some(canvas) = canvas.upgrade() {
+                    canvas.imp().placeholder_opacity.set(opacity);
+                    canvas.queue_draw();
+                }
+            }),
+        );
+        animation.connect_done({
+            let canvas = self.downgrade();
+            move |_| {
+                if let Some(canvas) = canvas.upgrade() {
+                    *canvas.imp().placeholder.borrow_mut() = None;
+                    *canvas.imp().placeholder_animation.borrow_mut() = None;
+                    canvas.queue_draw();
+                }
+            }
+        });
+        animation.play();
+        *imp.placeholder_animation.borrow_mut() = Some(animation);
+    }
+
+    fn snapshot_placeholder(&self, snapshot: &gtk::Snapshot) {
+        let imp = self.imp();
+        let Some(texture) = imp.placeholder.borrow().clone() else {
+            return;
+        };
+        let (width, height) = (self.width() as f32, self.height() as f32);
+        let (tw, th) = (texture.width() as f32, texture.height() as f32);
+        let scale = (width / tw).min(height / th);
+        let (w, h) = (tw * scale, th * scale);
+        let opacity = imp.placeholder_opacity.get() as f32;
+        snapshot.push_opacity(opacity as f64);
+        // The window's colour behind it, so the picture it replaces does not show through.
+        self.snapshot_background(snapshot);
+        let bounds = graphene::Rect::new((width - w) / 2.0, (height - h) / 2.0, w, h);
+        snapshot.append_scaled_texture(&texture, gsk::ScalingFilter::Linear, &bounds);
+        snapshot.pop();
     }
 
     /// How PDFs are fitted (a whole page, or the page width); applies to a fitted view now.

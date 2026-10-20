@@ -466,7 +466,7 @@ Nothing else. Each new preference needs a reason in the commit message.
   button.
 - The "Replace the Original?" dialog stays, because overwriting is not undoable.
 
-### - [ ] D2 🟢 Crossfade between files, and a placeholder from the thumbnail
+### - [x] D2 (thumbnail stand-in and fade; the first-paint image crossfade between two decoded files is not done) 🟢 Crossfade between files, and a placeholder from the thumbnail
 - When moving to a file that is not decoded yet, show its sidebar thumbnail scaled to fit
   (with a light blur). Crossfade to the full texture in 150 ms when it arrives. The spinner
   appears only after 300 ms without a placeholder.
