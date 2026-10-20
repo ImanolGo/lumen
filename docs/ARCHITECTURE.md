@@ -21,6 +21,13 @@ src/
 ├── main.rs              entry point, logging, resources, GApplication
 ├── app.rs               root Relm4 component: window, header bar, actions, message routing
 ├── app/                 the parts of the window's behaviour, one file each
+│   ├── messages.rs      the AppMsg enum
+│   ├── update.rs        what each message does
+│   ├── files.rs         opening, browsing, preloading, trash, file watching
+│   ├── reading.rs       PDF page rendering, links, selection, search
+│   ├── chrome.rs        titles, sidebar, floating controls, slideshow
+│   ├── menus.rs         header and main menus
+│   ├── helpers.rs       dialogs, recent files, key handling, screenshots
 │   ├── edit.rs          edit stack, crop/adjust modes, saving, guarding unsaved work
 │   ├── pages.rs         PDF page operations, working copies, exports
 │   ├── markup.rs        markup toolbar state and history

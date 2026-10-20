@@ -503,7 +503,7 @@ Nothing else. Each new preference needs a reason in the commit message.
 
 ## Phase E: Code health and consistency
 
-### - [ ] E1 🟠 Split `app.rs` (3,300 lines)
+### - [x] E1 (app.rs went from 3,322 to 1,683 lines by moving code into `app/` modules; the `view!` tree and `init` were not split into components) 🟠 Split `app.rs` (3,300 lines)
 - Move the `view!` macro's sub-trees into small Relm4 components or plain widget builders:
   - `HeaderBar`
   - `MarkupToolbar` (with the swatches and `color_circle`)
