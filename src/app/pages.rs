@@ -55,11 +55,18 @@ impl WorkDir {
         self.dir
             .get_or_insert_with(|| {
                 remove_stale_work_dirs();
-                let dir = std::env::temp_dir().join(format!("lumen-work-{}", std::process::id()));
+                let dir = work_base().join(format!("lumen-work-{}", std::process::id()));
                 let _ = std::fs::create_dir_all(&dir);
                 dir
             })
             .clone()
+    }
+
+    /// Delete a working copy that is no longer needed (never a file outside the work folder).
+    pub fn discard(&self, file: &Path) {
+        if self.dir.as_ref().is_some_and(|dir| file.starts_with(dir)) {
+            let _ = std::fs::remove_file(file);
+        }
     }
 
     /// A fresh file name, and the number it was made from.
@@ -72,21 +79,29 @@ impl WorkDir {
     }
 }
 
-/// Work folders of sessions that ended without cleaning up (a crash or a kill).
+/// Where working copies go: the cache folder, not `/tmp`, which is often memory.
+fn work_base() -> PathBuf {
+    relm4::gtk::glib::user_cache_dir().join("lumen")
+}
+
+/// Work folders of sessions that ended without cleaning up (a crash or a kill), here and
+/// in `/tmp`, where older versions put them.
 fn remove_stale_work_dirs() {
-    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let pid = name
-            .to_str()
-            .and_then(|n| n.strip_prefix("lumen-work-"))
-            .and_then(|p| p.parse::<u32>().ok());
-        if pid.is_some_and(|pid| {
-            pid != std::process::id() && !Path::new(&format!("/proc/{pid}")).exists()
-        }) {
-            let _ = std::fs::remove_dir_all(entry.path());
+    for base in [work_base(), std::env::temp_dir()] {
+        let Ok(entries) = std::fs::read_dir(base) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let pid = name
+                .to_str()
+                .and_then(|n| n.strip_prefix("lumen-work-"))
+                .and_then(|p| p.parse::<u32>().ok());
+            if pid.is_some_and(|pid| {
+                pid != std::process::id() && !Path::new(&format!("/proc/{pid}")).exists()
+            }) {
+                let _ = std::fs::remove_dir_all(entry.path());
+            }
         }
     }
 }
@@ -294,11 +309,10 @@ impl App {
                 let moved = pageops::remap_layers(&layers, &plan, &sizes);
                 // The new file and the re-numbered annotations are one undo step.
                 self.markup.store.borrow_mut().set_pages(moved.clone());
-                self.markup.pdf_history.commit(PdfState {
+                self.commit_pdf_state(PdfState {
                     file: out.clone(),
                     layers: moved,
                 });
-                self.markup.pdf_dirty = true;
                 let inserted = plan.iter().filter(|e| e.source != 0).count();
                 self.insert_at = goto + inserted;
                 self.reload_pdf(out, goto.min(plan.len() - 1), sender);

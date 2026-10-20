@@ -101,11 +101,10 @@ impl App {
         match result {
             Ok(()) => {
                 let layers = self.markup.store.borrow().pages.layers.clone();
-                self.markup.pdf_history.commit(PdfState {
+                self.commit_pdf_state(PdfState {
                     file: out.clone(),
                     layers,
                 });
-                self.markup.pdf_dirty = true;
                 let page = self.pdf.as_ref().map_or(0, |p| p.page);
                 self.reload_pdf(out, page, sender);
             }

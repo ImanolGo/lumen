@@ -584,9 +584,15 @@ impl<T: Clone> History<T> {
     }
 
     /// Record `state` as the new present, dropping anything that could have been redone.
-    pub fn commit(&mut self, state: T) {
+    /// The dropped states are returned.
+    pub fn commit(&mut self, state: T) -> Vec<T> {
         self.past.push(std::mem::replace(&mut self.present, state));
-        self.future.clear();
+        std::mem::take(&mut self.future)
+    }
+
+    /// Whether any state in the history, past, present or future, satisfies `matches`.
+    pub fn any(&self, matches: impl Fn(&T) -> bool) -> bool {
+        matches(&self.present) || self.past.iter().chain(&self.future).any(matches)
     }
 
     pub fn undo(&mut self) -> Option<&T> {
@@ -852,5 +858,20 @@ mod tests {
         other.layer_mut(0).add(rect(9.0, 9.0, 1.0, 1.0), style());
         history.commit(other);
         assert!(!history.can_redo());
+    }
+
+    #[test]
+    fn committing_hands_back_the_states_that_can_no_longer_be_reached() {
+        let mut history = History::new(1);
+        history.commit(2);
+        history.commit(3);
+        history.undo();
+        history.undo();
+        assert!(history.any(|&s| s == 3), "still reachable by redo");
+        let mut dropped = history.commit(9);
+        dropped.sort();
+        assert_eq!(dropped, vec![2, 3]);
+        assert!(!history.any(|&s| s == 3));
+        assert!(history.any(|&s| s == 1) && history.any(|&s| s == 9));
     }
 }

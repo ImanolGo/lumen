@@ -339,7 +339,7 @@ the numbers in the commit message.
   the worker and send them over a channel. The canvas starts animating once frame 2 arrives.
 - **Done when:** a 300-frame GIF shows its first frame as fast as a still image of the same size.
 
-### - [ ] B8 ✅ 🟢 Images inserted as PDF pages: keep the JPEG, do not inflate it
+### - [x] B8 ✅ 🟢 Images inserted as PDF pages: keep the JPEG, do not inflate it
 - **Where:** `src/pdf/compose.rs:150–180` converts every picture to an uncompressed ARGB Cairo
   surface. A 12 MP photo becomes a PDF page of roughly 20–40 MB.
 - **Do:** For JPEG sources with normal orientation, attach the original bytes with
@@ -361,7 +361,7 @@ the numbers in the commit message.
 - **Done when:** a profile of fast scrolling shows less than 5 % of main-thread time in
   `update_view`.
 
-### - [ ] B10 ✅ 🟢 Smarter preloading and working-copy hygiene
+### - [x] B10 (work folder + pruning done; preload direction and history cap not) ✅ 🟢 Smarter preloading and working-copy hygiene
 - Preload in the direction of travel: 2 ahead and 1 behind (`PRELOAD_RADIUS`, `app.rs:61`).
 - Working copies live in `std::env::temp_dir()` (`pages.rs:58`). That is often tmpfs, which is
   RAM. Move them to `glib::user_cache_dir()/lumen/work-<pid>`.

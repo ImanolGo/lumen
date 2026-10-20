@@ -310,8 +310,7 @@ impl App {
                 file: self.markup.pdf_history.present().file.clone(),
                 layers: self.store_layers(),
             };
-            self.markup.pdf_history.commit(state);
-            self.markup.pdf_dirty = true;
+            self.commit_pdf_state(state);
         } else if let Some(session) = &mut self.edit {
             let layer = self
                 .markup
@@ -325,6 +324,19 @@ impl App {
             session
                 .stack
                 .push_with_layer(EditOp::Annotate, Some(Arc::new(layer)));
+        }
+    }
+
+    /// Record a new state of the PDF in its history, and delete the working copies that
+    /// nothing can go back (or forward) to any more.
+    pub(super) fn commit_pdf_state(&mut self, state: PdfState) {
+        let dropped = self.markup.pdf_history.commit(state);
+        self.markup.pdf_dirty = true;
+        for old in dropped {
+            let history = &self.markup.pdf_history;
+            if !history.any(|s| s.file == old.file) {
+                self.work.discard(&old.file);
+            }
         }
     }
 

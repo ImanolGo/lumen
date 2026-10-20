@@ -149,9 +149,11 @@ pub fn compose(base: &Source, extras: &[Source], plan: &[Entry], out: &Path) -> 
 /// (the size it has on screen).
 pub fn image_to_pdf(source: &Path, dest: &Path) -> Result<()> {
     let mut picture = crate::image::decode::pixels(source)?;
+    let mut upright = true;
     if let Some(orientation) =
         image::metadata::Orientation::from_exif(Metadata::read(source).orientation.exif_value())
     {
+        upright = orientation == image::metadata::Orientation::NoTransforms;
         picture.apply_orientation(orientation);
     }
     let rgba = picture.to_rgba8();
@@ -172,6 +174,14 @@ pub fn image_to_pdf(source: &Path, dest: &Path) -> Result<()> {
         height,
         stride as i32,
     )?;
+
+    // An upright JPEG goes into the PDF as it is, instead of as pixels that are compressed again.
+    if upright
+        && let Ok(bytes) = std::fs::read(source)
+        && bytes.starts_with(&[0xFF, 0xD8])
+    {
+        surface.set_mime_data(cairo::MIME_TYPE_JPEG, bytes)?;
+    }
 
     const SCALE: f64 = 0.75;
     let pdf = cairo::PdfSurface::new(width as f64 * SCALE, height as f64 * SCALE, dest)?;
@@ -208,6 +218,24 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("lumen-compose-{name}-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         dir.join("out.pdf")
+    }
+
+    #[test]
+    fn a_jpeg_page_keeps_the_jpeg_instead_of_raw_pixels() {
+        use image::{Rgb, RgbImage};
+        let dest = scratch("jpeg");
+        let jpeg = dest.with_file_name("photo.jpg");
+        let mut img = RgbImage::new(640, 480);
+        for (x, y, p) in img.enumerate_pixels_mut() {
+            *p = Rgb([(x % 251) as u8, (y % 241) as u8, ((x * y) % 239) as u8]);
+        }
+        img.save(&jpeg).unwrap();
+        let jpeg_size = std::fs::metadata(&jpeg).unwrap().len();
+        image_to_pdf(&jpeg, &dest).unwrap();
+        let pdf_size = std::fs::metadata(&dest).unwrap().len();
+        // Raw pixels would be about 1.2 MB, however well they deflate.
+        assert!(pdf_size < jpeg_size * 2, "{pdf_size} vs {jpeg_size}");
+        let _ = std::fs::remove_dir_all(dest.parent().unwrap());
     }
 
     /// The text of each page and its displayed size, as Poppler sees the file.

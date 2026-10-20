@@ -17,6 +17,8 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - Searching waits for a short pause in typing instead of restarting on every key.
 - Filling in a form field or undoing no longer flashes the pages white while they are drawn again.
 - Animated pictures show their first frame at once; the other frames are decoded in the background and join the loop as they arrive.
+- A JPEG inserted into or exported as a PDF is embedded as it is, instead of as large uncompressed pixels.
+- Working copies of an edited PDF live in the cache folder instead of `/tmp` (which is often memory), and the ones undo can no longer reach are deleted.
 
 ## [0.3.1] - 2026-10-20
 
