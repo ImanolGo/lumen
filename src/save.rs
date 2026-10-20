@@ -94,7 +94,7 @@ pub fn save(request: &SaveRequest) -> Result<()> {
         write_reencoded(request, &temp)
     };
     match result {
-        Ok(()) => fs::rename(&temp, &request.dest)
+        Ok(()) => crate::fsutil::replace_file(&temp, &request.dest)
             .with_context(|| format!("cannot replace {}", request.dest.display())),
         Err(err) => {
             let _ = fs::remove_file(&temp);

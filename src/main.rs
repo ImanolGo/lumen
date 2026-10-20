@@ -3,6 +3,7 @@ mod app;
 mod document;
 mod edit;
 mod folder;
+mod fsutil;
 mod i18n;
 mod image;
 mod pdf;

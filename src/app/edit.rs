@@ -786,7 +786,7 @@ fn write_pdf(
     let temp = dest.with_file_name(format!(".{name}.lumen-tmp.pdf"));
     let written = crate::pdf::annots::write(source, layers, &temp);
     match written {
-        Ok(()) => std::fs::rename(&temp, dest)
+        Ok(()) => crate::fsutil::replace_file(&temp, dest)
             .with_context(|| format!("cannot replace {}", dest.display())),
         Err(err) => {
             let _ = std::fs::remove_file(&temp);

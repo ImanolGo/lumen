@@ -111,7 +111,7 @@ These are the rules for the features and polish below. When in doubt, choose the
 - **Done when:** a unit test on the decision logic, or a manual check that forces an error,
   shows the stack unchanged after a failed preview.
 
-### - [ ] A3 ✅ 🟡 Saving over a file loses its permissions, breaks symlinks and hard links
+### - [x] A3 ✅ 🟡 Saving over a file loses its permissions, breaks symlinks and hard links
 - **Where:** `src/save.rs:94–104`, `src/app/edit.rs:767–788` (`write_pdf`). Both write a temp
   file and `rename` it over the destination.
 - **Problem:**
