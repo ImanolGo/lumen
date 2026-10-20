@@ -173,6 +173,9 @@ const CROP_HANDLE: f32 = 10.0;
 pub struct PagesState {
     layout: Rc<PageLayout>,
     textures: HashMap<usize, gdk::Texture>,
+    /// Small pictures (the sidebar thumbnails) drawn, scaled up, for pages that have no
+    /// rendered picture yet, so a page that has been seen is never blank.
+    stand_ins: HashMap<usize, gdk::Texture>,
     /// Search hits per page.
     highlights: HashMap<usize, Vec<HitRect>>,
     /// The hit that is selected: page and index within that page's hits.
@@ -583,6 +586,7 @@ impl LumenCanvas {
                     *imp.pages.borrow_mut() = Some(PagesState {
                         layout: Rc::clone(layout),
                         textures: stand_ins,
+                        stand_ins: HashMap::new(),
                         highlights: HashMap::new(),
                         current_hit: None,
                         selection: HashMap::new(),
@@ -668,6 +672,14 @@ impl LumenCanvas {
             canvas.queue_draw();
             canvas.next_frame_later();
         });
+    }
+
+    /// A small picture of page `index` to show until the page itself is rendered.
+    pub fn set_page_stand_in(&self, index: usize, texture: gdk::Texture) {
+        if let Some(pages) = self.imp().pages.borrow_mut().as_mut() {
+            pages.stand_ins.insert(index, texture);
+            self.queue_draw();
+        }
     }
 
     /// Show `texture` for page `index` (or blank paper for `None`).
@@ -1673,7 +1685,12 @@ impl LumenCanvas {
                 Some(texture) => {
                     snapshot.append_scaled_texture(texture, gsk::ScalingFilter::Trilinear, &bounds)
                 }
-                None => snapshot.append_color(&gdk::RGBA::WHITE, &bounds),
+                None => match pages.stand_ins.get(&index) {
+                    Some(small) => {
+                        snapshot.append_scaled_texture(small, gsk::ScalingFilter::Linear, &bounds)
+                    }
+                    None => snapshot.append_color(&gdk::RGBA::WHITE, &bounds),
+                },
             }
             if night {
                 snapshot.pop();

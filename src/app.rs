@@ -3398,8 +3398,9 @@ impl App {
             } => {
                 let Some(pdf) = &self.pdf else { return };
                 if let (true, Ok(rendered)) = (doc_key == pdf.doc_key, result) {
-                    self.page_strip
-                        .set_thumbnail(job.page, rendered.into_texture());
+                    let texture = rendered.into_texture();
+                    self.canvas.set_page_stand_in(job.page, texture.clone());
+                    self.page_strip.set_thumbnail(job.page, texture);
                 }
             }
             AppMsg::PageBy(delta) => {

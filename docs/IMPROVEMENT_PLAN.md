@@ -472,7 +472,7 @@ Nothing else. Each new preference needs a reason in the commit message.
   appears only after 300 ms without a placeholder.
 - Honour `gtk-enable-animations`.
 
-### - [ ] D3 🟢 Low-resolution page placeholders while scrolling fast
+### - [x] D3 🟢 Low-resolution page placeholders while scrolling fast
 - Pages without a texture draw their page-strip thumbnail scaled up (when it exists) instead of
   flat white. That is free with B1, because thumbnails share the worker. Together with B2, a
   page is never blank once it has been seen.
