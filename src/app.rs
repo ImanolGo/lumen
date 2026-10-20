@@ -210,6 +210,8 @@ pub struct App {
     /// Working copies of the PDF being rearranged (they are the undo history of page changes).
     work: WorkDir,
     reload_generation: u64,
+    /// Where short messages with an action (Undo…) are shown; set once the window exists.
+    toasts: Option<adw::ToastOverlay>,
     /// A write of the remembered state is already scheduled.
     state_save_pending: bool,
     /// A page operation or reload is under way.
@@ -525,6 +527,27 @@ impl App {
         glib::timeout_add_local_once(std::time::Duration::from_secs(2), move || {
             sender.input(AppMsg::SaveState);
         });
+    }
+
+    /// Show a short message at the bottom of the window. With an `action`, the toast has a
+    /// button that sends `message` back.
+    fn toast(&self, text: &str, action: Option<(&str, AppMsg, &ComponentSender<Self>)>) {
+        let Some(toasts) = &self.toasts else { return };
+        let toast = adw::Toast::new(text);
+        toast.set_timeout(5);
+        if let Some((label, message, sender)) = action {
+            toast.set_button_label(Some(label));
+            let (sender, message) = (
+                sender.input_sender().clone(),
+                std::cell::RefCell::new(Some(message)),
+            );
+            toast.connect_button_clicked(move |_| {
+                if let Some(message) = message.borrow_mut().take() {
+                    sender.emit(message);
+                }
+            });
+        }
+        toasts.add_toast(toast);
     }
 
     /// Show the current document in the canvas (a no-op if nothing changed).
@@ -1305,8 +1328,11 @@ impl SimpleComponent for App {
                 }
             },
 
+            #[name = "toasts"]
             #[wrap(Some)]
-            set_content = &adw::ToolbarView {
+            set_content = &adw::ToastOverlay {
+              #[wrap(Some)]
+              set_child = &adw::ToolbarView {
                 #[watch]
                 set_reveal_top_bars: !model.fullscreen,
                 #[watch]
@@ -1879,6 +1905,7 @@ impl SimpleComponent for App {
                         },
                     },
                 },
+              },
             },
         }
     }
@@ -2049,7 +2076,7 @@ impl SimpleComponent for App {
             let sender = sender.input_sender().clone();
             move |path, data| sender.emit(AppMsg::Thumbnail(path, data))
         });
-        let model = App {
+        let mut model = App {
             recent_menu: recent_menu.clone(),
             strip,
             page_strip: PageStrip::new(PageStripCallbacks {
@@ -2142,6 +2169,7 @@ impl SimpleComponent for App {
             pending_goto: None,
             work: WorkDir::default(),
             reload_generation: 0,
+            toasts: None,
             state_save_pending: false,
             page_busy: false,
             insert_queue: Vec::new(),
@@ -2181,6 +2209,7 @@ impl SimpleComponent for App {
         sidebar_stack.add_named(model.outline.root(), Some("outline"));
         let properties_root = model.properties.root().clone();
         let widgets = view_output!();
+        model.toasts = Some(widgets.toasts.clone());
         if store.borrow().settings.remember_state && store.borrow().state.maximized {
             widgets.main_window.maximize();
         }

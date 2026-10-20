@@ -583,6 +583,7 @@ impl App {
         self.saving = false;
         match result {
             Ok(()) => {
+                self.toast(&tr("Saved"), None);
                 self.overwrite_ok.insert(dest.clone());
                 self.reset_edit_session();
                 // What was saved is the new clean state: reopening the saved file below

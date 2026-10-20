@@ -456,7 +456,7 @@ Nothing else. Each new preference needs a reason in the commit message.
 
 ## Phase D: Feel (modern, minimal, distinctive)
 
-### - [ ] D1 🟡 Toasts instead of dialogs for reversible actions
+### - [x] D1 (save, export, page deletion; trash toast comes with C4) 🟡 Toasts instead of dialogs for reversible actions
 - Wrap the content in `adw::ToastOverlay`.
 - Deleting pages (sidebar `Delete`) shows "3 pages deleted · Undo".
 - Trashing a file (C4) does the same.

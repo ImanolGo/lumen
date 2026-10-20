@@ -208,8 +208,17 @@ impl App {
     }
 
     pub(super) fn delete_pages(&mut self, sender: &ComponentSender<App>) {
+        if !self.can_pages() {
+            return;
+        }
         let pages = self.target_pages();
+        let count = pages.len() as u32;
         self.page_request(PageRequest::Delete(pages), sender);
+        // Deleting is one undo step away, so say so instead of asking first.
+        self.toast(
+            &crate::i18n::ntr("{n} page deleted", "{n} pages deleted", count),
+            Some((&tr("Undo"), AppMsg::Undo, sender)),
+        );
     }
 
     /// Insert files after the page in view (or in front of `at`).
@@ -550,8 +559,9 @@ impl App {
     }
 
     pub(super) fn exported(&mut self, result: Result<(), String>) {
-        if let Err(message) = &result {
-            super::edit::show_error(&tr("Could Not Export"), message);
+        match &result {
+            Ok(()) => self.toast(&tr("Exported"), None),
+            Err(message) => super::edit::show_error(&tr("Could Not Export"), message),
         }
         self.control_finished(super::control::Wait::Export, result);
     }

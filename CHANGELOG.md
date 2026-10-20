@@ -21,6 +21,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - Working copies of an edited PDF live in the cache folder instead of `/tmp` (which is often memory), and the ones undo can no longer reach are deleted.
 - Dragging the colour-adjust sliders on a large picture renders one preview at a time (the newest wins), spread over all cores, instead of piling up renders.
 - Thumbnails use the desktop's thumbnail cache (`~/.cache/thumbnails`): ones the file manager made are reused, and the ones Lumen makes are saved there for next time.
+- Deleting pages shows "1 page deleted · Undo" at the bottom of the window; saving and exporting confirm the same way.
 - PDF workers for search, selection, links and thumbnails open the document only when first used.
 
 ## [0.3.1] - 2026-10-20
