@@ -152,6 +152,22 @@ pub fn show_preferences(current: &Settings, on_change: impl Fn(Settings) + 'stat
     });
     general.add(&remember);
 
+    let browse = adw::SwitchRow::builder()
+        .title(tr("Browse the folder of a picture"))
+        .subtitle(tr(
+            "Opening one picture lets you flip through the others next to it",
+        ))
+        .active(current.browse_folder)
+        .build();
+    browse.connect_active_notify({
+        let update = Rc::clone(&update);
+        move |row| {
+            let value = row.is_active();
+            update(&|s| s.browse_folder = value);
+        }
+    });
+    general.add(&browse);
+
     let page = adw::PreferencesPage::new();
     page.add(&viewing);
     page.add(&slideshow);

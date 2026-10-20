@@ -381,7 +381,7 @@ the numbers in the commit message.
 Each one should be a small addition that fits the design rules. Nothing here adds a permanent
 toolbar.
 
-### - [ ] C1 🟡 Browse the folder of a single opened picture *(maintainer decision)*
+### - [x] C1 (preference, on by default) 🟡 Browse the folder of a single opened picture *(maintainer decision)*
 - 7.11 chose deliberately to show only the files that were picked. That breaks the most common
   viewer flow: double-click a photo in the file manager, then press →.
 - **Do:** Add a preference, **"Browse the folder of a single picture"**, defaulting to on. When

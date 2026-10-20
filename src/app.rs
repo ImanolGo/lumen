@@ -210,6 +210,8 @@ pub struct App {
     /// Working copies of the PDF being rearranged (they are the undo history of page changes).
     work: WorkDir,
     reload_generation: u64,
+    /// The single picture just opened, whose folder is to be listed for browsing.
+    browse_after: Option<PathBuf>,
     /// Watches the open file, so a changed file is shown again (see `watch_file`).
     watcher: Option<gio::FileMonitor>,
     /// Identifies the latest change seen in the open file, for the pause before reloading.
@@ -307,6 +309,12 @@ pub enum AppMsg {
     Screen(isize),
     /// Home (false) or End (true): the first or last page of a PDF, or file.
     Edge(bool),
+    /// The pictures next to a picture that was opened alone were listed.
+    Siblings {
+        listing: u64,
+        picture: PathBuf,
+        siblings: Vec<PathBuf>,
+    },
     /// Move by this many files in the list.
     Navigate(isize),
     /// Jump to a list index (sidebar click).
@@ -2410,6 +2418,7 @@ impl SimpleComponent for App {
             pending_goto: None,
             work: WorkDir::default(),
             reload_generation: 0,
+            browse_after: None,
             watcher: None,
             watch_ticket: 0,
             last_save: None,
@@ -2880,6 +2889,17 @@ impl App {
                     recent.add_item(&gio::File::for_path(path).uri());
                 }
                 refresh_recent_menu(&self.recent_menu);
+                // One picture opened on its own: its folder is listed once it is on screen.
+                self.browse_after = match paths.as_slice() {
+                    [one]
+                        if self.store.borrow().settings.browse_folder
+                            && !one.is_dir()
+                            && folder::is_picture(one) =>
+                    {
+                        Some(one.clone())
+                    }
+                    _ => None,
+                };
                 self.list_files(paths, false, &sender);
             }
             AppMsg::Add(paths) => {
@@ -2919,6 +2939,22 @@ impl App {
                     self.list = files;
                     self.refresh_strip();
                     self.show_index(0, &sender);
+                    if let Some(picture) = self.browse_after.take()
+                        && self.list == [picture.clone()]
+                    {
+                        let (listing, sender) = (self.listing, sender.clone());
+                        relm4::spawn_blocking(move || {
+                            let siblings = picture
+                                .parent()
+                                .map(folder::pictures_in)
+                                .unwrap_or_default();
+                            sender.input(AppMsg::Siblings {
+                                listing,
+                                picture,
+                                siblings,
+                            });
+                        });
+                    }
                 }
             }
             AppMsg::ShowSaved(dest) => {
@@ -2970,6 +3006,23 @@ impl App {
             }
             AppMsg::JumpBack => self.jump_along(true),
             AppMsg::JumpForward => self.jump_along(false),
+            AppMsg::Siblings {
+                listing,
+                picture,
+                siblings,
+            } => {
+                // Only if nothing else was opened or added meanwhile.
+                if listing == self.listing && self.list == [picture.clone()] {
+                    let Some(index) = siblings.iter().position(|p| *p == picture) else {
+                        return;
+                    };
+                    self.list = siblings;
+                    self.index = index;
+                    self.refresh_strip();
+                    self.strip.select(index);
+                    self.preload_neighbours(&sender);
+                }
+            }
             AppMsg::SaveState => {
                 self.state_save_pending = false;
                 self.store.borrow().save_state();

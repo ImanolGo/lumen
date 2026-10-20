@@ -41,6 +41,24 @@ pub fn is_supported(path: &Path) -> bool {
         .is_some_and(|mime| DocumentKind::from_mime(&mime).is_some())
 }
 
+/// Whether `path` is a picture (not a PDF), judging by its name.
+pub fn is_picture(path: &Path) -> bool {
+    let (content_type, _) = gio::content_type_guess(Some(path), None);
+    gio::content_type_get_mime_type(&content_type)
+        .is_some_and(|mime| DocumentKind::from_mime(&mime) == Some(DocumentKind::Image))
+}
+
+/// The pictures (not PDFs) in the folder `dir`, naturally sorted. Blocking.
+pub fn pictures_in(dir: &Path) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = list_dir(dir)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|f| is_picture(f))
+        .collect();
+    files.sort_by(|a, b| natural_cmp(a, b));
+    files
+}
+
 /// The pictures and PDFs in the folder `dir`, unsorted.
 fn list_dir(dir: &Path) -> Option<Vec<PathBuf>> {
     let enumerator = gio::File::for_path(dir)

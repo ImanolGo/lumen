@@ -44,6 +44,8 @@ pub struct Settings {
     pub slideshow_seconds: u32,
     /// Remember the window size, the sidebar and the page a PDF was left on.
     pub remember_state: bool,
+    /// Opening a single picture also lets you browse the other pictures in its folder.
+    pub browse_folder: bool,
 }
 
 impl Default for Settings {
@@ -54,6 +56,7 @@ impl Default for Settings {
             smooth_zoom: true,
             slideshow_seconds: 5,
             remember_state: true,
+            browse_folder: true,
         }
     }
 }

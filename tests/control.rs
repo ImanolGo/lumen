@@ -524,6 +524,31 @@ fn shows_a_file_again_when_it_changes_on_disk() {
 }
 
 #[test]
+fn opening_one_picture_lets_you_browse_its_folder() {
+    let Some(lumen) = Lumen::start("browse-folder", &[]) else {
+        return;
+    };
+    for name in ["a.png", "b.png", "c.png"] {
+        image::RgbImage::from_pixel(20, 20, image::Rgb([1, 2, 3]))
+            .save(lumen.path(name))
+            .unwrap();
+    }
+    std::fs::write(lumen.path("notes.txt"), "not a picture").unwrap();
+    let middle = lumen.path("b.png");
+    lumen.call("Open", args(&[paths(&[&middle]), no_options()]));
+    let mut state = Value::Null;
+    for _ in 0..50 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        state = lumen.call("GetState", ().to_variant());
+        if state["files"].as_array().unwrap().len() == 3 {
+            break;
+        }
+    }
+    assert_eq!(state["files"].as_array().unwrap().len(), 3);
+    assert_eq!(state["index"], 1, "still on the picture that was opened");
+}
+
+#[test]
 fn protected_pdfs_open_with_their_password_and_never_ask() {
     let Some(lumen) = Lumen::start("password", &[]) else {
         return;
