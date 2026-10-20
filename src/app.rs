@@ -206,6 +206,8 @@ pub struct App {
     /// Working copies of the PDF being rearranged (they are the undo history of page changes).
     work: WorkDir,
     reload_generation: u64,
+    /// A write of the remembered state is already scheduled.
+    state_save_pending: bool,
     /// A page operation or reload is under way.
     page_busy: bool,
     /// Files still to insert, and the page the next one goes in front of.
@@ -252,6 +254,8 @@ pub enum AppMsg {
     /// A file was saved: show it again, keeping the files being browsed (a copy is added
     /// after the current file).
     ShowSaved(PathBuf),
+    /// The remembered state is due to be written (see `save_state_soon`).
+    SaveState,
     /// Move by this many files in the list.
     Navigate(isize),
     /// Jump to a list index (sidebar click).
@@ -495,6 +499,18 @@ impl App {
         } else {
             String::new()
         }
+    }
+
+    /// Write the remembered state a little later, once, however many files are shown meanwhile.
+    fn save_state_soon(&mut self, sender: &ComponentSender<Self>) {
+        if self.state_save_pending {
+            return;
+        }
+        self.state_save_pending = true;
+        let sender = sender.clone();
+        glib::timeout_add_local_once(std::time::Duration::from_secs(2), move || {
+            sender.input(AppMsg::SaveState);
+        });
     }
 
     /// Show the current document in the canvas (a no-op if nothing changed).
@@ -1033,8 +1049,6 @@ impl App {
         let info = opened.info;
         let took = self.load_started.take().map(|t| t.elapsed().as_millis());
         tracing::info!(path = %info.path.display(), kind = ?info.kind, load_ms = ?took, "opened");
-        gtk::RecentManager::default().add_item(&gio::File::for_path(&info.path).uri());
-        refresh_recent_menu(&self.recent_menu);
         self.loading = false;
         self.error = None;
         self.image = opened.image;
@@ -1081,7 +1095,7 @@ impl App {
             let saved = self.store.borrow().state.last_page(&pdf.original);
             self.pending_goto = saved.filter(|&p| p < pdf.n_pages);
         }
-        self.store.borrow().save_state();
+        self.save_state_soon(sender);
         self.document = Some(info);
         self.sync_canvas();
         if let Some(forms) = &opened_forms {
@@ -2110,6 +2124,7 @@ impl SimpleComponent for App {
             pending_goto: None,
             work: WorkDir::default(),
             reload_generation: 0,
+            state_save_pending: false,
             page_busy: false,
             insert_queue: Vec::new(),
             insert_at: 0,
@@ -2524,6 +2539,12 @@ impl App {
                 if !self.guard(Pending::Open(paths.clone()), &sender) {
                     return;
                 }
+                // Only what was opened on purpose is a recent file, not what is flipped past.
+                let recent = gtk::RecentManager::default();
+                for path in paths.iter().filter(|p| !p.is_dir()) {
+                    recent.add_item(&gio::File::for_path(path).uri());
+                }
+                refresh_recent_menu(&self.recent_menu);
                 self.list_files(paths, false, &sender);
             }
             AppMsg::Add(paths) => {
@@ -2577,6 +2598,10 @@ impl App {
                     }
                 };
                 self.show_index(index, &sender);
+            }
+            AppMsg::SaveState => {
+                self.state_save_pending = false;
+                self.store.borrow().save_state();
             }
             AppMsg::Navigate(delta) => {
                 // With an annotation selected, the arrow keys move it instead.

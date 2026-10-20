@@ -171,7 +171,7 @@ These are the rules for the features and polish below. When in doubt, choose the
 - **Done when:** `grep -rn "image::open" src` only shows the fallback and tests. A HEIC photo
   can be rotated and saved as a copy. The README security paragraph is accurate.
 
-### - [ ] A6 ✅ 🟢 Every picture you flip past goes into the desktop-wide "Recent" list
+### - [x] A6 ✅ 🟢 Every picture you flip past goes into the desktop-wide "Recent" list
 - **Where:** `src/app.rs:1033–1034` (`apply`: `RecentManager::add_item` and
   `refresh_recent_menu` on every file shown).
 - **Problem:**
@@ -186,7 +186,7 @@ These are the rules for the features and polish below. When in doubt, choose the
   equivalent), and drop the `exists()` check or move it off the main thread.
 - **Done when:** browsing 20 files adds at most one recent entry (the one opened).
 
-### - [ ] A7 ✅ 🟢 State file written on every file shown
+### - [x] A7 ✅ 🟢 State file written on every file shown
 - **Where:** `src/app.rs:1081` (`self.store.borrow().save_state()` in `apply`).
 - **Problem:** A synchronous TOML write and rename on the main thread for every picture while
   browsing.
