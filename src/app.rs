@@ -135,6 +135,9 @@ pub fn open_files(files: &[gio::File]) {
 
 pub struct App {
     recent_menu: gio::Menu,
+    /// What the document menu in the header shows: the picture edits or the page changes.
+    edit_menu: gio::Menu,
+    pages_menu: gio::Menu,
     strip: FileStrip,
     page_strip: PageStrip,
     sidebar_stack: gtk::Stack,
@@ -532,7 +535,6 @@ pub enum AppMsg {
     ToggleSidebar,
     ShowSidebar(bool),
     ToggleProperties,
-    ShowProperties(bool),
     /// The pointer entered (true) or left the view.
     Hover(bool),
     /// The pointer entered (true) or left one of the floating controls.
@@ -1615,20 +1617,29 @@ impl SimpleComponent for App {
                         set_menu_model: Some(&main_menu),
                     },
 
+                    // One menu for what can be done to the document: page changes for a PDF,
+                    // picture edits for a picture.
                     pack_end = &gtk::MenuButton {
-                        set_icon_name: "view-paged-symbolic",
-                        set_tooltip_text: Some(&tr("Pages")),
-                        set_menu_model: Some(&pages_menu),
                         #[watch]
-                        set_visible: model.pdf.is_some(),
-                    },
-
-                    pack_end = &gtk::MenuButton {
-                        set_icon_name: "lumen-image-edit-symbolic",
-                        set_tooltip_text: Some(&tr("Edit")),
-                        set_menu_model: Some(&edit_menu),
+                        set_icon_name: if model.pdf.is_some() {
+                            "view-paged-symbolic"
+                        } else {
+                            "lumen-image-edit-symbolic"
+                        },
                         #[watch]
-                        set_visible: model.image.is_some() && model.edit.is_some(),
+                        set_tooltip_text: Some(&if model.pdf.is_some() {
+                            tr("Pages")
+                        } else {
+                            tr("Edit")
+                        }),
+                        #[watch]
+                        set_menu_model: Some(if model.pdf.is_some() {
+                            &model.pages_menu
+                        } else {
+                            &model.edit_menu
+                        }),
+                        #[watch]
+                        set_visible: model.pdf.is_some() || (model.image.is_some() && model.edit.is_some()),
                     },
 
                     pack_end = &gtk::ToggleButton {
@@ -1639,18 +1650,6 @@ impl SimpleComponent for App {
                         #[watch]
                         set_visible: model.pdf.is_some() || model.edit.is_some(),
                         connect_clicked[sender] => move |_| sender.input(AppMsg::ToggleMarkup),
-                    },
-
-                    pack_end = &gtk::ToggleButton {
-                        set_icon_name: "info-outline-symbolic",
-                        set_tooltip_text: Some(&tr("Properties (Alt+Enter)")),
-                        #[watch]
-                        set_active: model.properties_open,
-                        #[watch]
-                        set_visible: model.has_document(),
-                        connect_clicked[sender] => move |button| {
-                            sender.input(AppMsg::ShowProperties(button.is_active()));
-                        },
                     },
 
                     #[wrap(Some)]
@@ -2327,6 +2326,7 @@ impl SimpleComponent for App {
         view_section.append(Some(&tr("Slideshow")), Some("win.slideshow"));
         main_menu.append_section(None, &view_section);
         let file_section = gio::Menu::new();
+        file_section.append(Some(&tr("Properties")), Some("win.toggle-properties"));
         file_section.append(Some(&tr("Show in Folder")), Some("win.show-in-folder"));
         file_section.append(Some(&tr("Open With…")), Some("win.open-with"));
         file_section.append(Some(&tr("Move to Trash")), Some("win.trash"));
@@ -2357,6 +2357,8 @@ impl SimpleComponent for App {
         });
         let mut model = App {
             recent_menu: recent_menu.clone(),
+            edit_menu: edit_menu.clone(),
+            pages_menu: pages_menu.clone(),
             strip,
             page_strip: PageStrip::new(PageStripCallbacks {
                 on_activate: Box::new({
@@ -3720,7 +3722,6 @@ impl App {
                 self.store.borrow_mut().state.sidebar_open = show;
             }
             AppMsg::ToggleProperties => self.properties_open = !self.properties_open,
-            AppMsg::ShowProperties(show) => self.properties_open = show,
             AppMsg::Hover(true) => self.wake_controls(&sender),
             AppMsg::Hover(false) => self.controls_awake = false,
             AppMsg::ControlsHover(true) => self.controls_hovered += 1,

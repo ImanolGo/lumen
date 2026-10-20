@@ -477,7 +477,7 @@ Nothing else. Each new preference needs a reason in the commit message.
   flat white. That is free with B1, because thumbnails share the worker. Together with B2, a
   page is never blank once it has been seen.
 
-### - [ ] D4 🟡 Header bar diet
+### - [x] D4 🟡 Header bar diet
 - Today the header can hold: sidebar, open, main menu, Pages menu, Edit menu, Markup, and
   Properties.
 - Merge the **Edit** and **Pages** menus into one context menu button whose content depends on

@@ -28,6 +28,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - Ctrl+C on a picture copies it (and the file, when it has no unsaved edits) to the clipboard. The main menu gains Show in Folder and Open With.
 - Opening a single picture lets you browse the other pictures in its folder (a new preference, on by default, turns this off). Several files, a folder or a PDF open exactly as before.
 - The search bar has Match Case and Whole Words toggles.
+- A slimmer header bar: one menu for what can be done to the document (page changes for a PDF, picture edits for a picture), and Properties moved into the main menu (Alt+Enter still works).
 - PDF workers for search, selection, links and thumbnails open the document only when first used.
 
 ## [0.3.1] - 2026-10-20
