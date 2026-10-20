@@ -24,6 +24,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - Deleting pages shows "1 page deleted · Undo" at the bottom of the window; saving and exporting confirm the same way.
 - After following a link or an outline entry in a PDF, Alt+Left goes back to where you were (and Alt+Right forward again); a toast with a Back button appears too.
 - The open file is shown again when another program changes it on disk (handy for documents being rebuilt); with unsaved edits, a toast offers to reload instead.
+- Ctrl+Delete (or the main menu) moves the file on screen to the trash and goes on to the next one; the toast's Undo puts it back.
 - PDF workers for search, selection, links and thumbnails open the document only when first used.
 
 ## [0.3.1] - 2026-10-20

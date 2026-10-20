@@ -402,7 +402,7 @@ toolbar.
   edits, show a toast: "Changed on disk. Reload". This makes Lumen useful for previewing
   LaTeX, Typst and exported images.
 
-### - [ ] C4 🟢 Move to Trash, with Undo
+### - [x] C4 (bound to Ctrl+Delete and the main menu; plain Delete would clash with annotations and page deletion) 🟢 Move to Trash, with Undo
 - `Delete` on a picture (not in markup mode, nothing selected) calls `gio::File::trash`, removes
   it from the list, moves to the next file and shows a toast with **Undo**. Undo restores from
   the trash via `trash:///`, or keeps the path and moves the file back.

@@ -19,6 +19,7 @@ const SECTIONS: &[(&str, &[(&str, &str)])] = &[
             (n_("Leave fullscreen or the slideshow"), "Escape"),
             (n_("Toggle sidebar"), "F9"),
             (n_("Properties"), "<Alt>Return"),
+            (n_("Move the file to the trash"), "<Control>Delete"),
             (n_("Close window"), "<Control>w"),
         ],
     ),

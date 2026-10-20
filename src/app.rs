@@ -270,6 +270,21 @@ pub enum AppMsg {
     /// A file was saved: show it again, keeping the files being browsed (a copy is added
     /// after the current file).
     ShowSaved(PathBuf),
+    /// Move the file on screen to the trash (Ctrl+Delete).
+    Trash,
+    /// A file was moved to the trash from list position `index`.
+    Trashed {
+        path: PathBuf,
+        index: usize,
+        result: Result<(), String>,
+    },
+    /// Bring a trashed file back (the toast's Undo).
+    Untrash(PathBuf, usize),
+    Untrashed {
+        path: PathBuf,
+        index: usize,
+        result: Result<(), String>,
+    },
     /// The open file changed on disk (change `ticket`, after a pause).
     FileChanged {
         ticket: u64,
@@ -1314,6 +1329,79 @@ impl App {
         self.sync_canvas();
     }
 
+    /// Show the empty window: no file is open.
+    fn clear_document(&mut self) {
+        self.fail(String::new());
+        self.error = None;
+        self.watcher = None;
+    }
+
+    /// Move the file on screen to the trash, and offer to bring it back.
+    fn trash_current(&mut self, sender: &ComponentSender<Self>) {
+        if self.is_dirty() || self.loading || self.page_busy || self.saving {
+            return;
+        }
+        let Some(path) = self.list.get(self.index).cloned() else {
+            return;
+        };
+        let (index, sender) = (self.index, sender.input_sender().clone());
+        relm4::spawn_blocking(move || {
+            let result = gio::File::for_path(&path)
+                .trash(gio::Cancellable::NONE)
+                .map_err(|err| err.to_string());
+            sender.emit(AppMsg::Trashed {
+                path,
+                index,
+                result,
+            });
+        });
+    }
+
+    fn trashed(
+        &mut self,
+        path: PathBuf,
+        index: usize,
+        result: Result<(), String>,
+        sender: &ComponentSender<Self>,
+    ) {
+        if let Err(message) = result {
+            edit::show_error(&tr("Could Not Move to Trash"), &message);
+            return;
+        }
+        self.cache.retain(|(p, _)| *p != path);
+        let Some(position) = self.list.iter().position(|p| *p == path) else {
+            return;
+        };
+        self.list.remove(position);
+        self.refresh_strip();
+        if self.list.is_empty() {
+            self.clear_document();
+        } else {
+            self.show_index(position.min(self.list.len() - 1), sender);
+        }
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
+        self.toast(
+            &tr_fmt(
+                "“{name}” moved to the trash",
+                &[("name", &name.unwrap_or_default())],
+            ),
+            Some((&tr("Undo"), AppMsg::Untrash(path, index), sender)),
+        );
+    }
+
+    /// Bring a file back from the trash and show it again.
+    fn untrash(&mut self, path: PathBuf, index: usize, sender: &ComponentSender<Self>) {
+        let (sender, wanted) = (sender.input_sender().clone(), path);
+        relm4::spawn_blocking(move || {
+            let result = restore_from_trash(&wanted);
+            sender.emit(AppMsg::Untrashed {
+                path: wanted,
+                index,
+                result,
+            });
+        });
+    }
+
     /// Rebuild the file sidebar. Thumbnails are made for the rows that are on screen,
     /// as they appear (`FileStripChanged`).
     fn refresh_strip(&self) {
@@ -2061,6 +2149,7 @@ impl SimpleComponent for App {
             ("export-png", model.can_pages()),
             ("export-image-pdf", model.can_edit()),
             ("print", model.has_document()),
+            ("trash", model.has_document() && !model.is_dirty()),
         ];
         for (name, enabled) in states {
             if let Some(action) = widgets
@@ -2155,6 +2244,9 @@ impl SimpleComponent for App {
         view_section.append(Some(&tr("Fullscreen")), Some("win.fullscreen"));
         view_section.append(Some(&tr("Slideshow")), Some("win.slideshow"));
         main_menu.append_section(None, &view_section);
+        let file_section = gio::Menu::new();
+        file_section.append(Some(&tr("Move to Trash")), Some("win.trash"));
+        main_menu.append_section(None, &file_section);
         let prefs_section = gio::Menu::new();
         prefs_section.append(Some(&tr("Preferences")), Some("win.preferences"));
         main_menu.append_section(None, &prefs_section);
@@ -2447,6 +2539,7 @@ impl SimpleComponent for App {
                 || AppMsg::ToolKey(Tool::Highlight),
                 &["h"],
             ),
+            ("trash", || AppMsg::Trash, &["<Control>Delete"]),
             ("jump-back", || AppMsg::JumpBack, &["<Alt>Left"]),
             ("jump-forward", || AppMsg::JumpForward, &["<Alt>Right"]),
             ("screen-down", || AppMsg::Screen(1), &["space"]),
@@ -2793,6 +2886,26 @@ impl App {
                 };
                 self.show_index(index, &sender);
             }
+            AppMsg::Trash => self.trash_current(&sender),
+            AppMsg::Trashed {
+                path,
+                index,
+                result,
+            } => self.trashed(path, index, result, &sender),
+            AppMsg::Untrash(path, index) => self.untrash(path, index, &sender),
+            AppMsg::Untrashed {
+                path,
+                index,
+                result,
+            } => match result {
+                Ok(()) => {
+                    let at = index.min(self.list.len());
+                    self.list.insert(at, path);
+                    self.refresh_strip();
+                    self.show_index(at, &sender);
+                }
+                Err(message) => edit::show_error(&tr("Could Not Restore the File"), &message),
+            },
             AppMsg::FileTouched => {
                 self.watch_ticket += 1;
                 let (ticket, sender) = (self.watch_ticket, sender.clone());
@@ -3540,6 +3653,39 @@ fn color_circle(
     area
 }
 
+/// Move the newest trashed file that came from `path` back there.
+fn restore_from_trash(path: &std::path::Path) -> Result<(), String> {
+    let trash = gio::File::for_uri("trash:///");
+    let items = trash
+        .enumerate_children(
+            "standard::name,trash::orig-path,trash::deletion-date",
+            gio::FileQueryInfoFlags::NONE,
+            gio::Cancellable::NONE,
+        )
+        .map_err(|e| e.to_string())?;
+    let wanted = path.to_string_lossy();
+    let newest = items
+        .flatten()
+        .filter(|info| {
+            info.attribute_as_string("trash::orig-path")
+                .is_some_and(|p| p.as_str() == wanted)
+        })
+        .max_by_key(|info| {
+            info.attribute_string("trash::deletion-date")
+                .map(|d| d.to_string())
+        })
+        .ok_or_else(|| tr("The file is no longer in the trash."))?;
+    trash
+        .child(newest.name())
+        .move_(
+            &gio::File::for_path(path),
+            gio::FileCopyFlags::NONE,
+            gio::Cancellable::NONE,
+            None,
+        )
+        .map_err(|e| e.to_string())
+}
+
 /// Whether the keyboard focus is in `entry` (a `GtkEntry` holds its text in a child).
 fn entry_has_focus(entry: &gtk::Entry) -> bool {
     entry
@@ -3607,6 +3753,22 @@ fn label_icon_buttons(widget: &gtk::Widget) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    #[ignore = "needs a trash on the same file system: run with LUMEN_TRASH_DIR=~/some/dir"]
+    fn a_trashed_file_comes_back() {
+        use relm4::gtk::prelude::FileExt;
+        let dir = std::path::PathBuf::from(std::env::var("LUMEN_TRASH_DIR").unwrap());
+        let file = dir.join(format!("restore-{}.txt", std::process::id()));
+        std::fs::write(&file, "x").unwrap();
+        relm4::gtk::gio::File::for_path(&file)
+            .trash(relm4::gtk::gio::Cancellable::NONE)
+            .unwrap();
+        assert!(!file.exists());
+        super::restore_from_trash(&file).unwrap();
+        assert!(file.exists());
+        std::fs::remove_file(&file).unwrap();
+    }
+
     use super::is_plain_key;
 
     #[test]
