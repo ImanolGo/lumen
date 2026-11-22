@@ -64,3 +64,5 @@ pub fn app() -> svg::Handle {
         LazyLock::new(|| svg::Handle::from_memory(include_bytes!("../assets/app-icon.svg").as_slice()));
     H.clone()
 }
+icon!(search, r#"<circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/>"#);
+icon!(close, r#"<path d="M6 6l12 12M18 6 6 18"/>"#);

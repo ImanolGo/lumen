@@ -17,14 +17,28 @@ use hayro::{PixmapSettings, RenderCache, RenderSettings};
 use tokio::sync::oneshot;
 
 use crate::raster::Picture;
+use crate::structure::{self, Link, OutlineItem, PageText};
 
 /// Largest bitmap we render for a single page, in pixels per side.
 const MAX_SIDE: f32 = 8192.0;
 
+enum Work {
+    Render { scale: f32, reply: oneshot::Sender<Result<Picture>> },
+    Text { reply: oneshot::Sender<Arc<PageText>> },
+}
+
 struct Job {
     page: usize,
-    scale: f32,
-    reply: oneshot::Sender<Result<Picture>>,
+    work: Work,
+}
+
+impl Job {
+    fn is_cancelled(&self) -> bool {
+        match &self.work {
+            Work::Render { reply, .. } => reply.is_closed(),
+            Work::Text { reply } => reply.is_closed(),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -48,7 +62,7 @@ impl Queue {
                 return None;
             }
             while let Some(job) = guard.0.pop_back() {
-                if !job.reply.is_closed() {
+                if !job.is_cancelled() {
                     return Some(job);
                 }
             }
@@ -74,6 +88,10 @@ struct Inner {
     path: PathBuf,
     /// Page sizes in PDF points, after applying /Rotate.
     pages: Vec<(f32, f32)>,
+    outline: Vec<OutlineItem>,
+    links: Vec<Vec<Link>>,
+    /// Extracted text per page, filled in as search needs it.
+    text: Mutex<Vec<Option<Arc<PageText>>>>,
     queue: Arc<Queue>,
 }
 
@@ -106,6 +124,11 @@ impl Document {
         if pages.is_empty() {
             bail!("this PDF has no pages");
         }
+        // Outline and links are cheap to read; a malformed outline must not stop the document opening.
+        let (outline, links) = catch_unwind(AssertUnwindSafe(|| structure::read(&pdf))).unwrap_or_else(|_| {
+            tracing::warn!("could not read the outline or links of {}", path.display());
+            (Vec::new(), vec![Vec::new(); pages.len()])
+        });
         drop(pdf);
 
         let queue = Arc::new(Queue::default());
@@ -120,7 +143,8 @@ impl Document {
                 .context("cannot start a render thread")?;
         }
 
-        Ok(Self { inner: Arc::new(Inner { path: path.to_owned(), pages, queue }) })
+        let text = Mutex::new(vec![None; pages.len()]);
+        Ok(Self { inner: Arc::new(Inner { path: path.to_owned(), pages, outline, links, text, queue }) })
     }
 
     pub fn path(&self) -> &Path {
@@ -140,11 +164,34 @@ impl Document {
         &self.inner.pages
     }
 
+    /// The table of contents, flattened in reading order.
+    pub fn outline(&self) -> &[OutlineItem] {
+        &self.inner.outline
+    }
+
+    pub fn links(&self, page: usize) -> &[Link] {
+        self.inner.links.get(page).map_or(&[], Vec::as_slice)
+    }
+
     /// Renders `page` at `scale` pixels per point, off the UI thread.
     pub async fn render(&self, page: usize, scale: f32) -> Result<Picture> {
         let (reply, rx) = oneshot::channel();
-        self.inner.queue.push(Job { page, scale, reply });
+        self.inner.queue.push(Job { page, work: Work::Render { scale, reply } });
         rx.await.map_err(|_| anyhow!("the document was closed"))?
+    }
+
+    /// The text of `page`, extracted on a render thread the first time and cached.
+    pub async fn text(&self, page: usize) -> Arc<PageText> {
+        if let Some(Some(t)) = self.inner.text.lock().unwrap_or_else(|e| e.into_inner()).get(page) {
+            return t.clone();
+        }
+        let (reply, rx) = oneshot::channel();
+        self.inner.queue.push(Job { page, work: Work::Text { reply } });
+        let text = rx.await.unwrap_or_default();
+        if let Some(slot) = self.inner.text.lock().unwrap_or_else(|e| e.into_inner()).get_mut(page) {
+            *slot = Some(text.clone());
+        }
+        text
     }
 }
 
@@ -155,20 +202,35 @@ fn worker(bytes: Arc<Vec<u8>>, queue: &Queue) {
     let interpreter = InterpreterSettings::default();
     let settings = RenderSettings::default();
 
+    let text_cache = hayro::hayro_interpret::InterpreterCache::new();
+
     while let Some(job) = queue.pop() {
-        let result = match pages.get(job.page) {
-            None => Err(anyhow!("no such page")),
-            Some(page) => {
+        let Some(page) = pages.get(job.page) else {
+            if let Work::Render { reply, .. } = job.work {
+                let _ = reply.send(Err(anyhow!("no such page")));
+            }
+            continue;
+        };
+        match job.work {
+            Work::Text { reply } => {
+                let text =
+                    catch_unwind(AssertUnwindSafe(|| structure::page_text(page, &text_cache))).unwrap_or_else(|_| {
+                        tracing::warn!("could not read the text of page {}", job.page + 1);
+                        PageText::default()
+                    });
+                let _ = reply.send(Arc::new(text));
+            }
+            Work::Render { scale, reply } => {
                 let (w, h) = page.render_dimensions();
                 // Keep the bitmap within limits whatever the zoom.
-                let scale = job.scale.min(MAX_SIDE / w.max(h).max(1.0)).max(0.01);
+                let scale = scale.min(MAX_SIDE / w.max(h).max(1.0)).max(0.01);
                 let pixmap_settings = PixmapSettings {
                     x_scale: scale,
                     y_scale: scale,
                     bg_color: hayro::vello_cpu::color::palette::css::WHITE,
                 };
                 // A malformed page must never take the viewer down with it.
-                catch_unwind(AssertUnwindSafe(|| {
+                let result = catch_unwind(AssertUnwindSafe(|| {
                     hayro::render(page, &cache, &interpreter, &settings, &pixmap_settings)
                 }))
                 .map_err(|_| anyhow!("page {} could not be rendered", job.page + 1))
@@ -176,10 +238,10 @@ fn worker(bytes: Arc<Vec<u8>>, queue: &Queue) {
                     let (width, height) = (pixmap.width() as u32, pixmap.height() as u32);
                     let rgba = pixmap.take_rgba8(hayro::vello_cpu::peniko::ImageAlphaType::Alpha);
                     Picture { width, height, original: (w.round() as u32, h.round() as u32), rgba: rgba.into() }
-                })
+                });
+                let _ = reply.send(result);
             }
-        };
-        let _ = job.reply.send(result);
+        }
     }
 }
 
@@ -238,6 +300,105 @@ mod tests {
         std::fs::write(&path, b"%PDF-1.7 nonsense").unwrap();
         assert!(Document::open(&path).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Two pages: text, a link to page 2, a web link, and a two-entry outline.
+    fn structured_pdf() -> PathBuf {
+        use pdf_writer::types::{ActionType, AnnotationType};
+        use pdf_writer::{Content, Finish, Name, Rect, Ref, Str, TextStr};
+        let (catalog, tree, p1, p2, c1, c2, font, outline, o1, o2, a1, a2) = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12);
+        let r = Ref::new;
+        let mut w = pdf_writer::Pdf::new();
+        w.catalog(r(catalog)).pages(r(tree)).outlines(r(outline));
+        w.pages(r(tree)).kids([r(p1), r(p2)]).count(2);
+        for (page, content, text, annots) in
+            [(p1, c1, &b"Hello Lumen World"[..], vec![r(a1), r(a2)]), (p2, c2, &b"Second page"[..], vec![])]
+        {
+            let mut pg = w.page(r(page));
+            pg.parent(r(tree)).media_box(Rect::new(0.0, 0.0, 600.0, 800.0)).contents(r(content));
+            pg.resources().fonts().pair(Name(b"F1"), r(font));
+            if !annots.is_empty() {
+                pg.annotations(annots);
+            }
+            pg.finish();
+            let mut c = Content::new();
+            c.begin_text().set_font(Name(b"F1"), 20.0).next_line(72.0, 700.0).show(Str(text)).end_text();
+            w.stream(r(content), &c.finish());
+        }
+        w.type1_font(r(font)).base_font(Name(b"Helvetica"));
+        let mut link = w.annotation(r(a1));
+        link.subtype(AnnotationType::Link).rect(Rect::new(72.0, 690.0, 200.0, 720.0));
+        link.action().action_type(ActionType::GoTo).destination().page(r(p2)).xyz(0.0, 600.0, None);
+        link.finish();
+        let mut web = w.annotation(r(a2));
+        web.subtype(AnnotationType::Link).rect(Rect::new(72.0, 600.0, 200.0, 620.0));
+        web.action().action_type(ActionType::Uri).uri(Str(b"https://example.com/"));
+        web.finish();
+        w.outline(r(outline)).first(r(o1)).last(r(o2)).count(2);
+        w.outline_item(r(o1)).parent(r(outline)).next(r(o2)).title(TextStr("Introduction")).dest().page(r(p1)).fit();
+        w.outline_item(r(o2))
+            .parent(r(outline))
+            .prev(r(o1))
+            .title(TextStr("Ünïcode chapter"))
+            .dest()
+            .page(r(p2))
+            .xyz(0.0, 500.0, None);
+        let path = std::env::temp_dir().join(format!("lumen-rs-structured-{}.pdf", std::process::id()));
+        std::fs::write(&path, w.finish()).unwrap();
+        path
+    }
+
+    #[tokio::test]
+    async fn outline_links_and_search() {
+        use crate::structure::Target;
+        let path = structured_pdf();
+        let doc = Document::open(&path).unwrap();
+
+        let titles: Vec<_> = doc.outline().iter().map(|o| (o.title.as_str(), o.target.clone())).collect();
+        assert_eq!(titles[0], ("Introduction", Some(Target::Page { page: 0, top: None })));
+        // y = 500 from the bottom of an 800 pt page is 300 pt from the top.
+        assert_eq!(titles[1], ("Ünïcode chapter", Some(Target::Page { page: 1, top: Some(300.0) })));
+
+        let links = doc.links(0);
+        assert_eq!(links.len(), 2);
+        assert_eq!(links[0].target, Target::Page { page: 1, top: Some(200.0) });
+        assert!((links[0].rect.y0 - 80.0).abs() < 0.01 && (links[0].rect.x0 - 72.0).abs() < 0.01);
+        assert_eq!(links[1].target, Target::Uri("https://example.com/".into()));
+
+        let text = doc.text(0).await;
+        let hits = text.find("lumen");
+        assert_eq!(hits.len(), 1, "{text:?}");
+        let r = hits[0][0];
+        // Baseline at 100 pt from the top, 20 pt Helvetica.
+        assert!(r.y0 > 75.0 && r.y1 < 110.0 && r.x0 > 72.0 && r.x1 < 300.0, "{r:?}");
+        assert_eq!(text.find("HELLO LUMEN world").len(), 1);
+        assert_eq!(doc.text(1).await.find("second").len(), 1);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    /// Prints what Lumen reads from a PDF: `LUMEN_PDF=file.pdf cargo test inspect -- --ignored --nocapture`.
+    #[tokio::test]
+    #[ignore]
+    async fn inspect() {
+        let Ok(path) = std::env::var("LUMEN_PDF") else { return };
+        let doc = Document::open(Path::new(&path)).unwrap();
+        println!("{} pages, {} outline entries", doc.page_count(), doc.outline().len());
+        for item in doc.outline().iter().take(15) {
+            println!("{}{} -> {:?}", "  ".repeat(item.depth as usize), item.title, item.target);
+        }
+        let links: usize = (0..doc.page_count()).map(|p| doc.links(p).len()).sum();
+        println!("{links} links; first page with links:");
+        if let Some(p) = (0..doc.page_count()).find(|&p| !doc.links(p).is_empty()) {
+            for l in doc.links(p).iter().take(5) {
+                println!("  page {}: {:?}", p + 1, l);
+            }
+        }
+        let start = std::time::Instant::now();
+        let mut chars = 0;
+        for p in 0..doc.page_count() {
+            chars += doc.text(p).await.find("the").len();
+        }
+        println!("'the' found {chars} times; text of all pages in {:?}", start.elapsed());
     }
 
     #[test]

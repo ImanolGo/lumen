@@ -165,6 +165,7 @@ pub fn thumb(selected: bool) -> impl Fn(&Theme, button::Status) -> button::Style
         };
         button::Style {
             background: Some(if selected { p.primary.weak.color.scale_alpha(0.25) } else { Color::TRANSPARENT }.into()),
+            text_color: p.background.base.text,
             border: Border { radius: 8.0.into(), width: 2.0, color: ring },
             ..Default::default()
         }
@@ -194,4 +195,41 @@ pub fn icon_muted(theme: &Theme, _status: svg::Status) -> svg::Style {
 
 pub fn icon_on_primary(theme: &Theme, _status: svg::Status) -> svg::Style {
     svg::Style { color: Some(theme.extended_palette().primary.base.text) }
+}
+
+/// A search match on a page; the current one is stronger.
+pub fn highlight(current: bool) -> impl Fn(&Theme) -> container::Style {
+    move |_| {
+        let (fill, edge) = if current {
+            (Color::from_rgba(1.0, 0.55, 0.0, 0.45), Color::from_rgb(0.95, 0.45, 0.0))
+        } else {
+            (Color::from_rgba(1.0, 0.85, 0.0, 0.38), Color::TRANSPARENT)
+        };
+        container::Style {
+            background: Some(fill.into()),
+            border: Border { radius: 2.0.into(), width: if current { 1.5 } else { 0.0 }, color: edge },
+            ..Default::default()
+        }
+    }
+}
+
+/// Floating panel, such as the search bar.
+pub fn panel(theme: &Theme) -> container::Style {
+    let p = theme.extended_palette();
+    container::Style {
+        background: Some(p.background.base.color.into()),
+        text_color: Some(p.background.base.text),
+        border: Border { radius: 12.0.into(), width: 1.0, color: p.background.strong.color.scale_alpha(0.6) },
+        shadow: Shadow {
+            color: Color::from_rgba(0.0, 0.0, 0.0, if p.is_dark { 0.5 } else { 0.15 }),
+            offset: Vector::new(0.0, 3.0),
+            blur_radius: 14.0,
+        },
+        ..Default::default()
+    }
+}
+
+/// Segmented switch button (sidebar tabs).
+pub fn segment(selected: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |theme, status| if selected { tool_active(theme, status) } else { tool(theme, status) }
 }

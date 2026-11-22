@@ -42,6 +42,17 @@ pub async fn choose(folder: bool) -> Result<Vec<PathBuf>> {
     Ok(files.uris().iter().filter_map(|uri| uri_to_path(uri.as_str())).collect())
 }
 
+/// Opens a web or mail address in the user's browser or mail app, through the portal.
+pub async fn open_uri(uri: String) -> Result<()> {
+    let parsed = ashpd::Uri::parse(&uri).context("not a valid address")?;
+    ashpd::desktop::open_uri::OpenFileRequest::default()
+        .ask(false)
+        .send_uri(&parsed)
+        .await
+        .and_then(|r| r.response())
+        .context("no desktop portal could open the link")
+}
+
 /// `file:///a%20b` → `/a b`. Non-file URIs are ignored.
 fn uri_to_path(uri: &str) -> Option<PathBuf> {
     let rest = uri.strip_prefix("file://")?;

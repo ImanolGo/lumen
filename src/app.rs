@@ -9,7 +9,7 @@ use iced::mouse::{self, ScrollDelta};
 use iced::theme::Mode;
 use iced::widget::{
     Id, button, center, column, container, image, mouse_area, operation, row, scrollable, sensor, space, stack, svg,
-    text, tooltip,
+    text, text_input, tooltip,
 };
 use iced::{
     Alignment, ContentFit, Element, Event, Font, Length, Padding, Point, Size, Subscription, Task, Theme, event,
@@ -20,7 +20,9 @@ use crate::library::{self, Kind};
 use crate::pdf;
 use crate::print::{self, Outcome};
 use crate::raster::{self, Picture};
+use crate::structure::Target;
 use crate::{icons, style};
+use hayro::kurbo::Rect;
 
 // ---------------------------------------------------------------- constants
 
@@ -29,6 +31,8 @@ const SIDEBAR_W: f32 = 236.0;
 /// Height of one sidebar row; rows are fixed-height so the list can be virtualised.
 const ROW_H: f32 = 64.0;
 const ROW_THUMB: f32 = 52.0;
+/// Height of one table-of-contents row.
+const TOC_ROW_H: f32 = 30.0;
 /// How many thumbnails are decoded at once.
 const THUMB_PARALLEL: usize = 4;
 /// How far either side of the current file thumbnails are prepared.
@@ -49,6 +53,38 @@ fn scroll_id() -> Id {
 fn sidebar_id() -> Id {
     Id::new("sidebar")
 }
+fn contents_id() -> Id {
+    Id::new("contents")
+}
+fn search_input_id() -> Id {
+    Id::new("search")
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidebarTab {
+    Files,
+    Contents,
+}
+
+/// One search match: the boxes (one per line) it covers on its page, in page points.
+struct Hit {
+    page: usize,
+    rects: Vec<Rect>,
+}
+
+#[derive(Default)]
+struct Search {
+    query: String,
+    /// Sorted by page, then by position on the page.
+    hits: Vec<Hit>,
+    current: Option<usize>,
+    /// Pages searched so far, and whether all are done.
+    scanned: usize,
+    done: bool,
+    seq: u64,
+    /// Aborts the running scan when replaced or dropped.
+    _scan: Option<iced::task::Handle>,
+}
 
 // ---------------------------------------------------------------- state
 
@@ -61,6 +97,11 @@ pub struct App {
     show_sidebar: bool,
     /// Scroll offset and height of the sidebar list (logical px).
     sidebar_scroll: (f32, f32),
+    /// The tab the user picked; until then a PDF's contents are preferred over the file list.
+    sidebar_tab: Option<SidebarTab>,
+    contents_scroll: (f32, f32),
+    search: Option<Search>,
+    search_seq: u64,
     /// When the file now loading was asked for, for the `opened` timing log.
     load_started: Option<Instant>,
     first_view_logged: bool,
@@ -213,6 +254,20 @@ pub enum Message {
     PageRendered(u64, usize, f32, Result<Picture, String>),
     Thumb(PathBuf, Option<Picture>),
     SidebarScrolled(f32, f32),
+    SidebarTab(SidebarTab),
+    ContentsScrolled(f32, f32),
+    GoTo(Target),
+    LinkOpened(Result<(), String>),
+
+    SearchOpen,
+    SearchClose,
+    SearchInput(String),
+    SearchSubmit,
+    SearchNext,
+    SearchPrev,
+    SearchHits(u64, usize, Vec<Vec<Rect>>),
+    SearchDone(u64),
+    Escape,
 
     ZoomIn,
     ZoomOut,
@@ -231,7 +286,6 @@ pub enum Message {
     Print,
     Printed(Result<Outcome, String>),
     ToggleFullscreen,
-    ExitFullscreen,
     ToggleSidebar,
     DismissToast(u64),
     Quit,
@@ -262,6 +316,10 @@ impl App {
             fullscreen: false,
             show_sidebar: true,
             sidebar_scroll: (0.0, 0.0),
+            sidebar_tab: None,
+            contents_scroll: (0.0, 0.0),
+            search: None,
+            search_seq: 0,
             load_started: None,
             first_view_logged: false,
             area: Size::new(1100.0, 700.0),
@@ -308,6 +366,9 @@ impl App {
             keyboard::listen().map(Message::Key),
             event::listen_with(|event, _status, _id| match event {
                 Event::Mouse(mouse::Event::WheelScrolled { delta }) => Some(Message::Wheel(delta)),
+                Event::Keyboard(keyboard::Event::KeyPressed { key: Key::Named(Named::Escape), .. }) => {
+                    Some(Message::Escape)
+                }
                 _ => None,
             }),
         ])
@@ -374,10 +435,14 @@ impl App {
             }
             Message::Scrolled(vp) => {
                 self.viewport = vp;
+                let mut page_changed = false;
                 if let Doc::Pdf(view) = &mut self.doc {
-                    view.current_page = view.page_at(vp.y + vp.height * 0.4);
+                    let page = view.page_at(vp.y + vp.height * 0.4);
+                    page_changed = page != view.current_page;
+                    view.current_page = page;
                 }
-                self.request_pages()
+                let follow = page_changed && self.sidebar_shows() == Some(SidebarTab::Contents);
+                Task::batch([self.request_pages(), if follow { self.reveal_in_contents() } else { Task::none() }])
             }
 
             Message::Open { folder } => {
@@ -443,9 +508,12 @@ impl App {
                         self.doc = Doc::Pdf(view);
                         self.viewport.y = 0.0;
                         self.viewport.x = 0.0;
+                        self.contents_scroll = (0.0, 0.0);
                         Task::batch([
                             operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 }),
+                            operation::scroll_to(contents_id(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 }),
                             self.request_pages(),
+                            self.start_search(),
                         ])
                     }
                     Err(error) => {
@@ -485,6 +553,101 @@ impl App {
             Message::SidebarScrolled(offset, height) => {
                 self.sidebar_scroll = (offset, height);
                 self.request_thumbs()
+            }
+            Message::SidebarTab(tab) => {
+                self.sidebar_tab = Some(tab);
+                match tab {
+                    SidebarTab::Files => Task::batch([self.request_thumbs(), self.reveal_in_sidebar()]),
+                    SidebarTab::Contents => self.reveal_in_contents(),
+                }
+            }
+            Message::ContentsScrolled(offset, height) => {
+                self.contents_scroll = (offset, height);
+                Task::none()
+            }
+            Message::GoTo(Target::Page { page, top }) => self.go_to_point(page, top.map(|t| (0.0, t))),
+            Message::GoTo(Target::Uri(uri)) => Task::perform(
+                async move { crate::portal::open_uri(uri).await.map_err(err_string) },
+                Message::LinkOpened,
+            ),
+            Message::LinkOpened(Ok(())) => Task::none(),
+            Message::LinkOpened(Err(e)) => self.toast(format!("Could not open the link: {e}")),
+
+            Message::SearchOpen => {
+                if !matches!(self.doc, Doc::Pdf(_)) {
+                    return Task::none();
+                }
+                if self.search.is_none() {
+                    self.search = Some(Search::default());
+                }
+                Task::batch([operation::focus(search_input_id()), operation::select_all(search_input_id())])
+            }
+            Message::SearchClose => {
+                self.search = None;
+                Task::none()
+            }
+            Message::Escape => {
+                if self.search.is_some() {
+                    self.search = None;
+                    Task::none()
+                } else if self.fullscreen {
+                    self.set_fullscreen(false)
+                } else {
+                    Task::none()
+                }
+            }
+            Message::SearchInput(query) => {
+                let Some(search) = &mut self.search else { return Task::none() };
+                search.query = query;
+                self.start_search()
+            }
+            Message::SearchSubmit => {
+                self.update(if self.modifiers.shift() { Message::SearchPrev } else { Message::SearchNext })
+            }
+            Message::SearchNext | Message::SearchPrev => {
+                let forward = matches!(message, Message::SearchNext);
+                let Some(search) = &mut self.search else { return self.update(Message::SearchOpen) };
+                let n = search.hits.len();
+                if n == 0 {
+                    return Task::none();
+                }
+                search.current = Some(match search.current {
+                    Some(c) if forward => (c + 1) % n,
+                    Some(c) => (c + n - 1) % n,
+                    None => 0,
+                });
+                self.reveal_hit()
+            }
+            Message::SearchHits(seq, page, found) => {
+                let Some(search) = &mut self.search else { return Task::none() };
+                if seq != search.seq {
+                    return Task::none();
+                }
+                search.scanned += 1;
+                if found.is_empty() {
+                    return Task::none();
+                }
+                let at = search.hits.partition_point(|h| h.page <= page);
+                let count = found.len();
+                search.hits.splice(at..at, found.into_iter().map(|rects| Hit { page, rects }));
+                match &mut search.current {
+                    Some(c) if *c >= at => *c += count,
+                    Some(_) => {}
+                    None => {
+                        // The scan starts at the page in view, so the first match found is the nearest one.
+                        search.current = Some(at);
+                        return self.reveal_hit();
+                    }
+                }
+                Task::none()
+            }
+            Message::SearchDone(seq) => {
+                if let Some(search) = &mut self.search
+                    && search.seq == seq
+                {
+                    search.done = true;
+                }
+                Task::none()
             }
 
             Message::ZoomIn => self.zoom_by(ZOOM_STEP),
@@ -571,7 +734,6 @@ impl App {
                 }
             }
             Message::ToggleFullscreen => self.set_fullscreen(!self.fullscreen),
-            Message::ExitFullscreen => self.set_fullscreen(false),
             Message::ToggleSidebar => {
                 self.show_sidebar = !self.show_sidebar;
                 if self.show_sidebar { self.reveal_in_sidebar() } else { Task::none() }
@@ -637,6 +799,9 @@ impl App {
                 ("o", true, false) => Message::Open { folder: false },
                 ("o", true, true) => Message::Open { folder: true },
                 ("p", true, _) => Message::Print,
+                ("f", true, _) if is_pdf => Message::SearchOpen,
+                ("g", true, false) if is_pdf => Message::SearchNext,
+                ("g", true, true) if is_pdf => Message::SearchPrev,
                 ("q" | "w", true, _) => Message::Quit,
                 ("+" | "=", _, _) => Message::ZoomIn,
                 ("-" | "_", _, _) => Message::ZoomOut,
@@ -672,7 +837,13 @@ impl App {
                     return operation::scroll_by(scroll_id(), scrollable::AbsoluteOffset { x: 0.0, y: -64.0 });
                 }
                 Named::F11 => Message::ToggleFullscreen,
-                Named::Escape if self.fullscreen => Message::ExitFullscreen,
+                Named::F3 if is_pdf => {
+                    if modifiers.shift() {
+                        Message::SearchPrev
+                    } else {
+                        Message::SearchNext
+                    }
+                }
                 _ => return Task::none(),
             },
             _ => return Task::none(),
@@ -724,6 +895,10 @@ impl App {
         self.current = index;
         self.generation += 1;
         self.load_started = Some(Instant::now());
+        if let Some(search) = &mut self.search {
+            // Results belong to the old file; the scan restarts once the new one is open.
+            *search = Search { query: std::mem::take(&mut search.query), ..Search::default() };
+        }
         self.pan = None;
         let generation = self.generation;
         let path = self.files[index].clone();
@@ -825,7 +1000,8 @@ impl App {
             return Task::none();
         }
         // Rows on screen first (top to bottom), then the files you are likely to flip to next.
-        let visible = if self.show_sidebar && !self.fullscreen { self.sidebar_rows() } else { 0..0 };
+        let files_shown = self.show_sidebar && !self.fullscreen && self.sidebar_shows() == Some(SidebarTab::Files);
+        let visible = if files_shown { self.sidebar_rows() } else { 0..0 };
         let near = (0..=THUMB_RADIUS).flat_map(|d| [self.current + d, self.current.wrapping_sub(d)]);
         let order: Vec<usize> = visible.clone().chain(near).filter(|&i| i < self.files.len()).collect();
 
@@ -860,6 +1036,44 @@ impl App {
             ));
         }
         Task::batch(tasks)
+    }
+
+    /// Which outline entry the page in view belongs to.
+    fn current_section(&self) -> Option<usize> {
+        let Doc::Pdf(view) = &self.doc else { return None };
+        let page = view.current_page;
+        view.doc
+            .outline()
+            .iter()
+            .rposition(|item| matches!(item.target, Some(Target::Page { page: p, .. }) if p <= page))
+    }
+
+    fn reveal_in_contents(&self) -> Task<Message> {
+        let Some(i) = self.current_section() else { return Task::none() };
+        let (offset, height) = self.contents_scroll;
+        let height = if height > 0.0 { height } else { self.area.height };
+        let top = i as f32 * TOC_ROW_H;
+        if top >= offset && top + TOC_ROW_H <= offset + height {
+            return Task::none();
+        }
+        let y = (top - height / 3.0).max(0.0);
+        operation::scroll_to(contents_id(), scrollable::AbsoluteOffset { x: None, y: Some(y) })
+    }
+
+    fn has_contents(&self) -> bool {
+        matches!(&self.doc, Doc::Pdf(v) if !v.doc.outline().is_empty())
+    }
+
+    /// The sidebar tab actually shown: the chosen one if it has anything to show.
+    fn sidebar_shows(&self) -> Option<SidebarTab> {
+        let files = self.files.len() > 1;
+        let contents = self.has_contents();
+        match self.sidebar_tab {
+            Some(SidebarTab::Contents) | None if contents => Some(SidebarTab::Contents),
+            _ if files => Some(SidebarTab::Files),
+            _ if contents => Some(SidebarTab::Contents),
+            _ => None,
+        }
     }
 
     /// Scrolls the sidebar just enough to show the current file.
@@ -998,6 +1212,75 @@ impl App {
         ])
     }
 
+    /// Scrolls so that `point` (page points from the page's top-left) is near the top-left of the view.
+    fn go_to_point(&mut self, page: usize, point: Option<(f32, f32)>) -> Task<Message> {
+        let Some((x, top)) = point else { return self.go_to_page(page) };
+        let area = self.area;
+        let Doc::Pdf(view) = &mut self.doc else { return Task::none() };
+        let page = page.min(view.doc.page_count() - 1);
+        view.current_page = page;
+        let y = (view.tops[page] + top * view.zoom - 16.0).max(0.0);
+        let left = (view.content_width() - view.doc.page_size(page).0 * view.zoom) / 2.0;
+        let x = (left + x * view.zoom - area.width / 2.0).max(0.0);
+        self.viewport.y = y;
+        self.viewport.x = x;
+        Task::batch([operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x, y }), self.request_pages()])
+    }
+
+    /// (Re)starts searching the open PDF for the current query, from the page in view onwards.
+    fn start_search(&mut self) -> Task<Message> {
+        self.search_seq += 1;
+        let seq = self.search_seq;
+        let Some(search) = &mut self.search else { return Task::none() };
+        *search = Search { query: std::mem::take(&mut search.query), seq, ..Search::default() };
+        let Doc::Pdf(view) = &self.doc else { return Task::none() };
+        let query = search.query.trim().to_string();
+        if query.is_empty() {
+            search.done = true;
+            return Task::none();
+        }
+        let doc = view.doc.clone();
+        let n = doc.page_count();
+        let start = view.current_page;
+        let pages = iced::futures::stream::unfold(0usize, move |k| {
+            let (doc, query) = (doc.clone(), query.clone());
+            async move {
+                if k >= n {
+                    return None;
+                }
+                let page = (start + k) % n;
+                let found = doc.text(page).await.find(&query);
+                Some((Message::SearchHits(seq, page, found), k + 1))
+            }
+        });
+        let (task, handle) = Task::stream(pages).chain(Task::done(Message::SearchDone(seq))).abortable();
+        search._scan = Some(handle.abort_on_drop());
+        task
+    }
+
+    /// Scrolls the current search match into view.
+    fn reveal_hit(&mut self) -> Task<Message> {
+        let Some(search) = &self.search else { return Task::none() };
+        let Some(hit) = search.current.and_then(|c| search.hits.get(c)) else { return Task::none() };
+        let (page, rect) = (hit.page, hit.rects[0]);
+        let area = self.area;
+        let vp = self.viewport;
+        let Doc::Pdf(view) = &mut self.doc else { return Task::none() };
+        let page_left = (view.content_width().max(area.width) - view.doc.page_size(page).0 * view.zoom) / 2.0;
+        let (x0, y0) = (page_left + rect.x0 as f32 * view.zoom, view.tops[page] + rect.y0 as f32 * view.zoom);
+        let (x1, y1) = (page_left + rect.x1 as f32 * view.zoom, view.tops[page] + rect.y1 as f32 * view.zoom);
+        // Leave the view alone when the match is already comfortably visible.
+        if y0 >= vp.y + 40.0 && y1 <= vp.y + area.height - 40.0 && x0 >= vp.x && x1 <= vp.x + area.width {
+            return Task::none();
+        }
+        view.current_page = page;
+        let y = (y0 - area.height * 0.35).max(0.0);
+        let x = if x0 < vp.x || x1 > vp.x + area.width { ((x0 + x1) / 2.0 - area.width / 2.0).max(0.0) } else { vp.x };
+        self.viewport.y = y;
+        self.viewport.x = x;
+        Task::batch([operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x, y }), self.request_pages()])
+    }
+
     /// Asks the render threads for the visible pages (and one either side) at
     /// the current zoom, and frees pages far from view.
     fn request_pages(&mut self) -> Task<Message> {
@@ -1082,9 +1365,20 @@ impl App {
             .on_resize(Message::AreaResized);
 
         let mut body = row![];
-        if !self.fullscreen && self.show_sidebar && self.files.len() > 1 {
-            body = body.push(self.sidebar());
+        if !self.fullscreen
+            && self.show_sidebar
+            && let Some(tab) = self.sidebar_shows()
+        {
+            body = body.push(self.sidebar(tab));
         }
+        let content: Element<'_, Message> = match &self.search {
+            Some(search) if matches!(self.doc, Doc::Pdf(_)) => stack![
+                content,
+                container(self.search_bar(search)).width(Length::Fill).align_x(Alignment::End).padding([10, 18])
+            ]
+            .into(),
+            _ => content.into(),
+        };
         body = body.push(content);
         let mut layout = column![];
         if !self.fullscreen {
@@ -1169,6 +1463,7 @@ impl App {
         let mut right = row![].spacing(4).align_y(Alignment::Center);
         if is_pdf {
             right = right
+                .push(icon_button(icons::search(), "Find (Ctrl+F)", Some(Message::SearchOpen), self.search.is_some()))
                 .push(icon_button(icons::up(), "Previous page (Page Up)", Some(Message::PagePrev), false))
                 .push(icon_button(icons::down(), "Next page (Page Down)", Some(Message::PageNext), false))
                 .push(separator());
@@ -1206,7 +1501,7 @@ impl App {
             (has_doc && !self.printing).then_some(Message::Print),
             self.printing,
         ));
-        if multi {
+        if self.sidebar_shows().is_some() {
             right =
                 right.push(icon_button(icons::strip(), "Sidebar (T)", Some(Message::ToggleSidebar), self.show_sidebar));
         }
@@ -1311,7 +1606,44 @@ impl App {
                     .into(),
                 None => space().width(w).height(h).into(),
             };
-            pages = pages.push(container(inner).width(w).height(h).style(style::page));
+            let mut layers = stack![inner].width(w).height(h);
+            if let Some(search) = &self.search {
+                let at = search.hits.partition_point(|hit| hit.page < i);
+                for (k, hit) in search.hits[at..].iter().enumerate().take_while(|(_, hit)| hit.page == i) {
+                    let current = search.current == Some(at + k);
+                    for r in &hit.rects {
+                        let r = r.inflate(1.0, 1.0);
+                        let mark = container(space())
+                            .width(r.width() as f32 * view.zoom)
+                            .height(r.height() as f32 * view.zoom)
+                            .style(style::highlight(current));
+                        layers = layers.push(placed(&r, view.zoom, mark.into()));
+                    }
+                }
+            }
+            for link in view.doc.links(i) {
+                let area = mouse_area(
+                    space().width(link.rect.width() as f32 * view.zoom).height(link.rect.height() as f32 * view.zoom),
+                )
+                .on_press(Message::GoTo(link.target.clone()))
+                .interaction(mouse::Interaction::Pointer);
+                let area: Element<'_, Message> = match &link.target {
+                    Target::Uri(uri) => tooltip(
+                        area,
+                        container(text(uri.as_str()).size(12)).padding([4, 8]).style(style::pill),
+                        tooltip::Position::FollowCursor,
+                    )
+                    .into(),
+                    Target::Page { page, .. } => tooltip(
+                        area,
+                        container(text(format!("Go to page {}", page + 1)).size(12)).padding([4, 8]).style(style::pill),
+                        tooltip::Position::FollowCursor,
+                    )
+                    .into(),
+                };
+                layers = layers.push(placed(&link.rect, view.zoom, area));
+            }
+            pages = pages.push(container(layers).width(w).height(h).style(style::page));
             if i < hi {
                 pages = pages.push(space().height(PAGE_GAP));
             }
@@ -1339,7 +1671,128 @@ impl App {
 
     /// The file list on the left. Only the rows on screen (plus a margin) become widgets,
     /// so a folder of ten thousand files costs about as much as one of ten.
-    fn sidebar(&self) -> Element<'_, Message> {
+    fn sidebar(&self, tab: SidebarTab) -> Element<'_, Message> {
+        let list = match tab {
+            SidebarTab::Files => self.file_list(),
+            SidebarTab::Contents => self.contents_list(),
+        };
+        let mut col = column![];
+        if self.files.len() > 1 && self.has_contents() {
+            let segment = |label: &'static str, this: SidebarTab| {
+                button(text(label).size(13).width(Length::Fill).align_x(Alignment::Center))
+                    .padding([5, 8])
+                    .width(Length::Fill)
+                    .style(style::segment(tab == this))
+                    .on_press(Message::SidebarTab(this))
+            };
+            col = col.push(
+                container(
+                    row![segment("Files", SidebarTab::Files), segment("Contents", SidebarTab::Contents)].spacing(4),
+                )
+                .padding([8, 8]),
+            );
+        }
+        container(col.push(list)).width(SIDEBAR_W).height(Length::Fill).style(style::bar).into()
+    }
+
+    /// The table of contents, virtualised like the file list (rows have a fixed height).
+    fn contents_list(&self) -> Element<'_, Message> {
+        let Doc::Pdf(view) = &self.doc else { return space().into() };
+        let outline = view.doc.outline();
+        let (offset, height) = self.contents_scroll;
+        let height = if height > 0.0 { height } else { self.area.height };
+        let first = ((offset / TOC_ROW_H).floor().max(0.0) as usize).saturating_sub(10).min(outline.len());
+        let last = (((offset + height) / TOC_ROW_H).ceil() as usize + 10).min(outline.len());
+        let section = self.current_section();
+        let mut list = column![space().height(first as f32 * TOC_ROW_H)];
+        for (i, item) in outline.iter().enumerate().take(last).skip(first) {
+            let page = match &item.target {
+                Some(Target::Page { page, .. }) => format!("{}", page + 1),
+                _ => String::new(),
+            };
+            let strong = item.depth == 0;
+            let label = row![
+                space().width(item.depth.min(6) as f32 * 14.0),
+                container(text(item.title.as_str()).size(13).wrapping(text::Wrapping::None).font(Font {
+                    weight: if strong { iced::font::Weight::Semibold } else { iced::font::Weight::Normal },
+                    ..Font::DEFAULT
+                }))
+                .width(Length::Fill)
+                .clip(true),
+                text(page).size(11).style(muted),
+            ]
+            .spacing(6)
+            .align_y(Alignment::Center);
+            let entry = button(label)
+                .padding([0, 8])
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(style::thumb(section == Some(i)))
+                .on_press_maybe(item.target.clone().map(Message::GoTo));
+            let entry: Element<'_, Message> = if item.title.chars().count() > 26 {
+                tooltip(
+                    entry,
+                    container(text(item.title.as_str()).size(12)).padding([4, 8]).style(style::pill).max_width(420),
+                    tooltip::Position::Right,
+                )
+                .into()
+            } else {
+                entry.into()
+            };
+            list = list.push(container(entry).padding([1, 6]).height(TOC_ROW_H));
+        }
+        list = list.push(space().height((outline.len() - last) as f32 * TOC_ROW_H));
+        scrollable(list.width(Length::Fill))
+            .id(contents_id())
+            .direction(scrollable::Direction::Vertical(scrollable::Scrollbar::new().width(4).scroller_width(4)))
+            .on_scroll(|vp| Message::ContentsScrolled(vp.absolute_offset().y, vp.bounds().height))
+            .height(Length::Fill)
+            .into()
+    }
+
+    fn search_bar<'a>(&'a self, search: &'a Search) -> Element<'a, Message> {
+        let status = if search.query.trim().is_empty() {
+            String::new()
+        } else if search.hits.is_empty() {
+            if search.done { "No matches".into() } else { "Searching…".into() }
+        } else {
+            let n = search.hits.len();
+            let more = if search.done { "" } else { "+" };
+            match search.current {
+                Some(c) => format!("{} of {n}{more}", c + 1),
+                None => format!("{n}{more} matches"),
+            }
+        };
+        let has_hits = !search.hits.is_empty();
+        container(
+            row![
+                svg(icons::search()).width(16).height(16).style(style::icon_muted),
+                text_input("Find in document", &search.query)
+                    .id(search_input_id())
+                    .on_input(Message::SearchInput)
+                    .on_submit(Message::SearchSubmit)
+                    .size(14)
+                    .padding([6, 8])
+                    .width(210),
+                text(status).size(12).style(muted).width(78).align_x(Alignment::Center),
+                icon_button(
+                    icons::up(),
+                    "Previous match (Shift+Enter)",
+                    has_hits.then_some(Message::SearchPrev),
+                    false
+                ),
+                icon_button(icons::down(), "Next match (Enter)", has_hits.then_some(Message::SearchNext), false),
+                icon_button(icons::close(), "Close (Esc)", Some(Message::SearchClose), false),
+            ]
+            .spacing(6)
+            .align_y(Alignment::Center),
+        )
+        .padding([6, 10])
+        .style(style::panel)
+        .into()
+    }
+
+    fn file_list(&self) -> Element<'_, Message> {
         let rows = self.sidebar_rows();
         let first = rows.start.saturating_sub(6);
         let last = (rows.end + 6).min(self.files.len());
@@ -1384,17 +1837,12 @@ impl App {
             );
         }
         list = list.push(space().height((self.files.len() - last) as f32 * ROW_H));
-        container(
-            scrollable(list.width(Length::Fill))
-                .id(sidebar_id())
-                .direction(scrollable::Direction::Vertical(scrollable::Scrollbar::new().width(4).scroller_width(4)))
-                .on_scroll(|vp| Message::SidebarScrolled(vp.absolute_offset().y, vp.bounds().height))
-                .height(Length::Fill),
-        )
-        .width(SIDEBAR_W)
-        .height(Length::Fill)
-        .style(style::bar)
-        .into()
+        scrollable(list.width(Length::Fill))
+            .id(sidebar_id())
+            .direction(scrollable::Direction::Vertical(scrollable::Scrollbar::new().width(4).scroller_width(4)))
+            .on_scroll(|vp| Message::SidebarScrolled(vp.absolute_offset().y, vp.bounds().height))
+            .height(Length::Fill)
+            .into()
     }
 
     fn empty_state(&self) -> Element<'_, Message> {
@@ -1455,6 +1903,13 @@ impl App {
         .height(Length::Fill)
         .into()
     }
+}
+
+/// Places `inner` at `rect` (page points) on a page drawn at `zoom`; used as a layer of the page's stack.
+fn placed<'a>(rect: &Rect, zoom: f32, inner: Element<'a, Message>) -> Element<'a, Message> {
+    container(inner)
+        .padding(Padding { top: rect.y0.max(0.0) as f32 * zoom, left: rect.x0.max(0.0) as f32 * zoom, ..Padding::ZERO })
+        .into()
 }
 
 fn on_scroll(vp: scrollable::Viewport) -> Message {

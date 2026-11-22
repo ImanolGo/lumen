@@ -20,7 +20,10 @@ The original Lumen is built on GTK 4, libadwaita and poppler. This edition:
 ## Features (0.1)
 
 - **Pictures:** PNG, JPEG, GIF (first frame), WebP, BMP, TIFF, ICO, QOI, TGA, the PNM family, and SVG. EXIF orientation is honoured.
-- **PDFs:** continuous scrolling. Only the pages near the view are rendered, and that happens on a pool of background threads that does the newest request first. Pages re-render sharply at every zoom level and on HiDPI screens.
+- **PDFs:** continuous scrolling, a table of contents, search, and clickable links. Only the pages near the view are rendered, and that happens on a pool of background threads that does the newest request first. Pages re-render sharply at every zoom level and on HiDPI screens.
+- **Search:** Ctrl+F finds text across the whole document (case-insensitive), highlights every match and jumps between them. It starts from the page you are on, results appear while it scans, and each page's text is read only once. The 477-page Ghostscript manual is fully indexed in about 0.7 s.
+- **Table of contents:** the PDF's outline appears in the sidebar, follows you as you scroll, and jumps to the exact spot of each section.
+- **Links:** links inside the document jump to their target. Web and mail links open in your browser or mail app through the desktop portal; other kinds of link (files, programs) are ignored for safety.
 - **Folders:** open a folder, or open one file and flip through its neighbours. You can also drop files and folders onto the window. A sidebar on the left lists the files with lazily loaded thumbnails (only the rows on screen are built, so huge folders stay fast); camera JPEGs use their embedded EXIF thumbnail.
 - **Printing:** uses the desktop's native print dialog through the XDG print portal. PDFs are sent as they are. Pictures are fitted to the paper and margins you choose and sent as a one-page PDF at up to 300 dpi.
 - **Light and dark mode:** follows the system colour scheme and switches live when you change it.
@@ -28,7 +31,7 @@ The original Lumen is built on GTK 4, libadwaita and poppler. This edition:
 - **Fast flipping:** the next and previous pictures are preloaded, and recently viewed ones are kept decoded.
 - **Robust:** decoding runs under allocation limits, and a panic while decoding or rendering a hostile file becomes an error message instead of a crash.
 
-Editing, markup, forms and signing from the original Lumen are not ported yet.
+Editing, markup, forms, signing, text selection and password-protected PDFs from the original Lumen are not ported yet.
 
 ## Keyboard
 
@@ -36,6 +39,7 @@ Editing, markup, forms and signing from the original Lumen are not ported yet.
 |---|---|
 | Ctrl+O / Ctrl+Shift+O | Open files / open a folder |
 | Ctrl+P | Print |
+| Ctrl+F | Find in the PDF (Enter / Shift+Enter or F3 / Shift+F3 for next / previous, Esc to close) |
 | ← → (Space / Backspace for pictures) | Next / previous file |
 | Home / End | First / last file (first / last page in a PDF) |
 | Page Up / Page Down | Previous / next page (PDF) |
@@ -43,7 +47,7 @@ Editing, markup, forms and signing from the original Lumen are not ported yet.
 | + − 0 1 | Zoom in, zoom out, best fit, actual size |
 | W | Fit width (PDF) |
 | R / Shift+R | Rotate right / left (pictures) |
-| T | Show or hide the sidebar |
+| T | Show or hide the sidebar (files, and the PDF's contents) |
 | F / F11, Esc | Fullscreen, leave fullscreen |
 | Ctrl+Q / Ctrl+W | Quit |
 
@@ -78,6 +82,7 @@ xdg-mime default io.github.imanolgo.LumenRs.desktop application/pdf
 |---|---|
 | `src/app.rs` | State, messages, update and view (iced's Elm architecture) |
 | `src/pdf.rs` | PDF documents and their render-thread pool (hayro) |
+| `src/structure.rs` | Outline, links and page text (for search) |
 | `src/raster.rs` | Picture decoding, SVG rendering and thumbnails |
 | `src/library.rs` | Which files to browse: folders, natural sort order |
 | `src/print.rs` | Printing through the portal; turns pictures into PDFs |

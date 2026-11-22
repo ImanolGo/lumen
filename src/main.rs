@@ -9,6 +9,7 @@ mod pdf;
 mod portal;
 mod print;
 mod raster;
+mod structure;
 mod style;
 
 use std::path::PathBuf;

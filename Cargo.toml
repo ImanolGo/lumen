@@ -12,7 +12,7 @@ repository = "https://github.com/ImanolGo/lumen-rs"
 iced = { version = "0.14", default-features = false, features = ["wgpu", "tiny-skia", "crisp", "thread-pool", "linux-theme-detection", "x11", "wayland", "image-without-codecs", "svg", "tokio"] }
 hayro = "0.9"
 pdf-writer = "0.15"
-ashpd = { version = "0.14", default-features = false, features = ["tokio", "file_chooser", "print", "settings"] }
+ashpd = { version = "0.14", default-features = false, features = ["tokio", "file_chooser", "open_uri", "print", "settings"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp", "tiff", "ico", "qoi", "tga", "pnm", "rayon"] }
 resvg = "0.50"
 kamadak-exif = "0.6"
