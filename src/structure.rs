@@ -334,9 +334,27 @@ fn clean_title(title: &str) -> String {
 
 // ---------------------------------------------------------------- text
 
-/// The text of one page, one entry per character, with the box each character covers.
+/// What separates a piece of text from the one before it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Gap {
+    None,
+    Space,
+    Line,
+}
+
+/// One glyph's worth of text (a few characters for ligatures) and the box it covers.
+#[derive(Debug, Clone)]
+pub struct TextItem {
+    pub text: String,
+    pub rect: Rect,
+    pub gap: Gap,
+}
+
+/// The text of one page in content order: glyphs with their boxes for selection, and a
+/// normalised copy for search.
 #[derive(Debug, Default)]
 pub struct PageText {
+    items: Vec<TextItem>,
     /// Lower-cased characters; word and line breaks are a single space.
     chars: Vec<char>,
     /// Box of each character, in page points; `None` for inserted spaces.
@@ -344,6 +362,11 @@ pub struct PageText {
 }
 
 impl PageText {
+    /// Number of glyphs; carets run from 0 to this.
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
     /// Every case-insensitive occurrence of `needle`, each as one box per line it covers.
     pub fn find(&self, needle: &str) -> Vec<Vec<Rect>> {
         let needle: Vec<char> = normalise(needle);
@@ -361,6 +384,67 @@ impl PageText {
             }
         }
         hits
+    }
+
+    /// Whether `p` (page points) is on a glyph, give or take the space between words.
+    pub fn is_over_text(&self, p: Point) -> bool {
+        self.items.iter().any(|item| item.rect.inflate(2.0, 0.5).contains(p))
+    }
+
+    /// The glyph nearest to `p`, preferring glyphs on the same line.
+    fn nearest(&self, p: Point) -> Option<usize> {
+        let distance = |r: &Rect| {
+            let dy = (r.y0 - p.y).max(p.y - r.y1).max(0.0);
+            let dx = (r.x0 - p.x).max(p.x - r.x1).max(0.0);
+            dy * 8.0 + dx
+        };
+        (0..self.items.len()).min_by(|&a, &b| distance(&self.items[a].rect).total_cmp(&distance(&self.items[b].rect)))
+    }
+
+    /// The caret (a position between glyphs, `0..=len`) nearest to `p`.
+    pub fn caret_at(&self, p: Point) -> usize {
+        match self.nearest(p) {
+            Some(i) if p.x > self.items[i].rect.center().x => i + 1,
+            Some(i) => i,
+            None => 0,
+        }
+    }
+
+    /// The glyphs of the word at `p`, as a caret range.
+    pub fn word_at(&self, p: Point) -> std::ops::Range<usize> {
+        let Some(i) = self.nearest(p) else { return 0..0 };
+        let mut start = i;
+        while start > 0 && self.items[start].gap == Gap::None {
+            start -= 1;
+        }
+        let mut end = i + 1;
+        while end < self.items.len() && self.items[end].gap == Gap::None {
+            end += 1;
+        }
+        start..end
+    }
+
+    /// Boxes covering the glyphs in `range`, one per line.
+    pub fn boxes(&self, range: std::ops::Range<usize>) -> Vec<Rect> {
+        let range = range.start.min(self.items.len())..range.end.min(self.items.len());
+        merge_boxes(self.items[range].iter().map(|item| &item.rect))
+    }
+
+    /// The text of the glyphs in `range`, with spaces and line breaks where the page has them.
+    pub fn text(&self, range: std::ops::Range<usize>) -> String {
+        let range = range.start.min(self.items.len())..range.end.min(self.items.len());
+        let mut out = String::new();
+        for (k, item) in self.items[range].iter().enumerate() {
+            if k > 0 {
+                match item.gap {
+                    Gap::None => {}
+                    Gap::Space => out.push(' '),
+                    Gap::Line => out.push('\n'),
+                }
+            }
+            out.push_str(&item.text);
+        }
+        out
     }
 }
 
@@ -419,31 +503,50 @@ struct TextDevice {
     text: PageText,
     /// Box of the previous glyph, for spotting word and line breaks.
     last: Option<Rect>,
+    /// A space glyph was drawn since the last visible one.
+    space: bool,
 }
 
 impl TextDevice {
     fn push(&mut self, s: &str, rect: Rect) {
-        if let Some(last) = self.last {
-            let size = last.height().max(rect.height()).max(1.0);
-            let new_line = (rect.center().y - last.center().y).abs() > size * 0.5;
-            let gap = rect.x0 - last.x1;
-            let new_word = gap > size * 0.15 || gap < -size * 2.0;
-            if (new_line || new_word) && self.text.chars.last().is_some_and(|c| *c != ' ') {
-                self.text.chars.push(' ');
-                self.text.boxes.push(None);
+        let s: String = s.chars().filter(|c| !c.is_control() || c.is_whitespace()).collect();
+        if s.trim().is_empty() {
+            self.space |= !s.is_empty();
+            return;
+        }
+        let gap = match self.last {
+            None => Gap::None,
+            Some(last) => {
+                let size = last.height().max(rect.height()).max(1.0);
+                let new_line = (rect.center().y - last.center().y).abs() > size * 0.5;
+                let gap = rect.x0 - last.x1;
+                if new_line || gap < -size * 2.0 {
+                    Gap::Line
+                } else if self.space || gap > size * 0.15 {
+                    Gap::Space
+                } else {
+                    Gap::None
+                }
             }
+        };
+        self.space = false;
+        let t = &mut self.text;
+        if gap != Gap::None && t.chars.last().is_some_and(|c| *c != ' ') {
+            t.chars.push(' ');
+            t.boxes.push(None);
         }
         for c in s.chars().flat_map(char::to_lowercase) {
             if c.is_whitespace() {
-                if self.text.chars.last().is_some_and(|c| *c != ' ') {
-                    self.text.chars.push(' ');
-                    self.text.boxes.push(None);
+                if t.chars.last().is_some_and(|c| *c != ' ') {
+                    t.chars.push(' ');
+                    t.boxes.push(None);
                 }
-            } else if !c.is_control() {
-                self.text.chars.push(c);
-                self.text.boxes.push(Some(rect));
+            } else {
+                t.chars.push(c);
+                t.boxes.push(Some(rect));
             }
         }
+        t.items.push(TextItem { text: s, rect, gap });
         self.last = Some(rect);
     }
 }
@@ -510,6 +613,35 @@ mod tests {
         assert_eq!(hits[0].len(), 1, "one line, one box");
         assert!(device.text.find("hello world").len() == 1);
         assert!(device.text.find("xyz").is_empty());
+    }
+
+    #[test]
+    fn selects_and_copies() {
+        let mut device = TextDevice::default();
+        for (line, words) in [["Hello", "World"], ["Second", "line"]].iter().enumerate() {
+            let y = line as f64 * 20.0;
+            let mut x = 0.0;
+            for word in words {
+                for c in word.chars() {
+                    device.push(&c.to_string(), Rect::new(x, y, x + 6.0, y + 12.0));
+                    x += 6.0;
+                }
+                device.push(" ", Rect::new(x, y, x + 3.0, y + 12.0));
+                x += 3.0;
+            }
+        }
+        let t = &device.text;
+        assert_eq!(t.len(), 20);
+        assert_eq!(t.text(0..t.len()), "Hello World\nSecond line");
+        // From the right half of the "o" of "Hello" to the right half of the "S" of "Second".
+        let from = t.caret_at(Point::new(28.0, 6.0));
+        let to = t.caret_at(Point::new(5.0, 26.0));
+        assert_eq!((from, to), (5, 11));
+        assert_eq!(t.text(from..to), "World\nS");
+        assert_eq!(t.text(t.word_at(Point::new(60.0, 6.0))), "World");
+        assert_eq!(t.boxes(0..t.len()).len(), 2, "one box per line");
+        assert!(t.is_over_text(Point::new(3.0, 6.0)));
+        assert!(!t.is_over_text(Point::new(3.0, 16.0)));
     }
 
     #[test]

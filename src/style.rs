@@ -233,3 +233,13 @@ pub fn panel(theme: &Theme) -> container::Style {
 pub fn segment(selected: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     move |theme, status| if selected { tool_active(theme, status) } else { tool(theme, status) }
 }
+
+/// Selected text on a PDF page.
+pub fn selection(theme: &Theme) -> container::Style {
+    let p = theme.extended_palette();
+    container::Style {
+        background: Some(Color { a: 0.32, ..p.primary.base.color }.into()),
+        border: Border { radius: 1.5.into(), ..Default::default() },
+        ..Default::default()
+    }
+}

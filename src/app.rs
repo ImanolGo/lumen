@@ -2,6 +2,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use iced::keyboard::{self, Key, Modifiers, key::Named};
@@ -20,9 +21,9 @@ use crate::library::{self, Kind};
 use crate::pdf;
 use crate::print::{self, Outcome};
 use crate::raster::{self, Picture};
-use crate::structure::Target;
+use crate::structure::{PageText, Target};
 use crate::{icons, style};
-use hayro::kurbo::Rect;
+use hayro::kurbo::{Point as PagePoint, Rect};
 
 // ---------------------------------------------------------------- constants
 
@@ -102,6 +103,12 @@ pub struct App {
     contents_scroll: (f32, f32),
     search: Option<Search>,
     search_seq: u64,
+    selection: Option<TextSel>,
+    /// A drag that extends the selection is in progress.
+    selecting: bool,
+    /// The page under the pointer and the pointer's position on it, in page points.
+    hover: Option<(usize, PagePoint)>,
+    hover_text: bool,
     /// When the file now loading was asked for, for the `opened` timing log.
     load_started: Option<Instant>,
     first_view_logged: bool,
@@ -193,6 +200,37 @@ struct PdfView {
 struct Slot {
     shown: Option<(image::Handle, f32)>,
     pending: Option<f32>,
+    /// The page's text, for selection; asked for once the page comes into view.
+    text: Option<Arc<PageText>>,
+    text_pending: bool,
+}
+
+/// A text selection in a PDF: two carets, each a page and a position between glyphs on it.
+#[derive(Debug, Clone, Copy)]
+struct TextSel {
+    anchor: (usize, usize),
+    head: (usize, usize),
+}
+
+impl TextSel {
+    fn ordered(&self) -> ((usize, usize), (usize, usize)) {
+        if self.anchor <= self.head { (self.anchor, self.head) } else { (self.head, self.anchor) }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.anchor == self.head
+    }
+
+    /// The caret range selected on `page`, if any.
+    fn on_page(&self, page: usize, len: usize) -> Option<std::ops::Range<usize>> {
+        let (a, b) = self.ordered();
+        if page < a.0 || page > b.0 {
+            return None;
+        }
+        let start = if page == a.0 { a.1.min(len) } else { 0 };
+        let end = if page == b.0 { b.1.min(len) } else { len };
+        (start < end).then_some(start..end)
+    }
 }
 
 impl PdfView {
@@ -269,6 +307,15 @@ pub enum Message {
     SearchDone(u64),
     Escape,
 
+    PageText(u64, usize, Arc<PageText>),
+    PageHover(usize, Point),
+    PagePress(usize),
+    PageDoubleClick(usize),
+    MouseUp,
+    Copy,
+    SelectAll,
+    Copied(String, bool),
+
     ZoomIn,
     ZoomOut,
     ZoomFit,
@@ -320,6 +367,10 @@ impl App {
             contents_scroll: (0.0, 0.0),
             search: None,
             search_seq: 0,
+            selection: None,
+            selecting: false,
+            hover: None,
+            hover_text: false,
             load_started: None,
             first_view_logged: false,
             area: Size::new(1100.0, 700.0),
@@ -369,6 +420,7 @@ impl App {
                 Event::Keyboard(keyboard::Event::KeyPressed { key: Key::Named(Named::Escape), .. }) => {
                     Some(Message::Escape)
                 }
+                Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => Some(Message::MouseUp),
                 _ => None,
             }),
         ])
@@ -573,6 +625,93 @@ impl App {
             Message::LinkOpened(Ok(())) => Task::none(),
             Message::LinkOpened(Err(e)) => self.toast(format!("Could not open the link: {e}")),
 
+            Message::PageText(generation, page, text) => {
+                if generation != self.generation {
+                    return Task::none();
+                }
+                if let Doc::Pdf(view) = &mut self.doc
+                    && let Some(slot) = view.slots.get_mut(page)
+                {
+                    slot.text = Some(text);
+                    slot.text_pending = false;
+                }
+                Task::none()
+            }
+            Message::PageHover(page, position) => {
+                let Doc::Pdf(view) = &self.doc else { return Task::none() };
+                let point = PagePoint::new((position.x / view.zoom) as f64, (position.y / view.zoom) as f64);
+                let text = view.slots.get(page).and_then(|s| s.text.clone());
+                self.hover = Some((page, point));
+                self.hover_text = text.as_ref().is_some_and(|t| t.is_over_text(point));
+                if self.selecting
+                    && let (Some(sel), Some(text)) = (&mut self.selection, text)
+                {
+                    sel.head = (page, text.caret_at(point));
+                }
+                Task::none()
+            }
+            Message::PagePress(page) => {
+                let text = match (&self.doc, self.hover) {
+                    (Doc::Pdf(view), Some((p, _))) if p == page => view.slots[page].text.clone(),
+                    _ => None,
+                };
+                match (text, self.hover) {
+                    (Some(text), Some((_, point))) if self.hover_text || self.modifiers.shift() => {
+                        let caret = (page, text.caret_at(point));
+                        match &mut self.selection {
+                            // Shift+click extends the selection.
+                            Some(sel) if self.modifiers.shift() => sel.head = caret,
+                            _ => self.selection = Some(TextSel { anchor: caret, head: caret }),
+                        }
+                        self.selecting = true;
+                    }
+                    _ => {
+                        // Not on text: drag to pan, as on the rest of the canvas.
+                        self.selection = None;
+                        self.pan = Some(None);
+                    }
+                }
+                Task::none()
+            }
+            Message::PageDoubleClick(page) => {
+                let Doc::Pdf(view) = &self.doc else { return Task::none() };
+                if let (Some(text), Some((p, point))) = (&view.slots[page].text, self.hover)
+                    && p == page
+                    && self.hover_text
+                {
+                    let word = text.word_at(point);
+                    self.selection = Some(TextSel { anchor: (page, word.start), head: (page, word.end) });
+                    self.selecting = false;
+                    return self.copy_selection(true);
+                }
+                Task::none()
+            }
+            Message::MouseUp => {
+                if self.pan.is_some() {
+                    self.pan = None;
+                }
+                if std::mem::take(&mut self.selecting) {
+                    // Like other Linux apps, a finished selection becomes the primary selection (middle-click paste).
+                    return self.copy_selection(true);
+                }
+                Task::none()
+            }
+            Message::Copy => self.copy_selection(false),
+            Message::SelectAll => {
+                let Doc::Pdf(view) = &self.doc else { return Task::none() };
+                let last = view.doc.page_count() - 1;
+                self.selection = Some(TextSel { anchor: (0, 0), head: (last, usize::MAX) });
+                self.selecting = false;
+                Task::none()
+            }
+            Message::Copied(text, primary) => {
+                if primary {
+                    iced::clipboard::write_primary(text)
+                } else {
+                    iced::clipboard::write(text)
+                }
+            }
+
             Message::SearchOpen => {
                 if !matches!(self.doc, Doc::Pdf(_)) {
                     return Task::none();
@@ -589,6 +728,8 @@ impl App {
             Message::Escape => {
                 if self.search.is_some() {
                     self.search = None;
+                    Task::none()
+                } else if self.selection.take().is_some() {
                     Task::none()
                 } else if self.fullscreen {
                     self.set_fullscreen(false)
@@ -800,6 +941,8 @@ impl App {
                 ("o", true, true) => Message::Open { folder: true },
                 ("p", true, _) => Message::Print,
                 ("f", true, _) if is_pdf => Message::SearchOpen,
+                ("c", true, _) if is_pdf => Message::Copy,
+                ("a", true, _) if is_pdf => Message::SelectAll,
                 ("g", true, false) if is_pdf => Message::SearchNext,
                 ("g", true, true) if is_pdf => Message::SearchPrev,
                 ("q" | "w", true, _) => Message::Quit,
@@ -895,6 +1038,10 @@ impl App {
         self.current = index;
         self.generation += 1;
         self.load_started = Some(Instant::now());
+        self.selection = None;
+        self.selecting = false;
+        self.hover = None;
+        self.hover_text = false;
         if let Some(search) = &mut self.search {
             // Results belong to the old file; the scan restarts once the new one is open.
             *search = Search { query: std::mem::take(&mut search.query), ..Search::default() };
@@ -1227,6 +1374,32 @@ impl App {
         Task::batch([operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x, y }), self.request_pages()])
     }
 
+    /// Copies the selected text to the clipboard (or the primary selection). Pages whose text
+    /// is not loaded yet (after Select All, say) are read first, off the UI thread.
+    fn copy_selection(&self, primary: bool) -> Task<Message> {
+        let (Doc::Pdf(view), Some(sel)) = (&self.doc, self.selection) else { return Task::none() };
+        if sel.is_empty() {
+            return Task::none();
+        }
+        let doc = view.doc.clone();
+        let (a, b) = sel.ordered();
+        Task::perform(
+            async move {
+                let mut out = String::new();
+                for page in a.0..=b.0 {
+                    let text = doc.text(page).await;
+                    let Some(range) = sel.on_page(page, text.len()) else { continue };
+                    if !out.is_empty() {
+                        out.push('\n');
+                    }
+                    out.push_str(&text.text(range));
+                }
+                out
+            },
+            move |text| Message::Copied(text, primary),
+        )
+    }
+
     /// (Re)starts searching the open PDF for the current query, from the page in view onwards.
     fn start_search(&mut self) -> Task<Message> {
         self.search_seq += 1;
@@ -1309,6 +1482,16 @@ impl App {
             tasks.push(Task::perform(async move { doc.render(i, wanted).await.map_err(err_string) }, move |r| {
                 Message::PageRendered(generation, i, wanted, r)
             }));
+        }
+        // Text for selection, for the pages in view.
+        for i in visible.clone() {
+            let slot = &mut view.slots[i];
+            if slot.text.is_some() || slot.text_pending {
+                continue;
+            }
+            slot.text_pending = true;
+            let doc = view.doc.clone();
+            tasks.push(Task::perform(async move { doc.text(i).await }, move |t| Message::PageText(generation, i, t)));
         }
         // Bound memory: drop bitmaps of pages well out of view.
         for (i, slot) in view.slots.iter_mut().enumerate() {
@@ -1621,6 +1804,18 @@ impl App {
                     }
                 }
             }
+            if let (Some(sel), Some(text)) = (&self.selection, &view.slots[i].text)
+                && let Some(range) = sel.on_page(i, text.len())
+            {
+                for r in text.boxes(range) {
+                    let r = r.inflate(0.5, 0.5);
+                    let mark = container(space())
+                        .width(r.width() as f32 * view.zoom)
+                        .height(r.height() as f32 * view.zoom)
+                        .style(style::selection);
+                    layers = layers.push(placed(&r, view.zoom, mark.into()));
+                }
+            }
             for link in view.doc.links(i) {
                 let area = mouse_area(
                     space().width(link.rect.width() as f32 * view.zoom).height(link.rect.height() as f32 * view.zoom),
@@ -1643,7 +1838,21 @@ impl App {
                 };
                 layers = layers.push(placed(&link.rect, view.zoom, area));
             }
-            pages = pages.push(container(layers).width(w).height(h).style(style::page));
+            let hovered = self.hover.is_some_and(|(p, _)| p == i);
+            let interaction = if self.pan.is_some() {
+                mouse::Interaction::Grabbing
+            } else if self.selecting || (hovered && self.hover_text) {
+                mouse::Interaction::Text
+            } else {
+                mouse::Interaction::Grab
+            };
+            let page = mouse_area(container(layers).width(w).height(h).style(style::page))
+                .on_move(move |p| Message::PageHover(i, p))
+                .on_press(Message::PagePress(i))
+                .on_double_click(Message::PageDoubleClick(i))
+                .on_middle_press(Message::PanStart)
+                .interaction(interaction);
+            pages = pages.push(page);
             if i < hi {
                 pages = pages.push(space().height(PAGE_GAP));
             }
