@@ -22,6 +22,7 @@ The original Lumen is built on GTK 4, libadwaita and poppler. This edition:
 - **Pictures:** PNG, JPEG, GIF (first frame), WebP, BMP, TIFF, ICO, QOI, TGA, the PNM family, and SVG. EXIF orientation is honoured.
 - **PDFs:** continuous scrolling, a table of contents, search, and clickable links. Only the pages near the view are rendered, and that happens on a pool of background threads that does the newest request first. Pages re-render sharply at every zoom level and on HiDPI screens.
 - **Search:** Ctrl+F finds text across the whole document (case-insensitive), highlights every match and jumps between them. It starts from the page you are on, results appear while it scans, and each page's text is read only once. The 477-page Ghostscript manual is fully indexed in about 0.7 s.
+- **Text selection:** drag over text to select it (Shift+click extends, double-click picks a word), Ctrl+C copies, Ctrl+A selects the whole document. Like other Linux apps, the selection also goes to the primary selection for middle-click paste. Dragging anywhere that is not text still pans.
 - **Table of contents:** the PDF's outline appears in the sidebar, follows you as you scroll, and jumps to the exact spot of each section.
 - **Links:** links inside the document jump to their target. Web and mail links open in your browser or mail app through the desktop portal; other kinds of link (files, programs) are ignored for safety.
 - **Folders:** open a folder, or open one file and flip through its neighbours. You can also drop files and folders onto the window. A sidebar on the left lists the files with lazily loaded thumbnails (only the rows on screen are built, so huge folders stay fast); camera JPEGs use their embedded EXIF thumbnail.
@@ -31,7 +32,7 @@ The original Lumen is built on GTK 4, libadwaita and poppler. This edition:
 - **Fast flipping:** the next and previous pictures are preloaded, and recently viewed ones are kept decoded.
 - **Robust:** decoding runs under allocation limits, and a panic while decoding or rendering a hostile file becomes an error message instead of a crash.
 
-Editing, markup, forms, signing, text selection and password-protected PDFs from the original Lumen are not ported yet.
+Editing, markup, forms, signing and password-protected PDFs from the original Lumen are not ported yet.
 
 ## Keyboard
 
@@ -39,6 +40,7 @@ Editing, markup, forms, signing, text selection and password-protected PDFs from
 |---|---|
 | Ctrl+O / Ctrl+Shift+O | Open files / open a folder |
 | Ctrl+P | Print |
+| Ctrl+C / Ctrl+A | Copy the selected text / select all text (PDF) |
 | Ctrl+F | Find in the PDF (Enter / Shift+Enter or F3 / Shift+F3 for next / previous, Esc to close) |
 | ← → (Space / Backspace for pictures) | Next / previous file |
 | Home / End | First / last file (first / last page in a PDF) |
