@@ -51,7 +51,7 @@ icon!(
     fullscreen,
     r#"<path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/>"#
 );
-icon!(strip, r#"<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M5 20h2M11 20h2M17 20h2"/>"#);
+icon!(strip, r#"<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M5 8h2M5 11h2M5 14h2"/>"#);
 icon!(
     broken,
     r#"<rect x="3" y="3" width="18" height="18" rx="2"/><path d="m3 15 5-5 4 4"/><path d="m14 12 7 7"/><path d="M16 8h.01"/>"#

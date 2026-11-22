@@ -21,7 +21,7 @@ The original Lumen is built on GTK 4, libadwaita and poppler. This edition:
 
 - **Pictures:** PNG, JPEG, GIF (first frame), WebP, BMP, TIFF, ICO, QOI, TGA, the PNM family, and SVG. EXIF orientation is honoured.
 - **PDFs:** continuous scrolling. Only the pages near the view are rendered, and that happens on a pool of background threads that does the newest request first. Pages re-render sharply at every zoom level and on HiDPI screens.
-- **Folders:** open a folder, or open one file and flip through its neighbours. You can also drop files and folders onto the window. A thumbnail strip at the bottom loads lazily; camera JPEGs use their embedded EXIF thumbnail.
+- **Folders:** open a folder, or open one file and flip through its neighbours. You can also drop files and folders onto the window. A sidebar on the left lists the files with lazily loaded thumbnails (only the rows on screen are built, so huge folders stay fast); camera JPEGs use their embedded EXIF thumbnail.
 - **Printing:** uses the desktop's native print dialog through the XDG print portal. PDFs are sent as they are. Pictures are fitted to the paper and margins you choose and sent as a one-page PDF at up to 300 dpi.
 - **Light and dark mode:** follows the system colour scheme and switches live when you change it.
 - **Zoom and pan:** best fit, fit width (PDF), actual size, Ctrl + scroll wheel, and drag to pan. View-only rotation for pictures.
@@ -43,7 +43,7 @@ Editing, markup, forms and signing from the original Lumen are not ported yet.
 | + − 0 1 | Zoom in, zoom out, best fit, actual size |
 | W | Fit width (PDF) |
 | R / Shift+R | Rotate right / left (pictures) |
-| T | Show or hide the thumbnail strip |
+| T | Show or hide the sidebar |
 | F / F11, Esc | Fullscreen, leave fullscreen |
 | Ctrl+Q / Ctrl+W | Quit |
 
@@ -85,6 +85,10 @@ xdg-mime default io.github.imanolgo.LumenRs.desktop application/pdf
 | `src/style.rs`, `src/icons.rs` | Light and dark palettes, widget styles, symbolic icons |
 
 Run `make test` and `make lint` before sending changes.
+
+## Timings
+
+Like the GTK Lumen, timings are logged at `info` level: `open requested`, `window built`, `opened load_ms=…` and `first view on screen ms=…` (for a PDF, when its first page is drawn). Run `lumen-rs file.pdf` from a terminal to see them; `RUST_LOG=warn` silences them.
 
 ## License
 

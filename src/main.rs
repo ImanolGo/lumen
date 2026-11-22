@@ -12,6 +12,15 @@ mod raster;
 mod style;
 
 use std::path::PathBuf;
+use std::sync::OnceLock;
+use std::time::Instant;
+
+static STARTED: OnceLock<Instant> = OnceLock::new();
+
+/// Milliseconds since the process started, for the timing logs.
+pub fn since_start() -> u64 {
+    STARTED.get().map_or(0, |t| t.elapsed().as_millis() as u64)
+}
 
 const HELP: &str = "\
 Usage: lumen-rs [FILE|FOLDER]...
@@ -26,10 +35,11 @@ Options:
   -V, --version    Show the version";
 
 fn main() -> iced::Result {
+    STARTED.get_or_init(Instant::now);
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "warn,wgpu=error,naga=error".into()),
+                .unwrap_or_else(|_| "warn,lumen_rs=info,wgpu=error,naga=error".into()),
         )
         .init();
 

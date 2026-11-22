@@ -2,8 +2,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use iced::keyboard::{self, Key, Modifiers, key::Named};
 use iced::mouse::{self, ScrollDelta};
@@ -26,9 +25,10 @@ use crate::{icons, style};
 // ---------------------------------------------------------------- constants
 
 const TOOLBAR_H: f32 = 52.0;
-const STRIP_H: f32 = 96.0;
-const THUMB_BOX: f32 = 72.0;
-const THUMB_GAP: f32 = 6.0;
+const SIDEBAR_W: f32 = 236.0;
+/// Height of one sidebar row; rows are fixed-height so the list can be virtualised.
+const ROW_H: f32 = 64.0;
+const ROW_THUMB: f32 = 52.0;
 /// How many thumbnails are decoded at once.
 const THUMB_PARALLEL: usize = 4;
 /// How far either side of the current file thumbnails are prepared.
@@ -46,8 +46,8 @@ const ZOOM_STEP: f32 = 1.25;
 fn scroll_id() -> Id {
     Id::new("content")
 }
-fn strip_id() -> Id {
-    Id::new("strip")
+fn sidebar_id() -> Id {
+    Id::new("sidebar")
 }
 
 // ---------------------------------------------------------------- state
@@ -58,7 +58,12 @@ pub struct App {
     window: Option<window::Id>,
     scale_factor: f32,
     fullscreen: bool,
-    show_strip: bool,
+    show_sidebar: bool,
+    /// Scroll offset and height of the sidebar list (logical px).
+    sidebar_scroll: (f32, f32),
+    /// When the file now loading was asked for, for the `opened` timing log.
+    load_started: Option<Instant>,
+    first_view_logged: bool,
     /// Size of the area pictures and pages are drawn in (logical px).
     area: Size,
     viewport: Viewport,
@@ -102,7 +107,7 @@ struct Loaded {
 
 impl From<Picture> for Loaded {
     fn from(p: Picture) -> Self {
-        let handle = image::Handle::from_rgba(p.width, p.height, p.rgba.as_ref().clone());
+        let handle = image::Handle::from_rgba(p.width, p.height, p.rgba.clone());
         Self { handle, width: p.width, height: p.height, original: p.original, picture: p }
     }
 }
@@ -207,6 +212,7 @@ pub enum Message {
     PdfOpened(u64, PathBuf, Result<pdf::Document, String>),
     PageRendered(u64, usize, f32, Result<Picture, String>),
     Thumb(PathBuf, Option<Picture>),
+    SidebarScrolled(f32, f32),
 
     ZoomIn,
     ZoomOut,
@@ -226,7 +232,7 @@ pub enum Message {
     Printed(Result<Outcome, String>),
     ToggleFullscreen,
     ExitFullscreen,
-    ToggleStrip,
+    ToggleSidebar,
     DismissToast(u64),
     Quit,
 }
@@ -254,7 +260,10 @@ impl App {
             window: None,
             scale_factor: 1.0,
             fullscreen: false,
-            show_strip: true,
+            show_sidebar: true,
+            sidebar_scroll: (0.0, 0.0),
+            load_started: None,
+            first_view_logged: false,
             area: Size::new(1100.0, 700.0),
             viewport: Viewport::default(),
             modifiers: Modifiers::default(),
@@ -275,6 +284,7 @@ impl App {
         };
         let mut tasks = vec![system::theme().map(Message::SystemTheme)];
         if !paths.is_empty() {
+            tracing::info!(ms = crate::since_start(), "open requested");
             tasks.push(expand(paths, false));
         }
         (app, Task::batch(tasks))
@@ -399,6 +409,7 @@ impl App {
                 }
                 match result {
                     Ok(p) => {
+                        self.log_opened(&path, "picture");
                         let loaded: Loaded = p.into();
                         self.remember(path.clone(), loaded.clone());
                         self.doc = Doc::Image(ImageView { path, shown: loaded, zoom: None, turns: 0, rotating: false });
@@ -423,6 +434,7 @@ impl App {
                 }
                 match result {
                     Ok(doc) => {
+                        self.log_opened(&path, "pdf");
                         let slots = (0..doc.page_count()).map(|_| Slot::default()).collect();
                         let mut view =
                             PdfView { doc, zoom: 1.0, fit: PdfFit::Width, tops: Vec::new(), slots, current_page: 0 };
@@ -453,7 +465,11 @@ impl App {
                 }
                 match result {
                     Ok(p) => {
-                        slot.shown = Some((image::Handle::from_rgba(p.width, p.height, p.rgba.as_ref().clone()), scale))
+                        if !self.first_view_logged {
+                            self.first_view_logged = true;
+                            tracing::info!(ms = crate::since_start(), page = page + 1, "first view on screen");
+                        }
+                        slot.shown = Some((image::Handle::from_rgba(p.width, p.height, p.rgba.clone()), scale))
                     }
                     Err(e) => tracing::warn!("page {}: {e}", page + 1),
                 }
@@ -461,8 +477,13 @@ impl App {
             }
             Message::Thumb(path, picture) => {
                 self.thumbs_running = self.thumbs_running.saturating_sub(1);
-                let handle = picture.map(|p| image::Handle::from_rgba(p.width, p.height, p.rgba.as_ref().clone()));
+                let handle = picture.map(|p| image::Handle::from_rgba(p.width, p.height, p.rgba.clone()));
                 self.thumbs.insert(path, handle);
+                self.request_thumbs()
+            }
+
+            Message::SidebarScrolled(offset, height) => {
+                self.sidebar_scroll = (offset, height);
                 self.request_thumbs()
             }
 
@@ -551,9 +572,9 @@ impl App {
             }
             Message::ToggleFullscreen => self.set_fullscreen(!self.fullscreen),
             Message::ExitFullscreen => self.set_fullscreen(false),
-            Message::ToggleStrip => {
-                self.show_strip = !self.show_strip;
-                if self.show_strip { self.scroll_strip() } else { Task::none() }
+            Message::ToggleSidebar => {
+                self.show_sidebar = !self.show_sidebar;
+                if self.show_sidebar { self.reveal_in_sidebar() } else { Task::none() }
             }
             Message::DismissToast(id) => {
                 if self.toast.as_ref().is_some_and(|(t, _)| *t == id) {
@@ -568,6 +589,7 @@ impl App {
     fn window_event(&mut self, id: window::Id, event: window::Event) -> Task<Message> {
         match event {
             window::Event::Opened { .. } => {
+                tracing::info!(ms = crate::since_start(), "window built");
                 self.window = Some(id);
                 window::scale_factor(id).map(Message::ScaleFactor)
             }
@@ -624,7 +646,7 @@ impl App {
                 ("r", false, false) => Message::Rotate(1),
                 ("r", false, true) => Message::Rotate(-1),
                 ("f", false, _) => Message::ToggleFullscreen,
-                ("t", false, _) => Message::ToggleStrip,
+                ("t", false, _) => Message::ToggleSidebar,
                 _ => return Task::none(),
             },
             Key::Named(named) => match named {
@@ -701,6 +723,7 @@ impl App {
         }
         self.current = index;
         self.generation += 1;
+        self.load_started = Some(Instant::now());
         self.pan = None;
         let generation = self.generation;
         let path = self.files[index].clone();
@@ -718,6 +741,7 @@ impl App {
             }
             _ => {
                 if let Some(loaded) = self.cached(&path) {
+                    self.log_opened(&path, "cached");
                     self.doc = Doc::Image(ImageView { path, shown: loaded, zoom: None, turns: 0, rotating: false });
                     self.preload_neighbours()
                 } else {
@@ -737,7 +761,17 @@ impl App {
             }
         };
         let reset = operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 });
-        Task::batch([load, reset, self.request_thumbs(), self.scroll_strip()])
+        Task::batch([load, reset, self.request_thumbs(), self.reveal_in_sidebar()])
+    }
+
+    /// Logs how long the current file took to open, like the GTK Lumen's `opened load_ms`.
+    fn log_opened(&mut self, path: &Path, kind: &str) {
+        let load_ms = self.load_started.take().map(|t| t.elapsed().as_millis() as u64);
+        tracing::info!(path = %path.display(), kind, load_ms, "opened");
+        if !self.first_view_logged && kind != "pdf" {
+            self.first_view_logged = true;
+            tracing::info!(ms = crate::since_start(), "first view on screen");
+        }
     }
 
     fn cached(&mut self, path: &Path) -> Option<Loaded> {
@@ -777,21 +811,36 @@ impl App {
         Task::batch(tasks)
     }
 
+    /// Sidebar rows on screen, as an index range.
+    fn sidebar_rows(&self) -> std::ops::Range<usize> {
+        let (offset, height) = self.sidebar_scroll;
+        let height = if height > 0.0 { height } else { self.area.height.max(ROW_H) };
+        let first = (offset / ROW_H).floor().max(0.0) as usize;
+        let last = ((offset + height) / ROW_H).ceil() as usize + 1;
+        first.min(self.files.len())..last.min(self.files.len())
+    }
+
     fn request_thumbs(&mut self) -> Task<Message> {
         if self.files.len() < 2 {
             return Task::none();
         }
-        let lo = self.current.saturating_sub(THUMB_RADIUS);
-        let hi = (self.current + THUMB_RADIUS).min(self.files.len() - 1);
-        // Nearest first, alternating right and left of the current file.
-        let order = (0..=THUMB_RADIUS).flat_map(|d| [self.current + d, self.current.wrapping_sub(d)]);
+        // Rows on screen first (top to bottom), then the files you are likely to flip to next.
+        let visible = if self.show_sidebar && !self.fullscreen { self.sidebar_rows() } else { 0..0 };
+        let near = (0..=THUMB_RADIUS).flat_map(|d| [self.current + d, self.current.wrapping_sub(d)]);
+        let order: Vec<usize> = visible.clone().chain(near).filter(|&i| i < self.files.len()).collect();
+
+        // Keep memory flat in huge folders: forget thumbnails far from both the view and the current file.
+        if self.thumbs.len() > 6 * THUMB_RADIUS {
+            let keep_from = |c: usize| c.saturating_sub(2 * THUMB_RADIUS)..c + 2 * THUMB_RADIUS;
+            let (a, b) = (keep_from(visible.start), keep_from(self.current));
+            let keep: HashSet<&PathBuf> = a.chain(b).filter_map(|i| self.files.get(i)).collect();
+            self.thumbs.retain(|p, t| t.is_none() || keep.contains(p));
+        }
+
         let mut tasks = Vec::new();
         for i in order {
             if self.thumbs_running >= THUMB_PARALLEL {
                 break;
-            }
-            if i < lo || i > hi {
-                continue;
             }
             let path = self.files[i].clone();
             if self.thumbs.contains_key(&path) {
@@ -813,10 +862,19 @@ impl App {
         Task::batch(tasks)
     }
 
-    fn scroll_strip(&self) -> Task<Message> {
-        let step = THUMB_BOX + THUMB_GAP;
-        let x = (self.current as f32 * step + THUMB_BOX / 2.0 - self.area.width / 2.0).max(0.0);
-        operation::scroll_to(strip_id(), scrollable::AbsoluteOffset { x: Some(x), y: None })
+    /// Scrolls the sidebar just enough to show the current file.
+    fn reveal_in_sidebar(&self) -> Task<Message> {
+        let (offset, height) = self.sidebar_scroll;
+        let height = if height > 0.0 { height } else { self.area.height };
+        let top = self.current as f32 * ROW_H;
+        let y = if top < offset {
+            top
+        } else if top + ROW_H > offset + height {
+            top + ROW_H - height
+        } else {
+            return Task::none();
+        };
+        operation::scroll_to(sidebar_id(), scrollable::AbsoluteOffset { x: None, y: Some(y.max(0.0)) })
     }
 
     // ------------------------------------------------------------ zoom
@@ -980,13 +1038,13 @@ impl App {
 }
 
 fn rotate(p: Picture, clockwise: bool) -> Picture {
-    let rgba = Arc::try_unwrap(p.rgba).unwrap_or_else(|a| (*a).clone());
+    let rgba = Vec::from(p.rgba);
     let Some(img) = ::image::RgbaImage::from_raw(p.width, p.height, rgba) else {
-        return Picture { width: 0, height: 0, original: p.original, rgba: Arc::new(Vec::new()) };
+        return Picture { width: 0, height: 0, original: p.original, rgba: Default::default() };
     };
     let out = if clockwise { ::image::imageops::rotate90(&img) } else { ::image::imageops::rotate270(&img) };
     let (width, height) = out.dimensions();
-    Picture { width, height, original: (p.original.1, p.original.0), rgba: Arc::new(out.into_raw()) }
+    Picture { width, height, original: (p.original.1, p.original.0), rgba: out.into_raw().into() }
 }
 
 // ---------------------------------------------------------------- view
@@ -1023,14 +1081,16 @@ impl App {
             .on_show(Message::AreaResized)
             .on_resize(Message::AreaResized);
 
+        let mut body = row![];
+        if !self.fullscreen && self.show_sidebar && self.files.len() > 1 {
+            body = body.push(self.sidebar());
+        }
+        body = body.push(content);
         let mut layout = column![];
         if !self.fullscreen {
             layout = layout.push(self.toolbar());
         }
-        layout = layout.push(content);
-        if !self.fullscreen && self.show_strip && self.files.len() > 1 {
-            layout = layout.push(self.strip());
-        }
+        layout = layout.push(body.height(Length::Fill));
 
         let mut layers = stack![layout.width(Length::Fill).height(Length::Fill)];
         if self.drop_hover {
@@ -1043,10 +1103,7 @@ impl App {
                     .height(Length::Fill)
                     .align_x(Alignment::Center)
                     .align_y(Alignment::End)
-                    .padding(Padding {
-                        bottom: if self.files.len() > 1 { STRIP_H + 16.0 } else { 24.0 },
-                        ..Padding::ZERO
-                    }),
+                    .padding(Padding { bottom: 24.0, ..Padding::ZERO }),
             );
         }
         layers.into()
@@ -1151,7 +1208,7 @@ impl App {
         ));
         if multi {
             right =
-                right.push(icon_button(icons::strip(), "Thumbnails (T)", Some(Message::ToggleStrip), self.show_strip));
+                right.push(icon_button(icons::strip(), "Sidebar (T)", Some(Message::ToggleSidebar), self.show_sidebar));
         }
         right = right.push(icon_button(icons::fullscreen(), "Fullscreen (F)", Some(Message::ToggleFullscreen), false));
 
@@ -1280,10 +1337,15 @@ impl App {
         self.pannable(scroller.into(), true)
     }
 
-    fn strip(&self) -> Element<'_, Message> {
-        let mut items = row![].spacing(THUMB_GAP).padding([0, 8]).align_y(Alignment::Center);
-        for (i, path) in self.files.iter().enumerate() {
-            let inner: Element<'_, Message> = match self.thumbs.get(path) {
+    /// The file list on the left. Only the rows on screen (plus a margin) become widgets,
+    /// so a folder of ten thousand files costs about as much as one of ten.
+    fn sidebar(&self) -> Element<'_, Message> {
+        let rows = self.sidebar_rows();
+        let first = rows.start.saturating_sub(6);
+        let last = (rows.end + 6).min(self.files.len());
+        let mut list = column![space().height(first as f32 * ROW_H)];
+        for (i, path) in self.files.iter().enumerate().take(last).skip(first) {
+            let thumb: Element<'_, Message> = match self.thumbs.get(path) {
                 Some(Some(handle)) => image(handle.clone())
                     .content_fit(ContentFit::Contain)
                     .width(Length::Fill)
@@ -1292,20 +1354,45 @@ impl App {
                     .into(),
                 _ => container(space()).width(Length::Fill).height(Length::Fill).style(style::thumb_placeholder).into(),
             };
-            let b = button(container(inner).padding(4).width(THUMB_BOX).height(THUMB_BOX))
-                .padding(0)
-                .style(style::thumb(i == self.current))
-                .on_press(Message::Select(i));
-            items = items.push(b);
+            let name = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
+            let (stem, ext) = match name.rsplit_once('.') {
+                Some((stem, ext)) if !stem.is_empty() => (stem.to_owned(), ext.to_ascii_uppercase()),
+                _ => (name.to_string(), String::new()),
+            };
+            let label = column![
+                text(stem).size(13).wrapping(text::Wrapping::None),
+                text(ext).size(11).style(muted).wrapping(text::Wrapping::None),
+            ]
+            .spacing(2);
+            let content = row![
+                container(thumb).width(ROW_THUMB).height(ROW_THUMB),
+                container(label).width(Length::Fill).clip(true),
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center);
+            list = list.push(
+                container(
+                    button(content)
+                        .padding([4, 6])
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .style(style::thumb(i == self.current))
+                        .on_press(Message::Select(i)),
+                )
+                .padding([2, 6])
+                .height(ROW_H),
+            );
         }
+        list = list.push(space().height((self.files.len() - last) as f32 * ROW_H));
         container(
-            scrollable(items)
-                .id(strip_id())
-                .direction(scrollable::Direction::Horizontal(scrollable::Scrollbar::new().width(4).scroller_width(4)))
-                .width(Length::Fill),
+            scrollable(list.width(Length::Fill))
+                .id(sidebar_id())
+                .direction(scrollable::Direction::Vertical(scrollable::Scrollbar::new().width(4).scroller_width(4)))
+                .on_scroll(|vp| Message::SidebarScrolled(vp.absolute_offset().y, vp.bounds().height))
+                .height(Length::Fill),
         )
-        .height(STRIP_H)
-        .align_y(Alignment::Center)
+        .width(SIDEBAR_W)
+        .height(Length::Fill)
         .style(style::bar)
         .into()
     }

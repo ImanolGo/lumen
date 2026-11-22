@@ -175,7 +175,7 @@ fn worker(bytes: Arc<Vec<u8>>, queue: &Queue) {
                 .map(|pixmap| {
                     let (width, height) = (pixmap.width() as u32, pixmap.height() as u32);
                     let rgba = pixmap.take_rgba8(hayro::vello_cpu::peniko::ImageAlphaType::Alpha);
-                    Picture { width, height, original: (w.round() as u32, h.round() as u32), rgba: Arc::new(rgba) }
+                    Picture { width, height, original: (w.round() as u32, h.round() as u32), rgba: rgba.into() }
                 })
             }
         };
@@ -202,7 +202,7 @@ pub fn thumbnail(path: &Path, side: u32) -> Result<Picture> {
         width,
         height,
         original: (w as u32, h as u32),
-        rgba: Arc::new(pixmap.take_rgba8(hayro::vello_cpu::peniko::ImageAlphaType::Alpha)),
+        rgba: pixmap.take_rgba8(hayro::vello_cpu::peniko::ImageAlphaType::Alpha).into(),
     })
 }
 

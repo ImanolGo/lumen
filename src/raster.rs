@@ -8,6 +8,8 @@ use std::io::{BufReader, Cursor};
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
+use bytes::Bytes;
+
 use anyhow::{Context, Result, bail};
 use image::{DynamicImage, ImageDecoder, ImageReader, Limits, RgbaImage, metadata::Orientation};
 use resvg::{tiny_skia, usvg};
@@ -28,13 +30,14 @@ pub struct Picture {
     pub height: u32,
     /// Size of the original file's pixels (before any downscaling).
     pub original: (u32, u32),
-    pub rgba: Arc<Vec<u8>>,
+    /// Shared and immutable: handing it to the renderer or a cache never copies the pixels.
+    pub rgba: Bytes,
 }
 
 impl Picture {
     fn from_rgba(img: RgbaImage, original: (u32, u32)) -> Self {
         let (width, height) = img.dimensions();
-        Self { width, height, original, rgba: Arc::new(img.into_raw()) }
+        Self { width, height, original, rgba: img.into_raw().into() }
     }
 }
 
@@ -52,7 +55,7 @@ pub fn load_for_print(path: &Path) -> Result<image::RgbImage> {
     let rgba: RgbaImage = match Kind::of(path) {
         Some(Kind::Svg) => {
             let pic = load_svg(path, 3000)?;
-            let rgba = Arc::try_unwrap(pic.rgba).unwrap_or_else(|a| (*a).clone());
+            let rgba = Vec::from(pic.rgba);
             RgbaImage::from_raw(pic.width, pic.height, rgba).context("bad SVG raster")?
         }
         Some(Kind::Image) => decode(path)?.into_rgba8(),
@@ -125,7 +128,7 @@ fn load_svg(path: &Path, target_side: u32) -> Result<Picture> {
         let c = px.demultiply();
         rgba.extend_from_slice(&[c.red(), c.green(), c.blue(), c.alpha()]);
     }
-    Ok(Picture { width: pw, height: ph, original: (w.round() as u32, h.round() as u32), rgba: Arc::new(rgba) })
+    Ok(Picture { width: pw, height: ph, original: (w.round() as u32, h.round() as u32), rgba: rgba.into() })
 }
 
 /// A small preview of a picture. Uses the JPEG's embedded EXIF thumbnail when it
