@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 150 150">
+  <!-- Lumen: a fan of pages, the front one a photo above text, with a highlighter stroke -->
+  <rect width="150" height="150" rx="34" fill="#1f1d2b"/>
+
+  <!-- back pages -->
+  <rect x="36" y="22" width="78" height="100" rx="10" fill="#5a4d85" transform="rotate(-12 75 138)"/>
+  <rect x="36" y="22" width="78" height="100" rx="10" fill="#e8795a" transform="rotate(12 75 138)"/>
+
+  <!-- front page -->
+  <rect x="36" y="22" width="78" height="100" rx="10" fill="#ffffff"/>
+
+  <!-- photo -->
+  <rect x="45" y="31" width="60" height="40" rx="5" fill="#ffcf8a"/>
+  <circle cx="92" cy="42" r="5" fill="#fff6dd"/>
+  <path d="M45 71 L63 50 L75 61 L85 53 L105 71 Z" fill="#6b5b95"/>
+
+  <!-- text lines -->
+  <rect x="45" y="82" width="52" height="6" rx="3" fill="#c9c3b6"/>
+  <rect x="45" y="108" width="46" height="6" rx="3" fill="#c9c3b6"/>
+
+  <!-- highlighter stroke -->
+  <path d="M41 98 Q72 91 106 97" fill="none" stroke="#f6b73c" stroke-width="11" stroke-linecap="round"/>
+</svg>
