@@ -6,6 +6,7 @@ use iced::widget::{button, center, column, container, mouse_area, opaque, row, r
 use iced::{Alignment, Element, Font, Length, Padding, Task, Theme};
 
 use super::edit::EditMsg;
+use super::export::ExportMsg;
 use super::markup::MarkupMsg;
 use super::pages::PagesMsg;
 use super::signature::SignMsg;
@@ -23,6 +24,7 @@ pub enum Dialog {
     Shortcuts,
     About,
     Properties,
+    Export,
 }
 
 /// One line of a menu: a label, its shortcut, and what it does (greyed out without).
@@ -150,6 +152,17 @@ impl App {
             items.push(Some(("Save", "Ctrl+S", save.then_some(Message::Markup(MarkupMsg::Save)))));
         }
         items.push(Some(("Save a Copy…", "Ctrl+Shift+S", doc(Message::Markup(MarkupMsg::SaveAs)))));
+        if is_pdf {
+            items.push(Some(("Export Pages…", "", Some(Message::Export(ExportMsg::Open)))));
+            items.push(Some((
+                "Combine Files…",
+                "",
+                self.markup_busy.is_none().then_some(Message::Export(ExportMsg::Combine)),
+            )));
+        }
+        if is_image {
+            items.push(Some(("Export as PDF…", "", Some(Message::Export(ExportMsg::Picture)))));
+        }
         items.push(None);
         items.push(Some(("Properties…", "", doc(Message::ShowProperties))));
         items.push(Some(("Keyboard Shortcuts", "", Some(Message::Dialog(Some(Dialog::Shortcuts))))));
@@ -237,6 +250,7 @@ impl App {
                 .width(420)
                 .into()
             }
+            Dialog::Export => self.export_dialog(title("Export").into(), close.into()),
             Dialog::Properties => {
                 let mut sections = column![].spacing(16);
                 match &self.properties {

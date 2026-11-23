@@ -32,7 +32,7 @@ pub struct Organizer {
     selected: BTreeSet<usize>,
     anchor: Option<usize>,
     /// Source 0 is the open document; the rest are the PDFs pages were inserted from.
-    sources: Vec<pdf::Document>,
+    pub(super) sources: Vec<pdf::Document>,
     thumbs: HashMap<(usize, usize), image::Handle>,
     requested: HashSet<(usize, usize)>,
     scroll: (f32, f32),
@@ -54,6 +54,11 @@ impl Organizer {
             self.past.push(before);
             self.future.clear();
         }
+    }
+
+    /// The plan's entries at the selected positions, in page order.
+    pub fn selected_entries(&self) -> Vec<Entry> {
+        self.selected.iter().filter_map(|&p| self.plan.get(p).cloned()).collect()
     }
 
     fn positions(&self) -> Vec<usize> {
@@ -529,6 +534,12 @@ impl App {
             icon_button(icons::delete(), "Delete (Del)", any.then_some(Message::Pages(PagesMsg::Delete)), false),
             separator(),
             icon_button(icons::insert(), "Insert pages from another PDF…", p(PagesMsg::Insert), false),
+            icon_button(
+                icons::export(),
+                "Export the selected pages…",
+                any.then_some(Message::Export(super::export::ExportMsg::Open)),
+                false
+            ),
             separator(),
             icon_button(
                 icons::undo(),

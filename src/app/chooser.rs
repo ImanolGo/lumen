@@ -15,6 +15,7 @@ use iced::widget::{
 };
 use iced::{Alignment, Element, Font, Length, Task, Theme};
 
+use super::export::ExportMsg;
 use super::markup::MarkupMsg;
 use super::pages::PagesMsg;
 use super::{App, Message, blocking, err_string, file_name, muted};
@@ -43,11 +44,20 @@ pub enum Purpose {
     SaveCopy,
     /// Where to save the rearranged PDF (the page organiser).
     SavePages,
+    /// Where to write an export (any file name).
+    Export,
+    /// The folder to write several exported files into.
+    ExportFolder,
 }
 
 impl Purpose {
     fn saves(self) -> bool {
-        matches!(self, Self::SaveCopy | Self::SavePages)
+        matches!(self, Self::SaveCopy | Self::SavePages | Self::Export)
+    }
+
+    /// Choosing a folder rather than a file.
+    fn folder(self) -> bool {
+        matches!(self, Self::OpenFolder | Self::ExportFolder)
     }
 
     fn title(self) -> &'static str {
@@ -56,6 +66,8 @@ impl Purpose {
             Self::OpenFolder => "Open Folder",
             Self::InsertPdf => "Insert Pages From",
             Self::SaveCopy | Self::SavePages => "Save a Copy",
+            Self::Export => "Export",
+            Self::ExportFolder => "Export to Folder",
         }
     }
 
@@ -63,9 +75,9 @@ impl Purpose {
     fn shows(self, path: &Path) -> bool {
         match self {
             Self::OpenFiles => Kind::of(path).is_some(),
-            Self::OpenFolder => false,
+            Self::OpenFolder | Self::ExportFolder => false,
             Self::InsertPdf => Kind::of(path) == Some(Kind::Pdf),
-            Self::SaveCopy | Self::SavePages => true,
+            Self::SaveCopy | Self::SavePages | Self::Export => true,
         }
     }
 
@@ -77,6 +89,7 @@ impl Purpose {
             Self::InsertPdf => Message::Pages(PagesMsg::InsertChosen(Ok(one.into_iter().collect()))),
             Self::SaveCopy => Message::Markup(MarkupMsg::SaveTo(Ok(one))),
             Self::SavePages => Message::Pages(PagesMsg::SaveTo(Ok(one))),
+            Self::Export | Self::ExportFolder => Message::Export(ExportMsg::Target(Ok(one))),
         }
     }
 
@@ -94,6 +107,7 @@ impl Purpose {
             Self::InsertPdf => Message::Pages(PagesMsg::InsertChosen(Err(error))),
             Self::SaveCopy => Message::Markup(MarkupMsg::SaveTo(Err(error))),
             Self::SavePages => Message::Pages(PagesMsg::SaveTo(Err(error))),
+            Self::Export | Self::ExportFolder => Message::Export(ExportMsg::Target(Err(error))),
         }
     }
 }
@@ -222,8 +236,8 @@ impl App {
             async move {
                 let result = match purpose {
                     Purpose::OpenFiles | Purpose::InsertPdf => crate::portal::choose(false).await,
-                    Purpose::OpenFolder => crate::portal::choose(true).await,
-                    Purpose::SaveCopy | Purpose::SavePages => match suggested.clone() {
+                    Purpose::OpenFolder | Purpose::ExportFolder => crate::portal::choose(true).await,
+                    Purpose::SaveCopy | Purpose::SavePages | Purpose::Export => match suggested.clone() {
                         Some(s) => crate::portal::save_as(s).await.map(|p| p.into_iter().collect()),
                         None => Ok(Vec::new()),
                     },
@@ -370,16 +384,16 @@ impl App {
                 // A single folder picked: go into it (or, opening a folder, open it).
                 if let [one] = chosen.as_slice()
                     && one.dir
-                    && purpose != Purpose::OpenFolder
+                    && !purpose.folder()
                 {
                     let dir = one.path.clone();
                     return self.chooser_update(ChooserMsg::Go(dir));
                 }
                 let paths: Vec<PathBuf> = match purpose {
-                    Purpose::OpenFolder => {
+                    Purpose::OpenFolder | Purpose::ExportFolder => {
                         vec![chosen.first().filter(|e| e.dir).map_or_else(|| c.dir.clone(), |e| e.path.clone())]
                     }
-                    Purpose::SaveCopy | Purpose::SavePages => {
+                    Purpose::SaveCopy | Purpose::SavePages | Purpose::Export => {
                         let name = c.name.trim();
                         if name.is_empty() {
                             return Task::none();
@@ -491,12 +505,8 @@ impl App {
         } else if let Some(e) = &c.error {
             center(text(e.as_str()).size(13).style(muted)).into()
         } else if c.entries.is_empty() {
-            center(
-                text(if c.purpose == Purpose::OpenFolder { "No folders here" } else { "Nothing here" })
-                    .size(13)
-                    .style(muted),
-            )
-            .into()
+            center(text(if c.purpose.folder() { "No folders here" } else { "Nothing here" }).size(13).style(muted))
+                .into()
         } else {
             scrollable(rows.width(Length::Fill))
                 .id(list_id())
@@ -515,11 +525,12 @@ impl App {
         let confirm = match c.purpose {
             Purpose::OpenFiles | Purpose::OpenFolder => "Open",
             Purpose::InsertPdf => "Insert",
+            Purpose::ExportFolder => "Export here",
             _ if c.replace => "Replace",
             _ => "Save",
         };
         let can = match c.purpose {
-            Purpose::OpenFolder => true,
+            p if p.folder() => true,
             p if p.saves() => !c.name.trim().is_empty(),
             _ => !c.selected.is_empty(),
         };

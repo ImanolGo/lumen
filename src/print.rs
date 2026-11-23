@@ -127,7 +127,18 @@ impl Paper {
 
 /// Builds a one-page PDF with the picture centred and fitted inside the margins.
 pub fn picture_to_pdf(path: &Path, paper: &Paper) -> Result<Vec<u8>> {
-    let mut img = raster::load_for_print(path)?;
+    image_to_pdf(raster::load_for_print(path)?, paper)
+}
+
+/// A one-page PDF exactly as big as the picture is at `dpi`, with no margins (for exporting
+/// rather than printing: nothing is cropped, shrunk or surrounded by white).
+pub fn picture_to_pdf_native(path: &Path, dpi: f32) -> Result<Vec<u8>> {
+    let img = raster::load_for_print(path)?;
+    let (w, h) = (img.width() as f32 * 72.0 / dpi, img.height() as f32 * 72.0 / dpi);
+    image_to_pdf(img, &Paper { width: w, height: h, margins: [0.0; 4] })
+}
+
+fn image_to_pdf(mut img: image::RgbImage, paper: &Paper) -> Result<Vec<u8>> {
     let (page_w, page_h, [top, right, bottom, left]) = (paper.width, paper.height, paper.margins);
     let (box_w, box_h) = ((page_w - left - right).max(36.0), (page_h - top - bottom).max(36.0));
 

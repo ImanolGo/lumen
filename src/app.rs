@@ -19,6 +19,7 @@ use iced::{
 
 mod chooser;
 mod edit;
+mod export;
 mod forms;
 mod markup;
 mod menu;
@@ -31,6 +32,7 @@ mod signature;
 
 use chooser::{Chooser, ChooserMsg, Purpose};
 use edit::{CropState, EditMsg, PicEdit, ResizeForm};
+use export::{ExportJob, ExportMsg};
 use forms::{FormMsg, FormState};
 use markup::{DocMarkup, MarkupMsg, TextEdit};
 use menu::{Dialog, Menu};
@@ -246,6 +248,8 @@ pub struct App {
     dialog: Option<Dialog>,
     /// What the Properties dialog shows; none while it is being read.
     properties: Option<Result<crate::properties::Sheet, String>>,
+    /// What the file chooser's answer will export.
+    export_job: Option<ExportJob>,
     /// Lumen's own file chooser and print dialog, when the desktop has no portal for them.
     chooser: Option<Chooser>,
     print_dialog: Option<PrintDialog>,
@@ -512,6 +516,7 @@ pub enum Message {
     MenuPick(Box<Message>),
     Dialog(Option<Dialog>),
     ShowProperties,
+    Export(ExportMsg),
     PropertiesRead(Result<crate::properties::Sheet, String>),
     Chooser(ChooserMsg),
     Printing(PrintMsg),
@@ -656,6 +661,7 @@ impl App {
             menu: None,
             dialog: None,
             properties: None,
+            export_job: None,
             chooser: None,
             print_dialog: None,
         };
@@ -1255,6 +1261,7 @@ impl App {
             Message::Sign(msg) => self.sign_update(msg),
             Message::Edit(msg) => self.edit_update(msg),
             Message::Pages(msg) => self.pages_update(msg),
+            Message::Export(msg) => self.export_update(msg),
             Message::Pointer(at) => {
                 self.pointer_at = Some(at);
                 let now = Instant::now();

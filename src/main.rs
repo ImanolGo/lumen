@@ -6,6 +6,7 @@ mod annotate;
 mod app;
 mod cups;
 mod edit;
+mod export;
 mod forms;
 mod icons;
 mod library;
