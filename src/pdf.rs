@@ -419,9 +419,10 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 }
 
 /// A first-page thumbnail for the file strip. Blocking.
-pub fn thumbnail(path: &Path, side: u32) -> Result<Picture> {
+/// A password-protected PDF needs its `password`; without it this fails with [`PasswordNeeded`].
+pub fn thumbnail(path: &Path, side: u32, password: Option<&str>) -> Result<Picture> {
     let bytes = Arc::new(std::fs::read(path)?);
-    let pdf = parse(bytes, None)?;
+    let pdf = parse(bytes, password)?;
     let page = pdf.pages().first().context("no pages")?;
     let (w, h) = page.render_dimensions();
     let scale = side as f32 / w.max(h).max(1.0);
@@ -623,7 +624,11 @@ pub(crate) mod tests {
 
     #[test]
     fn thumbnails() {
-        let t = thumbnail(&fixture(), 128).unwrap();
+        let locked = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/encrypted.pdf");
+        let needs = thumbnail(&locked, 64, None).unwrap_err();
+        assert!(needs.downcast_ref::<PasswordNeeded>().is_some());
+        assert_eq!(thumbnail(&locked, 64, Some("secret")).unwrap().width.max(64), 64);
+        let t = thumbnail(&fixture(), 128, None).unwrap();
         assert_eq!(t.width.max(t.height), 128);
     }
 }

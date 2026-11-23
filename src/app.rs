@@ -144,6 +144,8 @@ pub struct App {
     pictures: VecDeque<(PathBuf, Loaded)>,
     preloading: HashSet<PathBuf>,
     thumbs: HashMap<PathBuf, Option<image::Handle>>,
+    /// Password-protected PDFs whose thumbnail waits for the password.
+    locked_thumbs: HashSet<PathBuf>,
     thumbs_running: usize,
 
     pending_drops: Vec<PathBuf>,
@@ -343,9 +345,15 @@ pub enum Message {
     AreaResized(Size),
     Scrolled(Viewport),
 
-    Open { folder: bool },
+    Open {
+        folder: bool,
+    },
     Chosen(Result<Vec<PathBuf>, String>),
-    Expanded { files: Vec<PathBuf>, start: usize, append: bool },
+    Expanded {
+        files: Vec<PathBuf>,
+        start: usize,
+        append: bool,
+    },
     FlushDrops,
     Select(usize),
     Next,
@@ -359,7 +367,8 @@ pub enum Message {
     PasswordInput(String),
     Unlock,
     PageRendered(u64, usize, f32, Result<Picture, String>),
-    Thumb(PathBuf, Option<Picture>),
+    /// A thumbnail, or none; `true` when the file is password-protected and its password not known.
+    Thumb(PathBuf, Option<Picture>, bool),
     SidebarScrolled(f32, f32),
     SidebarTab(SidebarTab),
     ContentsScrolled(f32, f32),
@@ -457,6 +466,7 @@ impl App {
             pictures: VecDeque::new(),
             preloading: HashSet::new(),
             thumbs: HashMap::new(),
+            locked_thumbs: HashSet::new(),
             thumbs_running: 0,
             pending_drops: Vec::new(),
             drop_hover: false,
@@ -663,7 +673,10 @@ impl App {
                     return Task::none();
                 }
                 match result {
-                    Ok(opened) => self.install_opened(path, opened),
+                    Ok(opened) => {
+                        let thumb = self.unlocked_thumb(&path);
+                        Task::batch([self.install_opened(path, opened), thumb])
+                    }
                     Err(error) => self.pdf_failed(path, error),
                 }
             }
@@ -688,8 +701,11 @@ impl App {
                 }
                 self.request_pages()
             }
-            Message::Thumb(path, picture) => {
+            Message::Thumb(path, picture, locked) => {
                 self.thumbs_running = self.thumbs_running.saturating_sub(1);
+                if locked {
+                    self.locked_thumbs.insert(path.clone());
+                }
                 let handle = picture.map(|p| image::Handle::from_rgba(p.width, p.height, p.rgba.clone()));
                 self.thumbs.insert(path, handle);
                 self.request_thumbs()
@@ -1154,6 +1170,7 @@ impl App {
         } else {
             self.files = files;
             self.thumbs.clear();
+            self.locked_thumbs.clear();
             self.thumbs_running = 0;
             start
         };
@@ -1246,6 +1263,15 @@ impl App {
                 }
             },
         )
+    }
+
+    /// A protected PDF was opened with its password: its thumbnail can be drawn now.
+    fn unlocked_thumb(&mut self, path: &Path) -> Task<Message> {
+        if self.locked_thumbs.remove(path) && self.thumbs.get(path).is_some_and(Option::is_none) {
+            self.thumbs.remove(path);
+            return self.request_thumbs();
+        }
+        Task::none()
     }
 
     /// A PDF did not open: ask for its password, or say why.
@@ -1380,15 +1406,22 @@ impl App {
             }
             self.thumbs.insert(path.clone(), None);
             self.thumbs_running += 1;
+            let password = self.passwords.get(&path).cloned();
             tasks.push(Task::perform(
                 {
                     let path = path.clone();
                     blocking(move || match Kind::of(&path) {
-                        Some(Kind::Pdf) => pdf::thumbnail(&path, raster::THUMB_SIDE).ok(),
-                        _ => raster::thumbnail(&path).ok(),
+                        Some(Kind::Pdf) => match pdf::thumbnail(&path, raster::THUMB_SIDE, password.as_deref()) {
+                            Ok(p) => (Some(p), false),
+                            Err(e) => (None, e.downcast_ref::<pdf::PasswordNeeded>().is_some()),
+                        },
+                        _ => (raster::thumbnail(&path).ok(), false),
                     })
                 },
-                move |p| Message::Thumb(path.clone(), p.ok().flatten()),
+                move |r| {
+                    let (picture, locked) = r.unwrap_or((None, false));
+                    Message::Thumb(path.clone(), picture, locked)
+                },
             ));
         }
         Task::batch(tasks)
@@ -2297,6 +2330,12 @@ impl App {
                     .height(Length::Fill)
                     .border_radius(4)
                     .into(),
+                _ if self.locked_thumbs.contains(path) => {
+                    container(svg(icons::lock()).width(22).height(22).style(style::icon_muted))
+                        .center(Length::Fill)
+                        .style(style::thumb_placeholder)
+                        .into()
+                }
                 _ => container(space()).width(Length::Fill).height(Length::Fill).style(style::thumb_placeholder).into(),
             };
             let name = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();

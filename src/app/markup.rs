@@ -532,7 +532,10 @@ impl App {
                     return Task::none();
                 }
                 match result {
-                    Ok(opened) => self.install_opened(path, opened),
+                    Ok(opened) => {
+                        let thumb = self.unlocked_thumb(&path);
+                        Task::batch([self.install_opened(path, opened), thumb])
+                    }
                     Err(error) if matches!(&self.doc, Doc::Loading(p) if *p == path) => self.pdf_failed(path, error),
                     Err(pdf::OpenError::Failed(e)) => self.toast(format!("Markup is not available for this PDF: {e}")),
                     Err(pdf::OpenError::Password { .. }) => self.toast("Markup is not available for this PDF"),
