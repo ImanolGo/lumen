@@ -24,6 +24,7 @@ mod markup;
 mod menu;
 mod overlay;
 mod pages;
+mod palette;
 mod printing;
 mod signature;
 
@@ -170,8 +171,17 @@ pub struct App {
     markup_open: bool,
     editor: Editor,
     swatch: usize,
-    width_level: usize,
-    size_level: usize,
+    /// Line width and text size for new markup, in [`DocMarkup::unit`]s.
+    line_width: f64,
+    text_size: f64,
+    /// The markup style menu, its colour picker, and what is typed in it.
+    style_menu: bool,
+    picker_open: bool,
+    picker_hue: f32,
+    hex_input: String,
+    size_input: String,
+    /// The annotations before a live style change, to record it as one undo step.
+    style_from: Option<markup::Layers>,
     /// Markup of the file on screen.
     marks: Option<DocMarkup>,
     /// Unsaved markup of other files, until they are shown again.
@@ -468,6 +478,9 @@ pub enum Message {
     PointerLeft,
     /// A touchpad pinch changed its scale by this much (0 when one begins or ends).
     Pinch(f32),
+    /// The Delete key, whatever has focus; and the modifier keys, likewise.
+    DeleteKey,
+    Modifiers(Modifiers),
     /// Open a header menu (or close it with `None`), or pick one of its items.
     Menu(Option<Menu>),
     MenuPick(Box<Message>),
@@ -535,8 +548,14 @@ impl App {
             markup_open: false,
             editor: Editor::default(),
             swatch: 0,
-            width_level: 1,
-            size_level: 1,
+            line_width: 3.0,
+            text_size: 18.0,
+            style_menu: false,
+            picker_open: false,
+            picker_hue: 0.0,
+            hex_input: String::new(),
+            size_input: String::new(),
+            style_from: None,
             marks: None,
             stash: HashMap::new(),
             editing: None,
@@ -606,6 +625,11 @@ impl App {
             event::listen_with(|event, _status, _id| match event {
                 Event::Mouse(mouse::Event::WheelScrolled { delta }) => Some(Message::Wheel(delta)),
                 Event::Mouse(mouse::Event::Pinched { delta }) => Some(Message::Pinch(delta)),
+                Event::Keyboard(keyboard::Event::KeyPressed { key: Key::Named(Named::Delete), .. }) => {
+                    Some(Message::DeleteKey)
+                }
+                // Modifiers are tracked whatever has focus, so Ctrl is never thought held down.
+                Event::Keyboard(keyboard::Event::ModifiersChanged(m)) => Some(Message::Modifiers(m)),
                 Event::Keyboard(keyboard::Event::KeyPressed { key: Key::Named(Named::Escape), .. }) => {
                     Some(Message::Escape)
                 }
@@ -1156,6 +1180,11 @@ impl App {
                 Task::none()
             }
             Message::Pinch(delta) => self.pinch(delta),
+            Message::DeleteKey => self.markup_delete_key(),
+            Message::Modifiers(m) => {
+                self.modifiers = m;
+                Task::none()
+            }
             Message::Menu(menu) => self.menu_update(menu),
             Message::MenuPick(msg) => self.menu_pick(*msg),
             Message::Dialog(dialog) => {

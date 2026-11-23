@@ -31,9 +31,6 @@ pub const SWATCHES: [(&str, Color); 8] = [
     ("Green", Color::rgba(0.180, 0.761, 0.494, 1.0)),
     ("Black", Color::rgba(0.141, 0.122, 0.192, 1.0)),
 ];
-/// Line widths and text sizes, in document units per [`DocMarkup::unit`].
-const WIDTHS: [f64; 3] = [1.5, 3.0, 6.0];
-const SIZES: [f64; 3] = [12.0, 18.0, 28.0];
 /// Pointer reach for picking annotations, in screen pixels.
 const REACH: f32 = 6.0;
 
@@ -129,11 +126,34 @@ pub enum MarkupMsg {
     Toggle,
     Tool(Tool),
     Swatch(usize),
-    Width(usize),
-    Size(usize),
-    Press { page: usize, x: f64, y: f64, clicks: u32 },
-    Drag { x: f64, y: f64 },
-    Release { x: f64, y: f64 },
+    /// The colour and size menu, and what is set in it (live while dragging, recorded on commit).
+    StyleMenu,
+    CustomColor,
+    Pick {
+        h: f32,
+        s: f32,
+        v: f32,
+    },
+    Hex(String),
+    Opacity(f32),
+    LineWidth(f32),
+    TextSize(f32),
+    TextSizeTyped(String),
+    StyleCommit,
+    Press {
+        page: usize,
+        x: f64,
+        y: f64,
+        clicks: u32,
+    },
+    Drag {
+        x: f64,
+        y: f64,
+    },
+    Release {
+        x: f64,
+        y: f64,
+    },
     Undo,
     Redo,
     Delete,
@@ -318,8 +338,8 @@ impl App {
 
     fn apply_unit(&mut self) {
         let unit = self.marks.as_ref().map_or(1.0, |m| m.unit);
-        self.editor.style.width = WIDTHS[self.width_level] * unit;
-        self.editor.style.font_size = SIZES[self.size_level] * unit;
+        self.editor.style.width = self.line_width * unit;
+        self.editor.style.font_size = self.text_size * unit;
     }
 
     // ------------------------------------------------------------ editing
@@ -376,16 +396,58 @@ impl App {
         Task::none()
     }
 
-    /// Changes the selected annotation's style with `change`, as one undo step.
-    fn restyle(&mut self, change: impl FnOnce(&mut Shape, &mut Style)) {
+    /// Changes the selected annotation's style now; the undo step is recorded by
+    /// [`App::style_commit`], so a whole slider drag is one step.
+    fn restyle_live(&mut self, change: impl FnOnce(&mut Shape, &mut Style)) {
         let Some(marks) = &mut self.marks else { return };
         let Some(sel) = marks.store.selection else { return };
+        if self.style_from.is_none() {
+            self.style_from = Some(marks.store.pages.layers.clone());
+        }
         let Some(item) = marks.store.pages.layers.get_mut(&sel.page).and_then(|l| l.get_mut(sel.id)) else { return };
-        let before = item.clone();
         change(&mut item.shape, &mut item.style);
-        if *item != before {
+    }
+
+    fn style_commit(&mut self) {
+        let (Some(from), Some(marks)) = (self.style_from.take(), &mut self.marks) else { return };
+        if marks.store.pages.layers != from {
             marks.history.commit(marks.store.pages.layers.clone());
         }
+    }
+
+    /// Sets the colour of the tool, or of the selected annotation, keeping or setting its opacity.
+    fn set_color(&mut self, color: Color) {
+        let highlight = matches!(self.selected_shape(), Some(Shape::Highlight(_)))
+            || (self.selected_shape().is_none() && self.editor.tool == Tool::Highlight);
+        if highlight {
+            self.editor.highlight_color = color;
+        } else {
+            self.editor.style.stroke = color;
+        }
+        self.hex_input = super::palette::to_hex(color);
+        self.restyle_live(|shape, style| match shape {
+            Shape::Highlight(_) => {
+                style.stroke = color;
+                style.fill = Some(color);
+            }
+            _ => style.stroke = color,
+        });
+    }
+
+    fn set_text_size(&mut self, size: f64) {
+        let unit = self.marks.as_ref().map_or(1.0, |m| m.unit);
+        self.text_size = size.clamp(4.0, 400.0);
+        self.apply_unit();
+        let size = self.text_size * unit;
+        self.restyle_live(|shape, style| {
+            if let Shape::Text { bounds, text } = shape {
+                style.font_size = size;
+                let lines = text.split('\n').count().max(1) as f64;
+                let widest = text.split('\n').map(|l| l.chars().count()).max().unwrap_or(1) as f64;
+                bounds.w = bounds.w.max(widest * size * 0.6);
+                bounds.h = lines * size * 1.4;
+            }
+        });
     }
 
     fn selected_shape(&self) -> Option<&Shape> {
@@ -430,53 +492,83 @@ impl App {
             }
             MarkupMsg::Swatch(i) => {
                 self.swatch = i;
-                let color = SWATCHES[i].1;
-                let highlight = matches!(self.selected_shape(), Some(Shape::Highlight(_)))
-                    || (self.selected_shape().is_none() && self.editor.tool == Tool::Highlight);
-                if highlight {
-                    self.editor.highlight_color = color;
-                } else {
-                    self.editor.style.stroke = color;
-                }
-                self.restyle(|shape, style| match shape {
-                    Shape::Highlight(_) => {
-                        style.stroke = color;
-                        style.fill = Some(color);
-                    }
-                    _ => {
-                        let alpha = style.stroke.a;
-                        style.stroke = Color { a: alpha, ..color };
-                    }
-                });
+                let alpha = self.current_color().a;
+                let color = Color { a: alpha, ..SWATCHES[i].1 };
+                self.set_color(color);
+                self.style_commit();
                 Task::none()
             }
-            MarkupMsg::Width(i) => {
-                self.width_level = i;
+            MarkupMsg::StyleMenu => {
+                self.style_menu = !self.style_menu;
+                if self.style_menu {
+                    let c = self.current_color();
+                    self.hex_input = super::palette::to_hex(c);
+                    self.size_input = format!("{:.0}", self.current_size());
+                    self.picker_hue = super::palette::to_hsv(c).0;
+                } else {
+                    self.style_commit();
+                }
+                Task::none()
+            }
+            MarkupMsg::CustomColor => {
+                self.picker_open = !self.picker_open;
+                Task::none()
+            }
+            MarkupMsg::Pick { h, s, v } => {
+                self.picker_hue = h;
+                let alpha = self.current_color().a;
+                self.set_color(super::palette::from_hsv(h, s, v, alpha));
+                Task::none()
+            }
+            MarkupMsg::Hex(t) => {
+                self.hex_input = t.chars().filter(|c| c.is_ascii_hexdigit() || *c == '#').take(7).collect();
+                if let Some(c) = super::palette::from_hex(&self.hex_input) {
+                    let alpha = self.current_color().a;
+                    let hex = self.hex_input.clone();
+                    self.set_color(Color { a: alpha, ..c });
+                    self.hex_input = hex;
+                }
+                Task::none()
+            }
+            MarkupMsg::Opacity(a) => {
+                let c = self.current_color();
+                self.set_color(Color { a: a.clamp(0.05, 1.0), ..c });
+                Task::none()
+            }
+            MarkupMsg::LineWidth(w) => {
+                self.line_width = (w as f64).clamp(0.25, 100.0);
                 self.apply_unit();
                 let width = self.editor.style.width;
-                self.restyle(|shape, style| {
-                    if !matches!(shape, Shape::Highlight(_) | Shape::Text { .. }) && style.width > 0.0 {
+                self.restyle_live(|shape, style| {
+                    if !matches!(shape, Shape::Highlight(_) | Shape::Text { .. }) {
                         style.width = width;
                     }
                 });
                 Task::none()
             }
-            MarkupMsg::Size(i) => {
-                self.size_level = i;
-                self.apply_unit();
-                let size = self.editor.style.font_size;
-                self.restyle(|shape, style| {
-                    if let Shape::Text { bounds, text } = shape {
-                        style.font_size = size;
-                        let lines = text.split('\n').count().max(1) as f64;
-                        let widest = text.split('\n').map(|l| l.chars().count()).max().unwrap_or(1) as f64;
-                        bounds.w = bounds.w.max(widest * size * 0.6);
-                        bounds.h = lines * size * 1.4;
-                    }
-                });
+            MarkupMsg::TextSize(size) => {
+                self.size_input = format!("{size:.0}");
+                self.set_text_size(size as f64);
+                Task::none()
+            }
+            MarkupMsg::TextSizeTyped(t) => {
+                self.size_input = t.chars().filter(|c| c.is_ascii_digit() || *c == '.').take(5).collect();
+                if let Ok(size) = self.size_input.parse::<f64>()
+                    && size >= 1.0
+                {
+                    self.set_text_size(size);
+                }
+                Task::none()
+            }
+            MarkupMsg::StyleCommit => {
+                self.style_commit();
                 Task::none()
             }
             MarkupMsg::Press { page, x, y, clicks } => {
+                // Drawing closes the style menu.
+                if std::mem::take(&mut self.style_menu) {
+                    self.style_commit();
+                }
                 let done = self.finish_text();
                 let tolerance = (REACH / self.markup_zoom()) as f64;
                 let Some(marks) = &mut self.marks else { return done };
@@ -778,7 +870,8 @@ impl App {
                 ("m", false, false) => MarkupMsg::Toggle,
                 _ => return None,
             },
-            Key::Named(Named::Delete | Named::Backspace) if selected => MarkupMsg::Delete,
+            // Delete is heard by the app whatever has focus (see `markup_delete_key`).
+            Key::Named(Named::Backspace) if selected => MarkupMsg::Delete,
             Key::Named(Named::ArrowLeft) if selected => MarkupMsg::Nudge(-unit, 0.0),
             Key::Named(Named::ArrowRight) if selected => MarkupMsg::Nudge(unit, 0.0),
             Key::Named(Named::ArrowUp) if selected => MarkupMsg::Nudge(0.0, -unit),
@@ -788,10 +881,15 @@ impl App {
         Some(self.markup_update(msg))
     }
 
-    /// Escape, while marking up: stop typing, then deselect, then put the tool down.
+    /// Escape, while marking up: stop typing or close the style menu, then deselect, then
+    /// leave markup.
     pub(super) fn markup_escape(&mut self) -> Option<Task<Message>> {
         if self.editing.is_some() {
             return Some(self.finish_text());
+        }
+        if std::mem::take(&mut self.style_menu) {
+            self.style_commit();
+            return Some(Task::none());
         }
         if let Some(marks) = &mut self.marks {
             if self.editor.is_dragging() {
@@ -802,11 +900,19 @@ impl App {
                 return Some(Task::none());
             }
         }
-        if self.markup_open && self.editor.tool != Tool::Select {
-            self.editor.tool = Tool::Select;
-            return Some(Task::none());
+        if self.markup_open {
+            return Some(self.markup_update(MarkupMsg::Toggle));
         }
         None
+    }
+
+    /// The Delete key, heard whether or not a widget took it: deletes the selected annotation.
+    pub(super) fn markup_delete_key(&mut self) -> Task<Message> {
+        let selected = self.marks.as_ref().is_some_and(|m| m.store.selection.is_some());
+        if self.editing.is_none() && selected {
+            return self.markup_update(MarkupMsg::Delete);
+        }
+        Task::none()
     }
 
     /// The left button went up somewhere: finish a highlight of selected text, or a drag
@@ -894,62 +1000,6 @@ impl App {
         ]
         .spacing(2)
         .align_y(Alignment::Center);
-        // Colour and size, shown only while they mean something: drawing, or something selected.
-        let mut looks = row![].spacing(4).align_y(Alignment::Center);
-
-        let current = match self.selected_shape() {
-            Some(Shape::Highlight(_)) => self.editor.highlight_color,
-            Some(_) => self
-                .marks
-                .as_ref()
-                .and_then(|m| m.store.selected())
-                .map_or(self.editor.style.stroke, |a| a.style.stroke),
-            None if self.editor.tool == Tool::Highlight => self.editor.highlight_color,
-            None => self.editor.style.stroke,
-        };
-        for (i, (name, c)) in SWATCHES.iter().enumerate() {
-            let chosen =
-                (c.r - current.r).abs() < 0.01 && (c.g - current.g).abs() < 0.01 && (c.b - current.b).abs() < 0.01;
-            let dot = button(space().width(18).height(18))
-                .padding(0)
-                .width(22)
-                .height(22)
-                .style(style::swatch(iced::Color::from_rgb(c.r, c.g, c.b), chosen))
-                .on_press(Message::Markup(MarkupMsg::Swatch(i)));
-            looks = looks.push(super::tip(dot.into(), *name));
-        }
-        looks = looks.push(separator());
-        let text_mode = self.editor.tool == Tool::Text || matches!(self.selected_shape(), Some(Shape::Text { .. }));
-        if text_mode {
-            for (i, (label, size)) in
-                [("Small text", 12), ("Medium text", 15), ("Large text", 19)].into_iter().enumerate()
-            {
-                let glyph =
-                    text("A").size(size).font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT });
-                let b = button(center(glyph).width(30).height(36))
-                    .padding(0)
-                    .style(if self.size_level == i { style::tool_active } else { style::tool })
-                    .on_press(Message::Markup(MarkupMsg::Size(i)));
-                looks = looks.push(super::tip(b.into(), label));
-            }
-        } else {
-            for (i, (icon, label)) in [
-                (icons::width_thin(), "Thin lines"),
-                (icons::width_medium(), "Medium lines"),
-                (icons::width_thick(), "Thick lines"),
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                looks = looks.push(icon_button(
-                    icon,
-                    label,
-                    Some(Message::Markup(MarkupMsg::Width(i))),
-                    self.width_level == i,
-                ));
-            }
-        }
-
         let marks = self.marks.as_ref();
         let can_undo = marks.is_some_and(|m| m.history.can_undo());
         let can_redo = marks.is_some_and(|m| m.history.can_redo());
@@ -1002,13 +1052,18 @@ impl App {
 
         // A floating island at the top of the view, and under it, while drawing or with
         // something selected, a second one for colour and size.
-        let main = container(row![tools, edit, separator(), end].spacing(4).align_y(Alignment::Center))
+        let main = iced::widget::opaque(
+            container(
+                row![tools, separator(), self.style_button(), edit, separator(), end]
+                    .spacing(4)
+                    .align_y(Alignment::Center),
+            )
             .padding([4, 6])
-            .style(style::panel);
-        let drawing = self.editor.tool != Tool::Select || selected;
+            .style(style::panel),
+        );
         let mut islands = column![main].spacing(8).align_x(Alignment::Center);
-        if drawing {
-            islands = islands.push(container(looks).padding([4, 8]).style(style::panel));
+        if self.style_menu {
+            islands = islands.push(self.style_menu_view());
         }
         islands.into()
     }
