@@ -100,7 +100,7 @@ fn load_raster(path: &Path) -> Result<Picture> {
     Ok(Picture::from_rgba(img.into_rgba8(), original))
 }
 
-fn svg_options() -> usvg::Options<'static> {
+pub(crate) fn svg_options() -> usvg::Options<'static> {
     static FONTS: OnceLock<Arc<usvg::fontdb::Database>> = OnceLock::new();
     let fontdb = FONTS
         .get_or_init(|| {

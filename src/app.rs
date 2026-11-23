@@ -17,6 +17,12 @@ use iced::{
     system, window,
 };
 
+mod markup;
+mod overlay;
+
+use markup::{DocMarkup, MarkupMsg, TextEdit};
+
+use crate::annotate::{self, Editor};
 use crate::library::{self, Kind};
 use crate::pdf;
 use crate::print::{self, Outcome};
@@ -131,9 +137,26 @@ pub struct App {
 
     pending_drops: Vec<PathBuf>,
     drop_hover: bool,
-    toast: Option<(u64, String)>,
+    /// A message at the bottom of the window, and whether it reports a problem.
+    toast: Option<(u64, String, bool)>,
     toast_seq: u64,
     printing: bool,
+
+    /// The markup bar is showing and the pointer draws.
+    markup_open: bool,
+    editor: Editor,
+    swatch: usize,
+    width_level: usize,
+    size_level: usize,
+    /// Markup of the file on screen.
+    marks: Option<DocMarkup>,
+    /// Unsaved markup of other files, until they are shown again.
+    stash: HashMap<PathBuf, DocMarkup>,
+    editing: Option<TextEdit>,
+    /// Preparing a PDF for markup, or saving: what to say meanwhile.
+    markup_busy: Option<&'static str>,
+    last_drag: Option<(f64, f64)>,
+    confirm_quit: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -336,6 +359,7 @@ pub enum Message {
     ToggleSidebar,
     DismissToast(u64),
     Quit,
+    Markup(MarkupMsg),
 }
 
 fn err_string(e: anyhow::Error) -> String {
@@ -390,6 +414,17 @@ impl App {
             toast: None,
             toast_seq: 0,
             printing: false,
+            markup_open: false,
+            editor: Editor::default(),
+            swatch: 0,
+            width_level: 1,
+            size_level: 1,
+            marks: None,
+            stash: HashMap::new(),
+            editing: None,
+            markup_busy: None,
+            last_drag: None,
+            confirm_quit: false,
         };
         let mut tasks = vec![system::theme().map(Message::SystemTheme)];
         if !paths.is_empty() {
@@ -400,8 +435,9 @@ impl App {
     }
 
     pub fn title(&self) -> String {
+        let unsaved = if self.has_unsaved_markup() { "• " } else { "" };
         match self.current_path() {
-            Some(p) => format!("{} — Lumen", file_name(p)),
+            Some(p) => format!("{unsaved}{} — Lumen", file_name(p)),
             None => "Lumen".into(),
         }
     }
@@ -430,11 +466,23 @@ impl App {
         self.files.get(self.current).map(PathBuf::as_path)
     }
 
+    /// Reports a problem at the bottom of the window.
     fn toast(&mut self, msg: impl Into<String>) -> Task<Message> {
+        self.show_toast(msg.into(), true)
+    }
+
+    /// Says something went fine (saved, sent to the printer).
+    fn notice(&mut self, msg: impl Into<String>) -> Task<Message> {
+        self.show_toast(msg.into(), false)
+    }
+
+    fn show_toast(&mut self, msg: String, error: bool) -> Task<Message> {
         self.toast_seq += 1;
         let id = self.toast_seq;
-        self.toast = Some((id, msg.into()));
-        Task::perform(tokio::time::sleep(Duration::from_secs(6)), move |_| Message::DismissToast(id))
+        self.toast = Some((id, msg, error));
+        Task::perform(tokio::time::sleep(Duration::from_secs(if error { 6 } else { 3 })), move |_| {
+            Message::DismissToast(id)
+        })
     }
 }
 
@@ -530,7 +578,7 @@ impl App {
                         let loaded: Loaded = p.into();
                         self.remember(path.clone(), loaded.clone());
                         self.doc = Doc::Image(ImageView { path, shown: loaded, zoom: None, turns: 0, rotating: false });
-                        self.preload_neighbours()
+                        Task::batch([self.attach_markup(), self.preload_neighbours()])
                     }
                     Err(error) => {
                         self.doc = Doc::Failed { path, error };
@@ -550,24 +598,7 @@ impl App {
                     return Task::none();
                 }
                 match result {
-                    Ok(doc) => {
-                        self.log_opened(&path, "pdf");
-                        let slots = (0..doc.page_count()).map(|_| Slot::default()).collect();
-                        let mut view =
-                            PdfView { doc, zoom: 1.0, fit: PdfFit::Width, tops: Vec::new(), slots, current_page: 0 };
-                        view.zoom = self.pdf_fit_zoom(&view, PdfFit::Width).min(1.5 * PT_TO_PX);
-                        view.layout();
-                        self.doc = Doc::Pdf(view);
-                        self.viewport.y = 0.0;
-                        self.viewport.x = 0.0;
-                        self.contents_scroll = (0.0, 0.0);
-                        Task::batch([
-                            operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 }),
-                            operation::scroll_to(contents_id(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 }),
-                            self.request_pages(),
-                            self.start_search(),
-                        ])
-                    }
+                    Ok(doc) => self.open_pdf_view(path, doc),
                     Err(error) => {
                         self.doc = Doc::Failed { path, error };
                         Task::none()
@@ -651,6 +682,7 @@ impl App {
                 Task::none()
             }
             Message::PagePress(page) => {
+                let done = self.markup_page_press();
                 let text = match (&self.doc, self.hover) {
                     (Doc::Pdf(view), Some((p, _))) if p == page => view.slots[page].text.clone(),
                     _ => None,
@@ -671,7 +703,7 @@ impl App {
                         self.pan = Some(None);
                     }
                 }
-                Task::none()
+                done
             }
             Message::PageDoubleClick(page) => {
                 let Doc::Pdf(view) = &self.doc else { return Task::none() };
@@ -689,6 +721,9 @@ impl App {
             Message::MouseUp => {
                 if self.pan.is_some() {
                     self.pan = None;
+                }
+                if let Some(task) = self.markup_mouse_up() {
+                    return task;
                 }
                 if std::mem::take(&mut self.selecting) {
                     // Like other Linux apps, a finished selection becomes the primary selection (middle-click paste).
@@ -726,7 +761,9 @@ impl App {
                 Task::none()
             }
             Message::Escape => {
-                if self.search.is_some() {
+                if let Some(task) = self.markup_escape() {
+                    task
+                } else if self.search.is_some() {
                     self.search = None;
                     Task::none()
                 } else if self.selection.take().is_some() {
@@ -820,8 +857,17 @@ impl App {
                 {
                     view.rotating = false;
                     if let Some(picture) = picture.filter(|p| p.width > 0) {
+                        let (w, h) = (view.shown.width as f64, view.shown.height as f64);
+                        let clockwise = (turns + 4 - view.turns) % 4 == 1;
                         view.shown = picture.into();
                         view.turns = turns;
+                        if let Some(marks) = &mut self.marks {
+                            marks.apply(if clockwise {
+                                annotate::GeometryChange::RotateCw { height: h }
+                            } else {
+                                annotate::GeometryChange::RotateCcw { width: w }
+                            });
+                        }
                     }
                 }
                 Task::none()
@@ -864,12 +910,21 @@ impl App {
                     return Task::none();
                 }
                 self.printing = true;
+                if let Some(copy) = self.printable_copy() {
+                    // Print what is on screen, unsaved markup included.
+                    return copy.then(|copy| match copy {
+                        Ok(copy) => {
+                            Task::perform(async move { print::print(copy).await.map_err(err_string) }, Message::Printed)
+                        }
+                        Err(e) => Task::done(Message::Printed(Err(e))),
+                    });
+                }
                 Task::perform(async move { print::print(path).await.map_err(err_string) }, Message::Printed)
             }
             Message::Printed(result) => {
                 self.printing = false;
                 match result {
-                    Ok(Outcome::Sent) => self.toast("Sent to the printer"),
+                    Ok(Outcome::Sent) => self.notice("Sent to the printer"),
                     Ok(Outcome::Cancelled) => Task::none(),
                     Err(e) => self.toast(format!("Could not print: {e}")),
                 }
@@ -880,12 +935,20 @@ impl App {
                 if self.show_sidebar { self.reveal_in_sidebar() } else { Task::none() }
             }
             Message::DismissToast(id) => {
-                if self.toast.as_ref().is_some_and(|(t, _)| *t == id) {
+                if self.toast.as_ref().is_some_and(|(t, ..)| *t == id) {
                     self.toast = None;
                 }
                 Task::none()
             }
-            Message::Quit => iced::exit(),
+            Message::Quit => {
+                if self.unsaved_files() > 0 && !self.confirm_quit {
+                    let done = self.finish_text();
+                    self.confirm_quit = true;
+                    return done;
+                }
+                iced::exit()
+            }
+            Message::Markup(msg) => self.markup_update(msg),
         }
     }
 
@@ -896,6 +959,7 @@ impl App {
                 self.window = Some(id);
                 window::scale_factor(id).map(Message::ScaleFactor)
             }
+            window::Event::CloseRequested => self.update(Message::Quit),
             window::Event::Rescaled(f) => {
                 self.scale_factor = f.max(0.5);
                 self.request_pages()
@@ -933,6 +997,12 @@ impl App {
             _ => return Task::none(),
         };
         self.modifiers = modifiers;
+        if self.confirm_quit {
+            return Task::none();
+        }
+        if let Some(task) = self.markup_key(&key, modifiers) {
+            return task;
+        }
         let ctrl = modifiers.command();
         let is_pdf = matches!(self.doc, Doc::Pdf(_));
         let msg = match key.as_ref() {
@@ -1035,6 +1105,7 @@ impl App {
         if index >= self.files.len() || index == self.current {
             return Task::none();
         }
+        self.detach_markup();
         self.current = index;
         self.generation += 1;
         self.load_started = Some(Instant::now());
@@ -1051,6 +1122,17 @@ impl App {
         let path = self.files[index].clone();
 
         let load = match Kind::of(&path) {
+            Some(Kind::Pdf) if self.opens_for_markup(&path) => {
+                self.doc = Doc::Loading(path.clone());
+                self.markup_busy = Some("Preparing…");
+                Task::perform(
+                    {
+                        let path = path.clone();
+                        blocking(move || pdf::Document::open_for_markup(&path).map_err(err_string))
+                    },
+                    move |r| Message::Markup(MarkupMsg::Prepared(generation, path.clone(), r.and_then(|r| r))),
+                )
+            }
             Some(Kind::Pdf) => {
                 self.doc = Doc::Loading(path.clone());
                 Task::perform(
@@ -1065,7 +1147,7 @@ impl App {
                 if let Some(loaded) = self.cached(&path) {
                     self.log_opened(&path, "cached");
                     self.doc = Doc::Image(ImageView { path, shown: loaded, zoom: None, turns: 0, rotating: false });
-                    self.preload_neighbours()
+                    Task::batch([self.attach_markup(), self.preload_neighbours()])
                 } else {
                     // Keep showing the previous picture until the next one is ready, unless
                     // it takes a while; avoids a flash of the spinner when flipping quickly.
@@ -1084,6 +1166,24 @@ impl App {
         };
         let reset = operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 });
         Task::batch([load, reset, self.request_thumbs(), self.reveal_in_sidebar()])
+    }
+
+    fn open_pdf_view(&mut self, path: PathBuf, doc: pdf::Document) -> Task<Message> {
+        self.log_opened(&path, "pdf");
+        let slots = (0..doc.page_count()).map(|_| Slot::default()).collect();
+        let mut view = PdfView { doc, zoom: 1.0, fit: PdfFit::Width, tops: Vec::new(), slots, current_page: 0 };
+        view.zoom = self.pdf_fit_zoom(&view, PdfFit::Width).min(1.5 * PT_TO_PX);
+        view.layout();
+        self.doc = Doc::Pdf(view);
+        self.viewport.y = 0.0;
+        self.viewport.x = 0.0;
+        self.contents_scroll = (0.0, 0.0);
+        Task::batch([
+            operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 }),
+            operation::scroll_to(contents_id(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 }),
+            self.request_pages(),
+            self.start_search(),
+        ])
     }
 
     /// Logs how long the current file took to open, like the GTK Lumen's `opened load_ms`.
@@ -1532,6 +1632,13 @@ fn icon_button<'a>(
         .into()
 }
 
+/// `content` with a tooltip below it.
+fn tip<'a>(content: Element<'a, Message>, label: &'a str) -> Element<'a, Message> {
+    tooltip(content, container(text(label).size(12)).padding([4, 8]).style(style::pill), tooltip::Position::Bottom)
+        .gap(6)
+        .into()
+}
+
 fn separator<'a>() -> Element<'a, Message> {
     container(space().width(1).height(22))
         .style(|t: &Theme| container::Style {
@@ -1566,6 +1673,9 @@ impl App {
         let mut layout = column![];
         if !self.fullscreen {
             layout = layout.push(self.toolbar());
+            if self.markup_open && matches!(self.doc, Doc::Image(_) | Doc::Pdf(_)) {
+                layout = layout.push(self.markup_bar());
+            }
         }
         layout = layout.push(body.height(Length::Fill));
 
@@ -1573,9 +1683,13 @@ impl App {
         if self.drop_hover {
             layers = layers.push(self.drop_overlay());
         }
-        if let Some((_, msg)) = &self.toast {
+        if self.confirm_quit {
+            layers = layers.push(self.quit_dialog());
+        }
+        if let Some((_, msg, error)) = &self.toast {
+            let look = if *error { style::toast_error } else { style::panel };
             layers = layers.push(
-                container(container(text(msg.as_str()).size(14)).padding([10, 16]).style(style::toast_error))
+                container(container(text(msg.as_str()).size(14)).padding([10, 16]).style(look))
                     .width(Length::Fill)
                     .height(Length::Fill)
                     .align_x(Alignment::Center)
@@ -1679,6 +1793,12 @@ impl App {
                 .push(icon_button(icons::rotate_right(), "Rotate right (R)", Some(Message::Rotate(1)), false));
         }
         right = right.push(separator()).push(icon_button(
+            icons::markup(),
+            "Markup: draw, highlight, add text (M)",
+            has_doc.then_some(Message::Markup(MarkupMsg::Toggle)),
+            self.markup_open,
+        ));
+        right = right.push(icon_button(
             icons::print(),
             "Print (Ctrl+P)",
             (has_doc && !self.printing).then_some(Message::Print),
@@ -1738,18 +1858,22 @@ impl App {
     }
 
     fn image_view<'a>(&'a self, view: &'a ImageView) -> Element<'a, Message> {
-        let picture = image(view.shown.handle.clone()).filter_method(image::FilterMethod::Linear);
-        let Some(zoom) = view.zoom else {
-            return container(picture.content_fit(ContentFit::ScaleDown).width(Length::Fill).height(Length::Fill))
-                .padding(12)
-                .center(Length::Fill)
-                .into();
-        };
+        let fit = view.zoom.is_none();
+        let zoom = view.zoom.unwrap_or_else(|| self.image_fit_zoom(view));
         let (w, h) = (view.shown.width as f32 * zoom, view.shown.height as f32 * zoom);
         // Nearest-neighbour once pixels are big, so pixel art stays crisp.
         let filter =
             if zoom * self.scale_factor >= 3.0 { image::FilterMethod::Nearest } else { image::FilterMethod::Linear };
-        let canvas = container(picture.filter_method(filter).width(w).height(h))
+        let picture =
+            image(view.shown.handle.clone()).filter_method(filter).content_fit(ContentFit::Fill).width(w).height(h);
+        let mut layers = stack![picture].width(w).height(h);
+        for layer in self.markup_layers(0, zoom, w, h) {
+            layers = layers.push(layer);
+        }
+        if fit {
+            return container(layers).padding(12).center(Length::Fill).into();
+        }
+        let canvas = container(layers)
             .width(w.max(self.area.width))
             .height(h.max(self.area.height))
             .center_x(w.max(self.area.width))
@@ -1837,6 +1961,9 @@ impl App {
                     .into(),
                 };
                 layers = layers.push(placed(&link.rect, view.zoom, area));
+            }
+            for layer in self.markup_layers(i, view.zoom, w, h) {
+                layers = layers.push(layer);
             }
             let hovered = self.hover.is_some_and(|(p, _)| p == i);
             let interaction = if self.pan.is_some() {

@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+mod annotate;
 mod app;
 mod icons;
 mod library;
@@ -66,6 +67,8 @@ fn main() -> iced::Result {
         .window(iced::window::Settings {
             size: iced::Size::new(1180.0, 800.0),
             min_size: Some(iced::Size::new(520.0, 360.0)),
+            // Closing asks first while there is unsaved markup.
+            exit_on_close_request: false,
             platform_specific: iced::window::settings::PlatformSpecific {
                 application_id: "io.github.imanolgo.LumenRs".into(),
                 ..Default::default()

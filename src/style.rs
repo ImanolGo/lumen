@@ -243,3 +243,43 @@ pub fn selection(theme: &Theme) -> container::Style {
         ..Default::default()
     }
 }
+
+/// A colour choice in the markup bar: a filled dot, ringed when chosen.
+pub fn swatch(fill: Color, selected: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |theme, status| {
+        let p = theme.extended_palette();
+        let ring = if selected {
+            p.primary.base.color
+        } else if status == button::Status::Hovered {
+            p.background.strong.color
+        } else {
+            p.background.strong.color.scale_alpha(0.5)
+        };
+        button::Style {
+            background: Some(fill.into()),
+            border: Border { radius: 11.0.into(), width: if selected { 2.5 } else { 1.0 }, color: ring },
+            ..Default::default()
+        }
+    }
+}
+
+/// The text box being typed into on a page.
+pub fn text_box(
+    color: Color,
+) -> impl Fn(&Theme, iced::widget::text_editor::Status) -> iced::widget::text_editor::Style {
+    move |theme, _status| {
+        let p = theme.extended_palette();
+        iced::widget::text_editor::Style {
+            background: Color::from_rgba(1.0, 1.0, 1.0, 0.75).into(),
+            border: Border { radius: 3.0.into(), width: 1.5, color: p.primary.base.color },
+            placeholder: Color { a: 0.45, ..color },
+            value: color,
+            selection: Color { a: 0.3, ..p.primary.base.color },
+        }
+    }
+}
+
+/// The dimmed backdrop and card of a confirmation dialog.
+pub fn scrim(_theme: &Theme) -> container::Style {
+    container::Style { background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.35).into()), ..Default::default() }
+}

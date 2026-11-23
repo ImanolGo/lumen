@@ -42,6 +42,23 @@ pub async fn choose(folder: bool) -> Result<Vec<PathBuf>> {
     Ok(files.uris().iter().filter_map(|uri| uri_to_path(uri.as_str())).collect())
 }
 
+/// Asks where to save a file, suggesting `suggested` (its folder and name). `Ok(None)` means cancelled.
+pub async fn save_as(suggested: PathBuf) -> Result<Option<PathBuf>> {
+    let name = suggested.file_name().map(|n| n.to_string_lossy().into_owned());
+    let base = || {
+        SelectedFiles::save_file().title("Save a Copy").accept_label("Save").modal(true).current_name(name.as_deref())
+    };
+    let request = match suggested.parent().filter(|d| d.is_dir()) {
+        Some(dir) => base().current_folder(dir).unwrap_or_else(|_| base()),
+        None => base(),
+    };
+    match request.send().await.and_then(|r| r.response()) {
+        Ok(files) => Ok(files.uris().iter().find_map(|uri| uri_to_path(uri.as_str()))),
+        Err(ashpd::Error::Response(ResponseError::Cancelled)) => Ok(None),
+        Err(e) => Err(e).context("no file chooser portal is available (install xdg-desktop-portal-gtk or -gnome)"),
+    }
+}
+
 /// Opens a web or mail address in the user's browser or mail app, through the portal.
 pub async fn open_uri(uri: String) -> Result<()> {
     let parsed = ashpd::Uri::parse(&uri).context("not a valid address")?;

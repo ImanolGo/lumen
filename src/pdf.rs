@@ -5,7 +5,7 @@
 //! is single-threaded. Requests are served newest-first so that, while the user
 //! scrolls quickly, the pages they are looking at now win over stale ones.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
@@ -16,6 +16,8 @@ use hayro::hayro_syntax::{LoadPdfError, Pdf};
 use hayro::{PixmapSettings, RenderCache, RenderSettings};
 use tokio::sync::oneshot;
 
+use crate::annotate::pdf::{Imported, ObjRef, PageEdit};
+use crate::annotate::{self, AnnotationLayer};
 use crate::raster::Picture;
 use crate::structure::{self, Link, OutlineItem, PageText};
 
@@ -117,8 +119,67 @@ fn describe(e: LoadPdfError) -> anyhow::Error {
 impl Document {
     /// Opens `path` and starts its render threads. Blocking.
     pub fn open(path: &Path) -> Result<Self> {
-        let bytes: Arc<Vec<u8>> =
-            Arc::new(std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?);
+        let bytes = std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
+        Self::from_bytes(path, bytes)
+    }
+
+    /// Opens `path` for markup: its editable annotations, and the document to show
+    /// while they are edited, which has them hidden (Lumen draws them itself). Blocking.
+    pub fn open_for_markup(path: &Path) -> Result<(Self, Imported)> {
+        let bytes = std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
+        Self::markup_from_bytes(path, bytes)
+    }
+
+    fn markup_from_bytes(path: &Path, bytes: Vec<u8>) -> Result<(Self, Imported)> {
+        let imported = {
+            let pdf = Pdf::new(Arc::new(bytes.clone())).map_err(describe)?;
+            catch_unwind(AssertUnwindSafe(|| annotate::pdf::import(&pdf))).unwrap_or_default()
+        };
+        let shown = if imported.is_empty() {
+            bytes
+        } else {
+            let all: Vec<_> = imported.refs.iter().flatten().copied().collect();
+            annotate::pdf::hide(&bytes, &all)?
+        };
+        Ok((Self::from_bytes(path, shown)?, imported))
+    }
+
+    /// Writes `layers` into the PDF at `source` and saves the result to `target` (which may
+    /// be `source`), then opens it for markup again. Blocking.
+    pub fn save_markup(
+        source: &Path,
+        target: &Path,
+        layers: &BTreeMap<usize, AnnotationLayer>,
+        refs: &[Vec<ObjRef>],
+        pages: &[usize],
+    ) -> Result<(Self, Imported)> {
+        let bytes = Self::with_markup(source, layers, refs, pages)?;
+        write_atomic(target, &bytes)?;
+        Self::markup_from_bytes(target, bytes)
+    }
+
+    /// The bytes of the PDF at `source` with `layers` written into `pages`. Blocking.
+    pub fn with_markup(
+        source: &Path,
+        layers: &BTreeMap<usize, AnnotationLayer>,
+        refs: &[Vec<ObjRef>],
+        pages: &[usize],
+    ) -> Result<Vec<u8>> {
+        let bytes = std::fs::read(source).with_context(|| format!("cannot read {}", source.display()))?;
+        let edits: Vec<PageEdit<'_>> = pages
+            .iter()
+            .map(|&page| PageEdit {
+                page,
+                layer: layers.get(&page),
+                replaces: refs.get(page).map_or(&[], Vec::as_slice),
+            })
+            .collect();
+        catch_unwind(AssertUnwindSafe(|| annotate::pdf::save(&bytes, &edits)))
+            .map_err(|_| anyhow!("the PDF could not be written"))?
+    }
+
+    fn from_bytes(path: &Path, bytes: Vec<u8>) -> Result<Self> {
+        let bytes = Arc::new(bytes);
         let pdf = Pdf::new(bytes.clone()).map_err(describe)?;
         let pages: Vec<(f32, f32)> = pdf.pages().iter().map(|p| p.render_dimensions()).collect();
         if pages.is_empty() {
@@ -243,6 +304,27 @@ fn worker(bytes: Arc<Vec<u8>>, queue: &Queue) {
             }
         }
     }
+}
+
+/// Replaces `path` with `bytes` all at once: a crash half-way leaves the old file, not half a new one.
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    use std::io::Write as _;
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let temp = path.with_file_name(format!(".{name}.lumen-tmp"));
+    let result = (|| -> Result<()> {
+        let mut file = std::fs::File::create(&temp).context("cannot write there")?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        if let Ok(meta) = std::fs::metadata(path) {
+            let _ = std::fs::set_permissions(&temp, meta.permissions());
+        }
+        std::fs::rename(&temp, path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result.with_context(|| format!("cannot save {}", path.display()))
 }
 
 /// A first-page thumbnail for the file strip. Blocking.

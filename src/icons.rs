@@ -66,3 +66,22 @@ pub fn app() -> svg::Handle {
 }
 icon!(search, r#"<circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/>"#);
 icon!(close, r#"<path d="M6 6l12 12M18 6 6 18"/>"#);
+icon!(markup, r#"<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>"#);
+icon!(select, r#"<path d="M5 3l14 7-6 2-2 6z"/>"#);
+icon!(
+    highlighter,
+    r#"<path d="m9 11-5 5v3h6l5-5"/><path d="m9 11 6-6 4 4-6 6z"/><path d="M14 21h7" stroke-width="3" opacity=".55"/>"#
+);
+icon!(pen, r#"<path d="M3 17c3-6 5-9 7-6s1 7 4 6 4-7 7-9"/>"#);
+icon!(rectangle, r#"<rect x="4" y="6" width="16" height="12" rx="1"/>"#);
+icon!(ellipse, r#"<ellipse cx="12" cy="12" rx="8.5" ry="6.5"/>"#);
+icon!(line, r#"<path d="M5 19 19 5"/>"#);
+icon!(arrow, r#"<path d="M5 19 19 5"/><path d="M10 5h9v9"/>"#);
+icon!(text_tool, r#"<path d="M5 6V4h14v2"/><path d="M12 4v16"/><path d="M9 20h6"/>"#);
+icon!(undo, r#"<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>"#);
+icon!(redo, r#"<path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/>"#);
+icon!(delete, r#"<path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/>"#);
+icon!(width_thin, r#"<path d="M5 12h14" stroke-width="1.2"/>"#);
+icon!(width_medium, r#"<path d="M5 12h14" stroke-width="3"/>"#);
+icon!(width_thick, r#"<path d="M5 12h14" stroke-width="5.5"/>"#);
+icon!(save_copy, r#"<path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4"/><path d="M8 20v-6h8v6"/>"#);

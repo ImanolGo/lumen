@@ -13,7 +13,7 @@
 
 The original Lumen is built on GTK 4, libadwaita and poppler. This edition:
 
-- **Has no C code in the document path.** Pictures are decoded by [`image`](https://github.com/image-rs/image) and [`resvg`](https://github.com/linebender/resvg). PDFs are rendered by [`hayro`](https://github.com/LaurenzV/hayro), which forbids `unsafe` code. The app itself is `#![forbid(unsafe_code)]`.
+- **Has no C code in the document path.** Pictures are decoded by [`image`](https://github.com/image-rs/image) and [`resvg`](https://github.com/linebender/resvg). PDFs are rendered by [`hayro`](https://github.com/LaurenzV/hayro), which forbids `unsafe` code, and markup is written into them with [`lopdf`](https://github.com/J-F-Liu/lopdf). The app itself is `#![forbid(unsafe_code)]`.
 - **Has no GTK runtime requirements.** It is a single binary that talks to the desktop only through XDG portals (D-Bus), so it behaves the same on GNOME, KDE, Niri, Sway, Hyprland and others.
 - **Draws on the GPU** through wgpu, with a CPU fallback (tiny-skia).
 
@@ -25,6 +25,9 @@ The original Lumen is built on GTK 4, libadwaita and poppler. This edition:
 - **Text selection:** drag over text to select it (Shift+click extends, double-click picks a word), Ctrl+C copies, Ctrl+A selects the whole document. Like other Linux apps, the selection also goes to the primary selection for middle-click paste. Dragging anywhere that is not text still pans.
 - **Table of contents:** the PDF's outline appears in the sidebar, follows you as you scroll, and jumps to the exact spot of each section.
 - **Links:** links inside the document jump to their target. Web and mail links open in your browser or mail app through the desktop portal; other kinds of link (files, programs) are ignored for safety.
+- **Markup:** press M (or the pen button) to draw on a picture or a PDF page: highlighter, pen, rectangles, ellipses, lines, arrows and text boxes, in eight colours and three line widths. Select, move, resize, recolour and delete what you drew, with undo and redo. On a PDF the highlighter marks the text you drag over.
+- **Real PDF annotations:** markup is saved into the PDF as standard annotations (highlight, ink, square, circle, line, free text), each with its own appearance, so every PDF viewer shows it. Saving appends an incremental update: the original bytes are kept as they were. Annotations of those kinds that are already in a PDF, from Lumen or another app, can be edited too; comments attached to them are kept.
+- **Pictures with markup** are saved as a copy (PNG, JPEG, WebP, TIFF or BMP), never over the original unless you choose it. Printing prints what you see, unsaved markup included. Markup you have not saved yet is kept while you look at other files, and quitting asks first.
 - **Folders:** open a folder, or open one file and flip through its neighbours. You can also drop files and folders onto the window. A sidebar on the left lists the files with lazily loaded thumbnails (only the rows on screen are built, so huge folders stay fast); camera JPEGs use their embedded EXIF thumbnail.
 - **Printing:** uses the desktop's native print dialog through the XDG print portal. PDFs are sent as they are. Pictures are fitted to the paper and margins you choose and sent as a one-page PDF at up to 300 dpi.
 - **Light and dark mode:** follows the system colour scheme and switches live when you change it.
@@ -32,7 +35,7 @@ The original Lumen is built on GTK 4, libadwaita and poppler. This edition:
 - **Fast flipping:** the next and previous pictures are preloaded, and recently viewed ones are kept decoded.
 - **Robust:** decoding runs under allocation limits, and a panic while decoding or rendering a hostile file becomes an error message instead of a crash.
 
-Editing, markup, forms, signing and password-protected PDFs from the original Lumen are not ported yet.
+Picture editing (crop, adjust), page reordering, forms, signing and password-protected PDFs from the original Lumen are not ported yet.
 
 ## Keyboard
 
@@ -40,6 +43,10 @@ Editing, markup, forms, signing and password-protected PDFs from the original Lu
 |---|---|
 | Ctrl+O / Ctrl+Shift+O | Open files / open a folder |
 | Ctrl+P | Print |
+| M | Markup on or off |
+| Ctrl+Z / Ctrl+Shift+Z | Undo / redo markup |
+| Delete, arrow keys | Delete / nudge the selected annotation (Shift moves further) |
+| Ctrl+S / Ctrl+Shift+S | Save markup into the PDF / save a copy (a picture always saves a copy) |
 | Ctrl+C / Ctrl+A | Copy the selected text / select all text (PDF) |
 | Ctrl+F | Find in the PDF (Enter / Shift+Enter or F3 / Shift+F3 for next / previous, Esc to close) |
 | ← → (Space / Backspace for pictures) | Next / previous file |
@@ -85,6 +92,8 @@ xdg-mime default io.github.imanolgo.LumenRs.desktop application/pdf
 | `src/app.rs` | State, messages, update and view (iced's Elm architecture) |
 | `src/pdf.rs` | PDF documents and their render-thread pool (hayro) |
 | `src/structure.rs` | Outline, links and page text (for search) |
+| `src/annotate/` | Markup: the annotation model and editor, the shared drawing description, PDF annotations in and out (lopdf), pictures with markup |
+| `src/app/markup.rs`, `src/app/overlay.rs` | The markup bar and its messages; the canvas that draws annotations over a page and takes the pointer |
 | `src/raster.rs` | Picture decoding, SVG rendering and thumbnails |
 | `src/library.rs` | Which files to browse: folders, natural sort order |
 | `src/print.rs` | Printing through the portal; turns pictures into PDFs |
