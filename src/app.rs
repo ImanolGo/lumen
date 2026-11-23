@@ -24,7 +24,7 @@ mod overlay;
 mod pages;
 mod signature;
 
-use edit::{CropState, EditMsg, PicEdit};
+use edit::{CropState, EditMsg, PicEdit, ResizeForm};
 use forms::{FormMsg, FormState};
 use markup::{DocMarkup, MarkupMsg, TextEdit};
 use pages::{Organizer, PagesMsg};
@@ -188,6 +188,7 @@ pub struct App {
     edit_open: bool,
     crop: Option<CropState>,
     adjust_open: bool,
+    resize_form: Option<ResizeForm>,
     /// Unsaved edits of other pictures.
     stash_edits: HashMap<PathBuf, PicEdit>,
     /// The page organiser of the open PDF.
@@ -486,6 +487,7 @@ impl App {
             edit_open: false,
             crop: None,
             adjust_open: false,
+            resize_form: None,
             stash_edits: HashMap::new(),
             organizer: None,
         };
@@ -1173,6 +1175,7 @@ impl App {
             self.stash_edits.insert(view.path.clone(), edit);
         }
         self.crop = None;
+        self.resize_form = None;
         self.pending_sign = None;
         self.sign_target = None;
         self.current = index;
@@ -1784,8 +1787,13 @@ impl App {
         if self.drop_hover {
             layers = layers.push(self.drop_overlay());
         }
-        if self.adjust_open && self.edit_open && matches!(self.doc, Doc::Image(_)) && !self.fullscreen {
-            layers = layers.push(self.adjust_panel());
+        if self.edit_open && matches!(self.doc, Doc::Image(_)) && !self.fullscreen {
+            if self.adjust_open {
+                layers = layers.push(self.adjust_panel());
+            }
+            if self.resize_form.is_some() {
+                layers = layers.push(self.resize_panel());
+            }
         }
         if self.sign_menu {
             layers = layers.push(self.sign_menu_view());

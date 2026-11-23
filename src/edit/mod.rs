@@ -24,14 +24,19 @@ pub struct CropRect {
 }
 
 /// Everything done to a picture, in the order it is applied: quarter turns clockwise,
-/// then a horizontal mirror, then the crop, then the colours.
+/// then a horizontal mirror, then the crop, then the new size, then the colours.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Edits {
     pub turns: u8,
     pub flip: bool,
     pub crop: Option<CropRect>,
+    /// Width and height after cropping, when the picture was resized.
+    pub resize: Option<(u32, u32)>,
     pub adjust: Adjustments,
 }
+
+/// Largest side a picture can be resized to.
+pub const MAX_SIDE: u32 = 16_384;
 
 /// One edit: the new state, and how it moved what was on the picture (and back).
 #[derive(Debug, Clone, PartialEq)]
@@ -48,6 +53,7 @@ fn inverse(change: GeometryChange, before: (f64, f64)) -> GeometryChange {
         GeometryChange::RotateCw { .. } => GeometryChange::RotateCcw { width: before.1 },
         GeometryChange::RotateCcw { .. } => GeometryChange::RotateCw { height: before.0 },
         GeometryChange::Crop { x, y } => GeometryChange::Crop { x: -x, y: -y },
+        GeometryChange::Scale { sx, sy } => GeometryChange::Scale { sx: 1.0 / sx, sy: 1.0 / sy },
         same => same,
     }
 }
@@ -62,12 +68,17 @@ impl Edits {
         if self.turns % 2 == 1 { (base.1, base.0) } else { base }
     }
 
-    /// Size of the edited picture.
-    pub fn size(&self, base: (u32, u32)) -> (u32, u32) {
+    /// Size of the edited picture before resizing.
+    pub fn unscaled(&self, base: (u32, u32)) -> (u32, u32) {
         match self.crop {
             Some(c) => (c.w, c.h),
             None => self.oriented(base),
         }
+    }
+
+    /// Size of the edited picture.
+    pub fn size(&self, base: (u32, u32)) -> (u32, u32) {
+        self.resize.unwrap_or_else(|| self.unscaled(base))
     }
 
     fn step(self, base: (u32, u32), after: Edits, forward: Vec<GeometryChange>) -> Step {
@@ -100,6 +111,7 @@ impl Edits {
         // Turning after a mirror is the mirror after turning the other way.
         after.turns = if self.flip { (self.turns + 3) % 4 } else { (self.turns + 1) % 4 };
         after.crop = self.crop.map(|c| CropRect { x: oh - c.y - c.h, y: c.x, w: c.h, h: c.w });
+        after.resize = self.resize.map(|(w, h)| (h, w));
         self.step(base, after, vec![GeometryChange::RotateCw { height: sh as f64 }])
     }
 
@@ -134,8 +146,32 @@ impl Edits {
     pub fn crop(self, base: (u32, u32), rect: CropRect) -> Step {
         let (x0, y0) = self.crop.map_or((0, 0), |c| (c.x, c.y));
         let mut after = self;
-        after.crop = Some(CropRect { x: x0 + rect.x, y: y0 + rect.y, ..rect });
+        // On a resized picture the crop is taken from the full-size one, and the
+        // result keeps the same scale.
+        let (uw, uh) = self.unscaled(base);
+        let (sw, sh) = self.size(base);
+        let (fx, fy) = (uw as f64 / sw.max(1) as f64, uh as f64 / sh.max(1) as f64);
+        let scaled = |v: u32, f: f64| (v as f64 * f).round() as u32;
+        let full = CropRect {
+            x: scaled(rect.x, fx),
+            y: scaled(rect.y, fy),
+            w: scaled(rect.w, fx).max(1),
+            h: scaled(rect.h, fy).max(1),
+        };
+        let full = CropRect { w: full.w.min(uw - full.x.min(uw - 1)), h: full.h.min(uh - full.y.min(uh - 1)), ..full };
+        after.crop = Some(CropRect { x: x0 + full.x, y: y0 + full.y, ..full });
+        after.resize = self.resize.map(|_| (rect.w, rect.h));
         self.step(base, after, vec![GeometryChange::Crop { x: rect.x as f64, y: rect.y as f64 }])
+    }
+
+    /// Resize the picture to `width`×`height` (going back to the full size when that is it).
+    pub fn resized(self, base: (u32, u32), width: u32, height: u32) -> Step {
+        let (width, height) = (width.clamp(1, MAX_SIDE), height.clamp(1, MAX_SIDE));
+        let (sw, sh) = self.size(base);
+        let mut after = self;
+        after.resize = (self.unscaled(base) != (width, height)).then_some((width, height));
+        let change = GeometryChange::Scale { sx: width as f64 / sw as f64, sy: height as f64 / sh as f64 };
+        self.step(base, after, vec![change])
     }
 
     pub fn adjusted(self, base: (u32, u32), adjust: Adjustments) -> Step {
@@ -146,12 +182,16 @@ impl Edits {
 
     /// Back to the picture as it was opened.
     pub fn reset(self, base: (u32, u32)) -> Step {
-        // Undo the crop, then the mirror, then the turns.
+        // Undo the size, then the crop, then the mirror, then the turns.
         let mut forward = Vec::new();
+        if let Some((rw, rh)) = self.resize {
+            let (uw, uh) = self.unscaled(base);
+            forward.push(GeometryChange::Scale { sx: uw as f64 / rw as f64, sy: uh as f64 / rh as f64 });
+        }
         if let Some(c) = self.crop {
             forward.push(GeometryChange::Crop { x: -(c.x as f64), y: -(c.y as f64) });
         }
-        let mut now = Edits { crop: None, ..self };
+        let mut now = Edits { crop: None, resize: None, ..self };
         if now.flip {
             let s = now.flip_h(base);
             forward.extend(s.forward);
@@ -181,10 +221,16 @@ pub fn apply(base: &RgbaImage, edits: &Edits) -> RgbaImage {
         }
         _ => mirrored,
     };
+    let sized = match edits.resize {
+        Some((w, h)) if (w, h) != cropped.dimensions() => {
+            imageops::resize(&cropped, w.clamp(1, MAX_SIDE), h.clamp(1, MAX_SIDE), imageops::FilterType::CatmullRom)
+        }
+        _ => cropped,
+    };
     if edits.adjust.is_neutral() {
-        cropped
+        sized
     } else {
-        adjust::apply(DynamicImage::ImageRgba8(cropped), edits.adjust).into_rgba8()
+        adjust::apply(DynamicImage::ImageRgba8(sized), edits.adjust).into_rgba8()
     }
 }
 
@@ -248,6 +294,33 @@ mod tests {
         let reset = k.after.reset(size);
         assert_eq!(apply(&base, &reset.after), base);
         assert_eq!(follow(&[&r, &f, &c, &v, &k, &reset], 2.5, 1.5), (2.5, 1.5));
+    }
+
+    #[test]
+    fn resizing_scales_markup_and_later_crops_keep_the_scale() {
+        let base = RgbaImage::from_fn(400, 200, |x, y| image::Rgba([(x / 2) as u8, y as u8, 0, 255]));
+        let size = base.dimensions();
+        let half = Edits::default().resized(size, 200, 100);
+        assert_eq!(half.after.size(size), (200, 100));
+        assert_eq!(follow(&[&half], 100.0, 50.0), (50.0, 25.0));
+        // A crop of the half-size picture is taken from the full one and stays half size.
+        let crop = half.after.crop(size, CropRect { x: 50, y: 25, w: 100, h: 50 });
+        assert_eq!(crop.after.crop, Some(CropRect { x: 100, y: 50, w: 200, h: 100 }));
+        assert_eq!(crop.after.size(size), (100, 50));
+        let turned = crop.after.rotate_cw(size);
+        assert_eq!(turned.after.size(size), (50, 100));
+        let shown = apply(&base, &turned.after);
+        assert_eq!(shown.dimensions(), (50, 100));
+        // A dot on source pixel (240, 120) is at half size, cropped, then turned.
+        let (x, y) = follow(&[&half, &crop, &turned], 240.0, 120.0);
+        assert!((x - (50.0 - 35.0)).abs() < 1e-9 && (y - 70.0).abs() < 1e-9, "{x},{y}");
+        // Back to the original, markup included.
+        let reset = turned.after.reset(size);
+        assert_eq!(apply(&base, &reset.after), base);
+        let (x, y) = follow(&[&half, &crop, &turned, &reset], 240.0, 120.0);
+        assert!((x - 240.0).abs() < 1e-9 && (y - 120.0).abs() < 1e-9, "{x},{y}");
+        // Resizing back to the full size is no resize at all.
+        assert_eq!(half.after.resized(size, 400, 200).after.resize, None);
     }
 
     #[test]

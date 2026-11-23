@@ -50,6 +50,13 @@ pub struct CropState {
     drag: Option<(Grab, crop::Rect, (f64, f64))>,
 }
 
+/// The new size being typed in.
+pub struct ResizeForm {
+    width: String,
+    height: String,
+    keep_ratio: bool,
+}
+
 /// Aspect ratios offered for cropping; `None` is free, 0.0 means the picture's own.
 const ASPECTS: [(&str, Option<f64>); 6] = [
     ("Free", None),
@@ -79,6 +86,12 @@ pub enum EditMsg {
     CropApply,
     CropCancel,
     AdjustOpen,
+    ResizeOpen,
+    ResizeWidth(String),
+    ResizeHeight(String),
+    ResizeKeep(bool),
+    ResizePercent(u32),
+    ResizeApply,
     Adjust(Adjustments),
     AdjustDone,
 }
@@ -196,6 +209,7 @@ impl App {
             EditMsg::CropStart => {
                 let Doc::Image(view) = &self.doc else { return Task::none() };
                 self.adjust_open = false;
+                self.resize_form = None;
                 let bounds = (view.shown.width as f64, view.shown.height as f64);
                 self.crop = Some(CropState { rect: crop::initial(bounds, None, 0.9), aspect: 0, drag: None });
                 Task::none()
@@ -253,8 +267,81 @@ impl App {
             }
             EditMsg::AdjustOpen => {
                 self.adjust_open = !self.adjust_open;
+                self.resize_form = None;
                 self.crop = None;
                 Task::none()
+            }
+            EditMsg::ResizeOpen => {
+                self.adjust_open = false;
+                self.crop = None;
+                self.resize_form = match self.resize_form {
+                    Some(_) => None,
+                    None => {
+                        let (w, h) = edits.size(size);
+                        Some(ResizeForm { width: w.to_string(), height: h.to_string(), keep_ratio: true })
+                    }
+                };
+                Task::none()
+            }
+            EditMsg::ResizeWidth(_) | EditMsg::ResizeHeight(_) => {
+                let (width, text) = match msg {
+                    EditMsg::ResizeWidth(t) => (true, t),
+                    EditMsg::ResizeHeight(t) => (false, t),
+                    _ => unreachable!(),
+                };
+                let (sw, sh) = edits.size(size);
+                let Some(form) = &mut self.resize_form else { return Task::none() };
+                let digits: String = text.chars().filter(char::is_ascii_digit).take(5).collect();
+                let value: Option<u32> = digits.parse().ok();
+                if width {
+                    form.width = digits;
+                    if form.keep_ratio
+                        && let Some(w) = value
+                    {
+                        form.height = ((w as f64 * sh as f64 / sw as f64).round().max(1.0) as u32).to_string();
+                    }
+                } else {
+                    form.height = digits;
+                    if form.keep_ratio
+                        && let Some(h) = value
+                    {
+                        form.width = ((h as f64 * sw as f64 / sh as f64).round().max(1.0) as u32).to_string();
+                    }
+                }
+                Task::none()
+            }
+            EditMsg::ResizeKeep(keep) => {
+                let (sw, sh) = edits.size(size);
+                if let Some(form) = &mut self.resize_form {
+                    form.keep_ratio = keep;
+                    if keep && let Ok(w) = form.width.parse::<u32>() {
+                        form.height = ((w as f64 * sh as f64 / sw as f64).round().max(1.0) as u32).to_string();
+                    }
+                }
+                Task::none()
+            }
+            EditMsg::ResizePercent(percent) => {
+                // Percentages are of the full-size picture, so 100 % undoes a resize.
+                let (uw, uh) = edits.unscaled(size);
+                if let Some(form) = &mut self.resize_form {
+                    form.width = ((uw as u64 * percent as u64 / 100).max(1)).to_string();
+                    form.height = ((uh as u64 * percent as u64 / 100).max(1)).to_string();
+                }
+                Task::none()
+            }
+            EditMsg::ResizeApply => {
+                let Some(form) = &self.resize_form else { return Task::none() };
+                let (Ok(w), Ok(h)) = (form.width.parse::<u32>(), form.height.parse::<u32>()) else {
+                    return self.toast("Type a width and a height in pixels");
+                };
+                if w == 0 || h == 0 || w > crate::edit::MAX_SIDE || h > crate::edit::MAX_SIDE {
+                    return self.toast(format!("Sizes go from 1 to {} pixels", crate::edit::MAX_SIDE));
+                }
+                self.resize_form = None;
+                if (w, h) == edits.size(size) {
+                    return Task::none();
+                }
+                self.apply_step(edits.resized(size, w, h))
             }
             EditMsg::Adjust(adjust) => {
                 let Doc::Image(view) = &mut self.doc else { return Task::none() };
@@ -308,7 +395,7 @@ impl App {
 
     /// Escape while editing: drop the crop, then close the panel.
     pub(super) fn edit_escape(&mut self) -> bool {
-        self.crop.take().is_some() || std::mem::take(&mut self.adjust_open)
+        self.crop.take().is_some() || self.resize_form.take().is_some() || std::mem::take(&mut self.adjust_open)
     }
 
     // ------------------------------------------------------------ view
@@ -374,6 +461,7 @@ impl App {
                 icon_button(icons::flip_v(), "Mirror top to bottom", e(EditMsg::FlipV), false),
                 super::separator(),
                 icon_button(icons::crop(), "Crop", e(EditMsg::CropStart), false),
+                icon_button(icons::resize(), "Resize", e(EditMsg::ResizeOpen), self.resize_form.is_some()),
                 icon_button(icons::adjust(), "Light and colour", e(EditMsg::AdjustOpen), self.adjust_open),
                 super::separator(),
                 icon_button(
@@ -436,6 +524,67 @@ impl App {
             ]
             .spacing(12)
             .width(240),
+        )
+        .padding(14)
+        .style(style::panel);
+        container(panel)
+            .width(Length::Fill)
+            .align_x(Alignment::End)
+            .padding(Padding { top: TOOLBAR_H + 54.0, right: 16.0, ..Padding::ZERO })
+            .into()
+    }
+}
+
+impl App {
+    pub(super) fn resize_panel(&self) -> Element<'_, Message> {
+        let (Some(form), Doc::Image(view)) = (&self.resize_form, &self.doc) else { return space().into() };
+        let (uw, uh) = view.edit.edits.unscaled((view.original.width, view.original.height));
+        let field = |value: &str, on: fn(String) -> EditMsg| {
+            iced::widget::text_input("", value)
+                .on_input(move |t| Message::Edit(on(t)))
+                .on_submit(Message::Edit(EditMsg::ResizeApply))
+                .size(14)
+                .padding([6, 8])
+                .width(80)
+        };
+        let mut presets = row![].spacing(4);
+        for percent in [25, 50, 75, 100] {
+            presets = presets.push(
+                button(text(format!("{percent} %")).size(12))
+                    .padding([4, 8])
+                    .style(style::secondary)
+                    .on_press(Message::Edit(EditMsg::ResizePercent(percent))),
+            );
+        }
+        let ok = form.width.parse::<u32>().is_ok_and(|w| w > 0) && form.height.parse::<u32>().is_ok_and(|h| h > 0);
+        let panel = container(
+            column![
+                text("Resize").size(14).font(Font { weight: iced::font::Weight::Semibold, ..Font::DEFAULT }),
+                row![
+                    field(&form.width, EditMsg::ResizeWidth),
+                    text("×").size(14),
+                    field(&form.height, EditMsg::ResizeHeight),
+                    text("px").size(13).style(muted)
+                ]
+                .spacing(6)
+                .align_y(Alignment::Center),
+                iced::widget::checkbox(form.keep_ratio)
+                    .label("Keep proportions")
+                    .on_toggle(|k| Message::Edit(EditMsg::ResizeKeep(k)))
+                    .size(16)
+                    .text_size(13),
+                presets,
+                text(format!("Full size: {uw} × {uh}")).size(12).style(muted),
+                row![
+                    space().width(Length::Fill),
+                    button(text("Resize").size(13))
+                        .padding([6, 14])
+                        .style(style::primary)
+                        .on_press_maybe(ok.then_some(Message::Edit(EditMsg::ResizeApply))),
+                ],
+            ]
+            .spacing(10)
+            .width(250),
         )
         .padding(14)
         .style(style::panel);

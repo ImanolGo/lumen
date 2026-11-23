@@ -697,10 +697,18 @@ impl App {
         self.markup_busy = Some("Saving…");
         let generation = self.generation;
         let saved = self.marks.as_ref().map(|m| m.store.pages.layers.clone()).unwrap_or_default();
+        let source = match &self.doc {
+            Doc::Image(view) => view.path.clone(),
+            _ => return Task::none(),
+        };
         Task::perform(
             {
                 let target = target.clone();
-                blocking(move || crate::annotate::flatten::save(rgba, &layer, &target).map_err(err_string))
+                blocking(move || {
+                    // The copy keeps the original's EXIF data and colour profile.
+                    let meta = crate::metadata::Metadata::for_copy(&source, rgba.width(), rgba.height());
+                    crate::annotate::flatten::save(rgba, &layer, &target, &meta).map_err(err_string)
+                })
             },
             move |r| {
                 Message::Markup(MarkupMsg::PictureSaved(generation, target.clone(), saved.clone(), r.and_then(|r| r)))
@@ -739,7 +747,7 @@ impl App {
                 Some(Task::perform(
                     blocking(move || {
                         let copy = print_copy(&format!("{stem}.png"))?;
-                        crate::annotate::flatten::save(rgba, &layer, &copy).map_err(err_string)?;
+                        crate::annotate::flatten::save(rgba, &layer, &copy, &Default::default()).map_err(err_string)?;
                         Ok(copy)
                     }),
                     |r| r.and_then(|r| r),

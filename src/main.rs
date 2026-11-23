@@ -8,6 +8,7 @@ mod edit;
 mod forms;
 mod icons;
 mod library;
+mod metadata;
 mod pages;
 mod pdf;
 mod portal;

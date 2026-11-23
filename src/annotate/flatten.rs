@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
-use image::{ImageFormat, RgbaImage};
+use image::{ImageEncoder, ImageFormat, RgbaImage};
 use resvg::{tiny_skia, usvg};
 
 use super::model::{AnnotationLayer, Color};
@@ -87,8 +87,9 @@ pub fn flatten(mut picture: RgbaImage, layer: &AnnotationLayer) -> Result<RgbaIm
     Ok(picture)
 }
 
-/// Saves `picture` with its markup to `path`, in the format its extension names.
-pub fn save(picture: RgbaImage, layer: &AnnotationLayer, path: &Path) -> Result<()> {
+/// Saves `picture` with its markup to `path`, in the format its extension names, keeping
+/// `meta` (EXIF and colour profile) where the format can hold it.
+pub fn save(picture: RgbaImage, layer: &AnnotationLayer, path: &Path, meta: &crate::metadata::Metadata) -> Result<()> {
     let format = ImageFormat::from_path(path)
         .ok()
         .filter(|f| f.can_write())
@@ -100,18 +101,40 @@ pub fn save(picture: RgbaImage, layer: &AnnotationLayer, path: &Path) -> Result<
     ));
     let result = (|| -> Result<()> {
         let mut file = std::io::BufWriter::new(std::fs::File::create(&temp).context("cannot write there")?);
+        // Formats that cannot hold metadata just get the pixels.
+        let keep = |encoder: &mut dyn image::ImageEncoder| {
+            if let Some(icc) = &meta.icc {
+                let _ = encoder.set_icc_profile(icc.clone());
+            }
+            if let Some(exif) = &meta.exif {
+                let _ = encoder.set_exif_metadata(exif.clone());
+            }
+        };
+        let (w, h) = flat.dimensions();
         match format {
-            // No alpha in these: put the picture on white first.
-            ImageFormat::Jpeg | ImageFormat::Bmp | ImageFormat::Pnm => {
-                let rgb = image::DynamicImage::ImageRgba8(flat);
-                let mut white = RgbaImage::from_pixel(rgb.width(), rgb.height(), image::Rgba([255, 255, 255, 255]));
-                image::imageops::overlay(&mut white, &rgb.to_rgba8(), 0, 0);
+            ImageFormat::Jpeg => {
+                // No alpha in JPEG: put the picture on white first.
+                let mut white = RgbaImage::from_pixel(w, h, image::Rgba([255, 255, 255, 255]));
+                image::imageops::overlay(&mut white, &flat, 0, 0);
                 let rgb = image::DynamicImage::ImageRgba8(white).to_rgb8();
-                if format == ImageFormat::Jpeg {
-                    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut file, 92).encode_image(&rgb)?;
-                } else {
-                    rgb.write_to(&mut file, format)?;
-                }
+                let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut file, 92);
+                keep(&mut encoder);
+                encoder.write_image(&rgb, w, h, image::ExtendedColorType::Rgb8)?;
+            }
+            ImageFormat::Png => {
+                let mut encoder = image::codecs::png::PngEncoder::new(&mut file);
+                keep(&mut encoder);
+                encoder.write_image(&flat, w, h, image::ExtendedColorType::Rgba8)?;
+            }
+            ImageFormat::WebP => {
+                let mut encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut file);
+                keep(&mut encoder);
+                encoder.write_image(&flat, w, h, image::ExtendedColorType::Rgba8)?;
+            }
+            ImageFormat::Bmp | ImageFormat::Pnm => {
+                let mut white = RgbaImage::from_pixel(w, h, image::Rgba([255, 255, 255, 255]));
+                image::imageops::overlay(&mut white, &flat, 0, 0);
+                image::DynamicImage::ImageRgba8(white).to_rgb8().write_to(&mut file, format)?;
             }
             _ => flat.write_to(&mut file, format)?,
         }
@@ -149,10 +172,16 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("lumen-rs-flatten-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         for name in ["out.png", "out.jpg", "out.webp"] {
-            save(RgbaImage::from_pixel(64, 48, image::Rgba([9, 9, 9, 255])), &layer, &dir.join(name)).unwrap();
+            save(
+                RgbaImage::from_pixel(64, 48, image::Rgba([9, 9, 9, 255])),
+                &layer,
+                &dir.join(name),
+                &Default::default(),
+            )
+            .unwrap();
             assert_eq!(image::open(dir.join(name)).unwrap().width(), 64, "{name}");
         }
-        assert!(save(RgbaImage::new(4, 4), &layer, &dir.join("out.xyz")).is_err());
+        assert!(save(RgbaImage::new(4, 4), &layer, &dir.join("out.xyz"), &Default::default()).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
