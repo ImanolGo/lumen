@@ -665,6 +665,9 @@ impl Fragment {
     }
 }
 
+/// Consecutive rows of fragments, and the gutters they all share.
+type Band = (Vec<Vec<usize>>, Vec<(f64, f64)>);
+
 /// Deepest nesting of columns looked for.
 const MAX_COLUMN_DEPTH: u8 = 6;
 
@@ -705,9 +708,9 @@ fn reading_order(items: Vec<TextItem>, breaks: &[bool]) -> Vec<TextItem> {
     let mut previous: Option<(usize, &Fragment)> = None;
     for &k in &order {
         let f = &fragments[k];
-        for i in f.items.0..f.items.1 {
-            let Some(mut item) = slots[i].take() else { continue };
-            if i == f.items.0 {
+        for (n, slot) in slots[f.items.0..f.items.1].iter_mut().enumerate() {
+            let Some(mut item) = slot.take() else { continue };
+            if n == 0 {
                 item.gap = match previous {
                     None => Gap::None,
                     // Still in the file's order: keep its spacing.
@@ -807,7 +810,7 @@ fn layout(fragments: &[Fragment], mut group: Vec<usize>, depth: u8, order: &mut 
     // lines (before a footer, say) also ends a band of columns.
     let top = |row: &[usize]| row.iter().map(|&i| fragments[i].across.0).fold(f64::INFINITY, f64::min);
     let bottom = |row: &[usize]| row.iter().map(|&i| fragments[i].across.1).fold(f64::NEG_INFINITY, f64::max);
-    let mut bands: Vec<(Vec<Vec<usize>>, Vec<(f64, f64)>)> = Vec::new();
+    let mut bands: Vec<Band> = Vec::new();
     for row in rows {
         let own = inner(&row);
         let free = free_space(&spans(&row), lo, hi, gutter);
