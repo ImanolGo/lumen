@@ -41,7 +41,7 @@ The original Lumen is built on GTK 4, libadwaita and poppler. This edition:
 - **A calm interface:** one surface for the header, sidebar and canvas; tools float as islands over the view (the markup island shows colours and sizes only while you draw); Lumen's amber marks only what is active. Set in Inter, bundled.
 - **Light and dark mode:** follows the system colour scheme and switches live when you change it (`LUMEN_THEME=light` or `dark` overrides it).
 - **Zoom and pan:** best fit, fit width (PDF), actual size, Ctrl + scroll wheel (around the pointer), pinch on a touchpad (Wayland; see `vendor/README.md`), and drag to pan. Zoom changes ease in. Moving the pointer over the picture fades in a zoom control at the bottom and previous/next arrows at the sides, as in the GTK Lumen; they fade out again when the pointer rests.
-- **Fast flipping:** the next and previous pictures are preloaded, and recently viewed ones are kept decoded.
+- **Fast flipping:** the next and previous pictures are preloaded, and recently viewed ones are kept decoded, within a memory budget (neighbours over 24 megapixels are not decoded ahead, and decoding runs on a small fixed set of threads).
 - **Robust:** decoding runs under allocation limits, and a panic while decoding or rendering a hostile file becomes an error message instead of a crash.
 
 Everything from the original Lumen is ported.

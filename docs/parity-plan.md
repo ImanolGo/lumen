@@ -176,7 +176,7 @@ screenshots. Fix what is ours; report upstream to hayro what is not.
 
 | # | Package | Status |
 |---|---|---|
-| 1 | Open bugs and memory budget | todo |
+| 1 | Open bugs and memory budget | partly: cache byte budget, preload limit, fixed worker pool (5K folder 458 → 293 MB, goal < 200 MB); scroll bug skipped, `bench.py` not re-run |
 | 2 | PDF reading parity | todo |
 | 3 | Export | todo |
 | 4 | File actions | todo |

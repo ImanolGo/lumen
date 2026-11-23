@@ -71,6 +71,15 @@ pub fn load_for_print(path: &Path) -> Result<image::RgbImage> {
     Ok(rgb)
 }
 
+/// Pixel count of a picture from its header alone (SVGs count as small).
+pub fn pixel_count(path: &Path) -> Option<u64> {
+    if Kind::of(path) != Some(Kind::Image) {
+        return Some(0);
+    }
+    let (w, h) = ImageReader::open(path).ok()?.with_guessed_format().ok()?.into_dimensions().ok()?;
+    Some(w as u64 * h as u64)
+}
+
 fn limits() -> Limits {
     let mut limits = Limits::default();
     limits.max_alloc = Some(MAX_ALLOC);
@@ -140,6 +149,10 @@ pub fn thumbnail(path: &Path) -> Result<Picture> {
             if let Some(t) = exif_thumbnail(path) {
                 return Ok(t);
             }
+            // Full decodes for thumbnails run one at a time, so a folder of big pictures
+            // does not hold several decoded copies in memory at once.
+            static FULL_DECODE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+            let _turn = FULL_DECODE.lock().unwrap_or_else(|e| e.into_inner());
             let img = decode(path)?;
             let original = (img.width(), img.height());
             Ok(Picture::from_rgba(img.thumbnail(THUMB_SIDE, THUMB_SIDE).into_rgba8(), original))
@@ -190,6 +203,17 @@ mod tests {
 
         let thumb = thumbnail(&path).unwrap();
         assert_eq!((thumb.width, thumb.height), (THUMB_SIDE, THUMB_SIDE / 2));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn counts_pixels_from_the_header() {
+        let dir = std::env::temp_dir().join(format!("lumen-rs-pixels-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("p.png");
+        RgbaImage::from_pixel(300, 200, image::Rgba([1, 2, 3, 255])).save(&path).unwrap();
+        assert_eq!(pixel_count(&path), Some(60_000));
+        assert_eq!(pixel_count(&dir.join("missing.png")), None);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

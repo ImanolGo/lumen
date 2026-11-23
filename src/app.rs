@@ -64,8 +64,14 @@ const TOC_ROW_H: f32 = 30.0;
 const THUMB_PARALLEL: usize = 4;
 /// How far either side of the current file thumbnails are prepared.
 const THUMB_RADIUS: usize = 40;
-/// Decoded pictures kept around for instant back/forward.
+/// Decoded pictures kept around for instant back/forward (at most this many) ...
 const PICTURE_CACHE: usize = 5;
+/// ... and at most this many bytes of pixels between them.
+const PICTURE_CACHE_BYTES: usize = 64 << 20;
+/// Neighbours with more pixels than this are not decoded ahead of time.
+const PRELOAD_MAX_PIXELS: u64 = 24_000_000;
+/// Threads for decoding and other blocking work.
+const BLOCKING_THREADS: usize = 3;
 const PAGE_GAP: f32 = 16.0;
 const PAGE_PAD: f32 = 24.0;
 /// 100 % zoom for PDFs: 96 logical pixels per inch.
@@ -499,10 +505,46 @@ fn err_string(e: anyhow::Error) -> String {
 /// Runs CPU-bound or blocking work off the UI thread. A panic in there (say, a
 /// decoder choking on a hostile file) becomes an error instead of a crash.
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
-    tokio::task::spawn_blocking(move || std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|_| "the file could not be decoded".to_string())
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    worker_pool().send(Box::new(move || {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+        let _ = tx.send(result);
+    }));
+    rx.await.map_err(|e| e.to_string())?.map_err(|_| "the file could not be decoded".to_string())
+}
+
+type Job = Box<dyn FnOnce() + Send>;
+
+/// A few long-lived threads for blocking work. Unlike tokio's blocking pool, which
+/// starts a new thread for every burst, this keeps the number of threads (and with
+/// it glibc's per-thread malloc arenas, which hold on to freed pixels) small.
+struct Pool(std::sync::mpsc::Sender<Job>);
+
+impl Pool {
+    fn send(&self, job: Job) {
+        let _ = self.0.send(job);
+    }
+}
+
+fn worker_pool() -> &'static Pool {
+    static POOL: std::sync::OnceLock<Pool> = std::sync::OnceLock::new();
+    POOL.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<Job>();
+        let rx = std::sync::Arc::new(std::sync::Mutex::new(rx));
+        for i in 0..BLOCKING_THREADS {
+            let rx = rx.clone();
+            let _ = std::thread::Builder::new().name(format!("lumen-worker-{i}")).spawn(move || {
+                loop {
+                    let job = rx.lock().unwrap_or_else(|e| e.into_inner()).recv();
+                    match job {
+                        Ok(job) => job(),
+                        Err(_) => break,
+                    }
+                }
+            });
+        }
+        Pool(tx)
+    })
 }
 
 // ---------------------------------------------------------------- boot
@@ -1537,7 +1579,10 @@ impl App {
     fn remember(&mut self, path: PathBuf, loaded: Loaded) {
         self.pictures.retain(|(p, _)| *p != path);
         self.pictures.push_back((path, loaded));
-        while self.pictures.len() > PICTURE_CACHE {
+        let bytes = |pics: &VecDeque<(PathBuf, Loaded)>| pics.iter().map(|(_, l)| l.picture.rgba.len()).sum::<usize>();
+        while self.pictures.len() > PICTURE_CACHE
+            || (self.pictures.len() > 1 && bytes(&self.pictures) > PICTURE_CACHE_BYTES)
+        {
             self.pictures.pop_front();
         }
     }
@@ -1555,7 +1600,10 @@ impl App {
             tasks.push(Task::perform(
                 {
                     let path = path.clone();
-                    blocking(move || raster::load(&path).map_err(err_string))
+                    blocking(move || match raster::pixel_count(&path) {
+                        Some(n) if n > PRELOAD_MAX_PIXELS => Err("too big to preload".to_string()),
+                        _ => raster::load(&path).map_err(err_string),
+                    })
                 },
                 move |r| Message::Preloaded(path.clone(), r.and_then(|r| r)),
             ));
