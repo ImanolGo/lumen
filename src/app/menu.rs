@@ -54,6 +54,7 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
             ("W", "Fit width (PDF)"),
             ("T", "Sidebar"),
             ("F, F11", "Fullscreen"),
+            ("F5", "Slideshow (Space pauses, Esc leaves)"),
         ],
     ),
     (
@@ -115,6 +116,11 @@ impl App {
             items.push(Some(("Rotate Right", "R", Some(Message::Rotate(1)))));
             items.push(Some(("Rotate Left", "Shift+R", Some(Message::Rotate(-1)))));
         }
+        items.push(Some((
+            if self.slideshow.is_some() { "Stop Slideshow" } else { "Slideshow" },
+            "F5",
+            (self.can_slideshow() || self.slideshow.is_some()).then_some(Message::Slideshow),
+        )));
         items.push(Some((
             if self.fullscreen { "Leave Fullscreen" } else { "Fullscreen" },
             "F",

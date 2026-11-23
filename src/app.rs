@@ -29,6 +29,7 @@ mod pages;
 mod palette;
 mod printing;
 mod signature;
+mod slideshow;
 
 use chooser::{Chooser, ChooserMsg, Purpose};
 use edit::{CropState, EditMsg, PicEdit, ResizeForm};
@@ -40,6 +41,7 @@ use pagelist::PageThumbs;
 use pages::{Organizer, PagesMsg};
 use printing::{PrintDialog, PrintMsg};
 use signature::{Pad, SignMsg};
+use slideshow::Slideshow;
 
 use crate::annotate::{self, Editor};
 use crate::library::{self, Kind};
@@ -251,6 +253,8 @@ pub struct App {
     /// What the file chooser's answer will export.
     export_job: Option<ExportJob>,
     /// The file last moved to the trash (and where it sat in the list), while its toast offers Undo: the toast's id comes first.
+    /// The slideshow, while one is running.
+    slideshow: Option<Slideshow>,
     trash_undo: Option<(u64, usize, crate::trash::Trashed)>,
     /// Lumen's own file chooser and print dialog, when the desktop has no portal for them.
     chooser: Option<Chooser>,
@@ -500,6 +504,9 @@ pub enum Message {
     ToggleSidebar,
     DismissToast(u64),
     ShowInFolder,
+    Slideshow,
+    SlideshowPause,
+    SlideshowTick(Instant),
     OpenWith,
     Trash,
     Trashed(usize, Result<crate::trash::Trashed, String>),
@@ -672,6 +679,7 @@ impl App {
             properties: None,
             export_job: None,
             trash_undo: None,
+            slideshow: None,
             chooser: None,
             print_dialog: None,
         };
@@ -703,6 +711,7 @@ impl App {
         };
         Subscription::batch([
             fading,
+            self.slideshow_subscription(),
             system::theme_changes().map(Message::SystemTheme),
             window::events().map(|(id, e)| Message::WindowEvent(id, e)),
             keyboard::listen().map(Message::Key),
@@ -1092,6 +1101,8 @@ impl App {
                     Task::none()
                 } else if self.selection.take().is_some() {
                     Task::none()
+                } else if self.slideshow.is_some() {
+                    self.slideshow_stop()
                 } else if self.fullscreen {
                     self.set_fullscreen(false)
                 } else {
@@ -1252,6 +1263,9 @@ impl App {
                 }
                 Task::none()
             }
+            Message::Slideshow => self.slideshow_toggle(),
+            Message::SlideshowPause => self.slideshow_pause(),
+            Message::SlideshowTick(now) => self.slideshow_tick(now),
             Message::ShowInFolder => {
                 self.menu = None;
                 let Some(path) = self.current_file() else { return Task::none() };
@@ -1528,6 +1542,8 @@ impl App {
             Key::Named(named) => match named {
                 Named::ArrowRight if !ctrl => Message::Next,
                 Named::ArrowLeft if !ctrl => Message::Prev,
+                Named::Space if self.slideshow.is_some() => Message::SlideshowPause,
+                Named::F5 => Message::Slideshow,
                 Named::Space if !is_pdf => Message::Next,
                 Named::Backspace if !is_pdf => Message::Prev,
                 Named::PageDown if is_pdf => Message::PageNext,
