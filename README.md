@@ -28,6 +28,7 @@ The original Lumen is built on GTK 4, libadwaita and poppler. This edition:
 - **Go to page:** Ctrl+G (or a click on "Page x of y" in the header) asks for a page number.
 - **Night mode:** Ctrl+Shift+N (or ☰ → Night Mode) turns paper dark and text light while pictures in the page keep their colours (the GTK Lumen's colour matrix); page thumbnails follow. It is remembered for the session.
 - **Export:** ☰ → Export Pages… (or the export button in the page organiser) writes the selected pages, or the page in view, as PNG images at 72, 150 or 300 dpi (several pages go into a folder as `name-01.png`, …; the file records its resolution; turned pages come out turned) or as a new PDF (unsaved markup and form values included; a protected PDF stays protected). ☰ → Export as PDF… turns a picture into a PDF as big as the picture, without margins. ☰ → Combine Files… opens the page organiser and asks for the PDFs to add.
+- **File actions:** ☰ → Show in Folder (the file manager selects it, over D-Bus, or `xdg-open` on the folder), Open With… (the portal's app chooser) and Move to Trash. Trashing follows the freedesktop Trash spec (`~/.local/share/Trash`, or `.Trash-<uid>` at the top of another disk, with a `.trashinfo` note, so file managers can restore it too), shows the next file and offers Undo in the toast for eight seconds. A file that cannot be renamed into a trash is reported, never copied and deleted. There is no keyboard shortcut for the trash, so a stray key in a text box cannot send the file there.
 - **Properties:** ☰ → Properties… shows the file (name, folder, size, dates in UTC) and, for a PDF, its title, author, producer, version, page count and size, protection and form fields; for a picture its format, size, colour profile and EXIF summary (camera, lens, exposure, date, location).
 - **Table of contents:** the PDF's outline appears in the sidebar, follows you as you scroll, and jumps to the exact spot of each section.
 - **Links:** links inside the document jump to their target. Web and mail links open in your browser or mail app through the desktop portal; other kinds of link (files, programs) are ignored for safety.
@@ -118,6 +119,7 @@ xdg-mime default io.github.imanolgo.LumenRs.desktop application/pdf
 | `src/pages.rs` | Page plans (reorder, turn, delete, insert) and writing them (lopdf) |
 | `src/app/pagelist.rs` | The Pages sidebar tab and the go-to-page box |
 | `src/export.rs`, `src/app/export.rs` | Exporting pages as PNG or PDF and pictures as PDF; the Export dialog |
+| `src/trash.rs` | Moving files to the trash and back (freedesktop Trash spec) |
 | `src/properties.rs` | What the Properties dialog shows |
 | `src/app/edit.rs`, `src/app/pages.rs` | The picture editing bar, crop overlay and colour panel; the page organiser |
 | `src/forms.rs` | PDF forms: reading the fields, writing values and their appearances |

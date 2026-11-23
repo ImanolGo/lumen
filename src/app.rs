@@ -250,6 +250,8 @@ pub struct App {
     properties: Option<Result<crate::properties::Sheet, String>>,
     /// What the file chooser's answer will export.
     export_job: Option<ExportJob>,
+    /// The file last moved to the trash (and where it sat in the list), while its toast offers Undo: the toast's id comes first.
+    trash_undo: Option<(u64, usize, crate::trash::Trashed)>,
     /// Lumen's own file chooser and print dialog, when the desktop has no portal for them.
     chooser: Option<Chooser>,
     print_dialog: Option<PrintDialog>,
@@ -497,6 +499,13 @@ pub enum Message {
     ToggleFullscreen,
     ToggleSidebar,
     DismissToast(u64),
+    ShowInFolder,
+    OpenWith,
+    Trash,
+    Trashed(usize, Result<crate::trash::Trashed, String>),
+    UndoTrash,
+    Restored(usize, Result<PathBuf, String>),
+    FileActionDone(Result<(), String>),
     Quit,
     Markup(MarkupMsg),
     Form(FormMsg),
@@ -662,6 +671,7 @@ impl App {
             dialog: None,
             properties: None,
             export_job: None,
+            trash_undo: None,
             chooser: None,
             print_dialog: None,
         };
@@ -728,12 +738,19 @@ impl App {
     }
 
     fn show_toast(&mut self, msg: String, error: bool) -> Task<Message> {
+        self.show_toast_for(msg, error, if error { 6 } else { 3 })
+    }
+
+    fn show_toast_for(&mut self, msg: String, error: bool, seconds: u64) -> Task<Message> {
         self.toast_seq += 1;
         let id = self.toast_seq;
         self.toast = Some((id, msg, error));
-        Task::perform(tokio::time::sleep(Duration::from_secs(if error { 6 } else { 3 })), move |_| {
-            Message::DismissToast(id)
-        })
+        Task::perform(tokio::time::sleep(Duration::from_secs(seconds)), move |_| Message::DismissToast(id))
+    }
+
+    /// The file on screen, if there is one to act on.
+    fn current_file(&self) -> Option<PathBuf> {
+        self.files.get(self.current).cloned().filter(|p| p.exists())
     }
 }
 
@@ -1230,7 +1247,88 @@ impl App {
                 if self.toast.as_ref().is_some_and(|(t, ..)| *t == id) {
                     self.toast = None;
                 }
+                if self.trash_undo.as_ref().is_some_and(|(t, ..)| *t == id) {
+                    self.trash_undo = None;
+                }
                 Task::none()
+            }
+            Message::ShowInFolder => {
+                self.menu = None;
+                let Some(path) = self.current_file() else { return Task::none() };
+                Task::perform(async move { crate::portal::show_in_folder(path).await.map_err(err_string) }, |r| {
+                    Message::FileActionDone(r)
+                })
+            }
+            Message::OpenWith => {
+                self.menu = None;
+                let Some(path) = self.current_file() else { return Task::none() };
+                Task::perform(async move { crate::portal::open_with(path).await.map_err(err_string) }, |r| {
+                    Message::FileActionDone(r)
+                })
+            }
+            Message::FileActionDone(Ok(())) => Task::none(),
+            Message::FileActionDone(Err(e)) => self.toast(e),
+            Message::Trash => {
+                self.menu = None;
+                let Some(path) = self.current_file() else { return Task::none() };
+                let index = self.current;
+                Task::perform(blocking(move || crate::trash::trash(&path).map_err(err_string)), move |r| {
+                    Message::Trashed(index, r.and_then(|r| r))
+                })
+            }
+            Message::Trashed(_, Err(e)) => self.toast(format!("Could not move it to the trash: {e}")),
+            Message::Trashed(index, Ok(item)) => {
+                let path = item.original.clone();
+                // Only forget the file if it is still where it was in the list.
+                let Some(at) = self
+                    .files
+                    .iter()
+                    .position(|p| *p == path)
+                    .or((self.files.get(index) == Some(&path)).then_some(index))
+                else {
+                    return self.notice("Moved to the trash");
+                };
+                self.files.remove(at);
+                self.thumbs.remove(&path);
+                self.locked_thumbs.remove(&path);
+                self.stash.remove(&path);
+                self.stash_forms.remove(&path);
+                self.stash_edits.remove(&path);
+                self.passwords.remove(&path);
+                self.pictures.retain(|(p, _)| *p != path);
+                let name = file_name(&path);
+                let show = if self.files.is_empty() {
+                    self.organizer = None;
+                    self.detach_form();
+                    self.detach_markup();
+                    self.generation += 1;
+                    self.doc = Doc::Empty;
+                    self.current = usize::MAX;
+                    Task::none()
+                } else {
+                    let next = at.min(self.files.len() - 1);
+                    self.current = usize::MAX; // force the next file to load
+                    self.show(next)
+                };
+                let toast = self.show_toast_for(format!("Moved “{name}” to the trash"), false, 8);
+                self.trash_undo = Some((self.toast_seq, at, item));
+                Task::batch([show, toast, self.request_thumbs()])
+            }
+            Message::UndoTrash => {
+                let Some((_, index, item)) = self.trash_undo.take() else { return Task::none() };
+                self.toast = None;
+                Task::perform(
+                    blocking(move || crate::trash::restore(&item).map(|()| item.original).map_err(err_string)),
+                    move |r| Message::Restored(index, r.and_then(|r| r)),
+                )
+            }
+            Message::Restored(_, Err(e)) => self.toast(format!("Could not restore it: {e}")),
+            Message::Restored(index, Ok(path)) => {
+                let at = index.min(self.files.len());
+                self.files.insert(at, path.clone());
+                self.current = usize::MAX;
+                let shown = self.show(at);
+                Task::batch([shown, self.notice(format!("Restored “{}”", file_name(&path))), self.request_thumbs()])
             }
             Message::Quit => {
                 if self.unsaved_files() > 0 && !self.confirm_quit {
@@ -2343,10 +2441,16 @@ impl App {
         if self.confirm_quit {
             layers = layers.push(self.quit_dialog());
         }
-        if let Some((_, msg, error)) = &self.toast {
+        if let Some((id, msg, error)) = &self.toast {
             let look = if *error { style::toast_error } else { style::panel };
+            let mut line = row![text(msg.as_str()).size(13)].spacing(12).align_y(Alignment::Center);
+            if self.trash_undo.as_ref().is_some_and(|(t, ..)| t == id) {
+                line = line.push(
+                    button(text("Undo").size(13)).padding([3, 10]).style(style::secondary).on_press(Message::UndoTrash),
+                );
+            }
             layers = layers.push(
-                container(container(text(msg.as_str()).size(13)).padding([9, 14]).style(look))
+                container(container(line).padding([9, 14]).style(look))
                     .width(Length::Fill)
                     .height(Length::Fill)
                     .align_x(Alignment::Center)

@@ -179,7 +179,7 @@ screenshots. Fix what is ours; report upstream to hayro what is not.
 | 1 | Open bugs and memory budget | done (bench re-run: PDFs unchanged, 5K PNG first view 286 → 242 ms, RSS 457–502 → 148 MB); scroll bug confirmed fixed by the user; cache byte budget, preload limit 4 MP, fixed worker pool, streamed PNG and DCT-scaled JPEG thumbnails (5K folder 458 → 149 MB) |
 | 2 | PDF reading parity | done: Pages tab, go to page (Ctrl+G), night mode (Ctrl+Shift+N, session only until package 7), Properties dialog |
 | 3 | Export | done: PNG at 72/150/300 dpi, selected pages as PDF, picture as PDF, Combine Files… |
-| 4 | File actions | todo |
+| 4 | File actions | done: show in folder, open with, move to trash with Undo (spec trash in Rust; no portal trash, since it cannot undo); no Ctrl+Delete shortcut on purpose |
 | 5 | Slideshow | todo |
 | 6 | Pictures (animation, formats, lossless JPEG) | todo |
 | 7 | Preferences | todo |

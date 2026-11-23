@@ -165,6 +165,11 @@ impl App {
         }
         items.push(None);
         items.push(Some(("Properties…", "", doc(Message::ShowProperties))));
+        items.push(None);
+        items.push(Some(("Show in Folder", "", doc(Message::ShowInFolder))));
+        items.push(Some(("Open With…", "", doc(Message::OpenWith))));
+        items.push(Some(("Move to Trash", "", doc(Message::Trash))));
+        items.push(None);
         items.push(Some(("Keyboard Shortcuts", "", Some(Message::Dialog(Some(Dialog::Shortcuts))))));
         items.push(Some(("About Lumen", "", Some(Message::Dialog(Some(Dialog::About))))));
         items

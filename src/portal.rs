@@ -119,6 +119,62 @@ pub async fn open_uri(uri: String) -> Result<()> {
     Ok(())
 }
 
+/// Shows `path` selected in the file manager (`org.freedesktop.FileManager1`), or else opens its
+/// folder with `xdg-open`.
+pub async fn show_in_folder(path: PathBuf) -> Result<()> {
+    let uri = format!("file://{}", crate::trash::encode(std::os::unix::ffi::OsStrExt::as_bytes(path.as_os_str())));
+    let asked = async {
+        let connection = ashpd::zbus::Connection::session().await?;
+        connection
+            .call_method(
+                Some("org.freedesktop.FileManager1"),
+                "/org/freedesktop/FileManager1",
+                Some("org.freedesktop.FileManager1"),
+                "ShowItems",
+                &(vec![uri.as_str()], ""),
+            )
+            .await?;
+        Ok::<(), ashpd::zbus::Error>(())
+    };
+    match asked.await {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            tracing::info!("no file manager answered ({e}); opening the folder with xdg-open");
+            let dir = path.parent().context("that file has no folder")?;
+            let status = tokio::process::Command::new("xdg-open")
+                .arg(dir)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .await
+                .context("no file manager and no xdg-open were found")?;
+            if !status.success() {
+                anyhow::bail!("xdg-open could not open the folder");
+            }
+            Ok(())
+        }
+    }
+}
+
+/// Lets the user choose which app opens `path` (the portal's "Open With" dialog).
+pub async fn open_with(path: PathBuf) -> Result<()> {
+    if disabled() {
+        anyhow::bail!("Open With needs the desktop portal (LUMEN_NO_PORTAL is set)");
+    }
+    let file = std::fs::File::open(&path).with_context(|| format!("cannot open {}", path.display()))?;
+    match ashpd::desktop::open_uri::OpenFileRequest::default()
+        .ask(true)
+        .send_file(&file)
+        .await
+        .and_then(|r| r.response())
+    {
+        Ok(()) => Ok(()),
+        Err(ashpd::Error::Response(ResponseError::Cancelled)) => Ok(()),
+        Err(e) => Err(anyhow::anyhow!("the desktop could not offer apps to open it with ({e})")),
+    }
+}
+
 /// `file:///a%20b` → `/a b`. Non-file URIs are ignored.
 fn uri_to_path(uri: &str) -> Option<PathBuf> {
     let rest = uri.strip_prefix("file://")?;

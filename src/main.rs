@@ -20,6 +20,7 @@ mod raster;
 mod signatures;
 mod structure;
 mod style;
+mod trash;
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
