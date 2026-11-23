@@ -181,7 +181,7 @@ screenshots. Fix what is ours; report upstream to hayro what is not.
 | 3 | Export | done: PNG at 72/150/300 dpi, selected pages as PDF, picture as PDF, Combine Files… |
 | 4 | File actions | done: show in folder, open with, move to trash with Undo (spec trash in Rust; no portal trash, since it cannot undo); no Ctrl+Delete shortcut on purpose |
 | 5 | Slideshow | done: F5, 5 s fixed until package 7 makes it a preference; PDFs advance page by page |
-| 6 | Pictures (animation, formats, lossless JPEG) | todo |
+| 6 | Pictures (animation, formats, lossless JPEG) | partly: JPEG XL, JPEG 2000, OpenEXR and GIF/APNG/WebP animation done; AVIF/HEIC (optional C feature), lossless JPEG rotation and save in place to do |
 | 7 | Preferences | todo |
 | 8 | Sandboxed decoding | todo |
 | 9 | Product finish | todo |

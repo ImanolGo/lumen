@@ -17,6 +17,7 @@ use iced::{
     system, window,
 };
 
+mod anim;
 mod chooser;
 mod edit;
 mod export;
@@ -31,6 +32,7 @@ mod printing;
 mod signature;
 mod slideshow;
 
+use anim::Anim;
 use chooser::{Chooser, ChooserMsg, Purpose};
 use edit::{CropState, EditMsg, PicEdit, ResizeForm};
 use export::{ExportJob, ExportMsg};
@@ -326,6 +328,8 @@ struct ImageView {
     /// `None` fits the picture to the window (never enlarging it).
     zoom: Option<f32>,
     edit: PicEdit,
+    /// Playing, for an animated GIF, APNG or WebP: the first frame stays in `shown` for the tools.
+    anim: Option<Anim>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -507,6 +511,7 @@ pub enum Message {
     Slideshow,
     SlideshowPause,
     SlideshowTick(Instant),
+    AnimTick(Instant),
     OpenWith,
     Trash,
     Trashed(usize, Result<crate::trash::Trashed, String>),
@@ -712,6 +717,7 @@ impl App {
         Subscription::batch([
             fading,
             self.slideshow_subscription(),
+            self.anim_subscription(),
             system::theme_changes().map(Message::SystemTheme),
             window::events().map(|(id, e)| Message::WindowEvent(id, e)),
             keyboard::listen().map(Message::Key),
@@ -1266,6 +1272,10 @@ impl App {
             Message::Slideshow => self.slideshow_toggle(),
             Message::SlideshowPause => self.slideshow_pause(),
             Message::SlideshowTick(now) => self.slideshow_tick(now),
+            Message::AnimTick(now) => {
+                self.anim_tick(now);
+                Task::none()
+            }
             Message::ShowInFolder => {
                 self.menu = None;
                 let Some(path) = self.current_file() else { return Task::none() };
@@ -1759,7 +1769,8 @@ impl App {
         let edit = self.stash_edits.remove(&path).unwrap_or_default();
         let edited = !edit.edits.is_none();
         let original = loaded.picture.clone();
-        self.doc = Doc::Image(Box::new(ImageView { path, original, shown: loaded, zoom: None, edit }));
+        let anim = Anim::start(&path);
+        self.doc = Doc::Image(Box::new(ImageView { path, original, shown: loaded, zoom: None, edit, anim }));
         if edited { self.render_edits() } else { Task::none() }
     }
 
@@ -2648,8 +2659,8 @@ impl App {
         // Nearest-neighbour once pixels are big, so pixel art stays crisp.
         let filter =
             if zoom * self.scale_factor >= 3.0 { image::FilterMethod::Nearest } else { image::FilterMethod::Linear };
-        let picture =
-            image(view.shown.handle.clone()).filter_method(filter).content_fit(ContentFit::Fill).width(w).height(h);
+        let handle = self.anim_frame().unwrap_or(&view.shown.handle).clone();
+        let picture = image(handle).filter_method(filter).content_fit(ContentFit::Fill).width(w).height(h);
         let mut layers = stack![picture].width(w).height(h);
         if let Some(crop) = self.crop_layer(zoom, w, h) {
             layers = layers.push(crop);

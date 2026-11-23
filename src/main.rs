@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+mod animation;
 mod annotate;
 mod app;
 mod cups;

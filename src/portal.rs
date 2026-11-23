@@ -50,7 +50,11 @@ pub async fn choose(folder: bool) -> Result<Vec<PathBuf>> {
             .mimetype("image/vnd.microsoft.icon")
             .mimetype("image/qoi")
             .mimetype("image/x-tga")
-            .mimetype("image/x-portable-anymap");
+            .mimetype("image/x-portable-anymap")
+            .mimetype("image/jxl")
+            .mimetype("image/jp2")
+            .mimetype("image/jpx")
+            .mimetype("image/x-exr");
         request =
             request.filter(supported.clone()).filter(FileFilter::new("All files").glob("*")).current_filter(supported);
     }

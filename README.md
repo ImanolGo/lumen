@@ -19,7 +19,8 @@ The original Lumen is built on GTK 4, libadwaita and poppler. This edition:
 
 ## Features (0.1)
 
-- **Pictures:** PNG, JPEG, GIF (first frame), WebP, BMP, TIFF, ICO, QOI, TGA, the PNM family, and SVG. EXIF orientation is honoured.
+- **Pictures:** PNG, JPEG, GIF, WebP, BMP, TIFF, ICO, QOI, TGA, the PNM family, JPEG XL, JPEG 2000, OpenEXR (linear light, clamped and given the sRGB curve) and SVG, all decoded in pure Rust. EXIF orientation is honoured.
+- **Animation:** animated GIF, APNG and WebP play, each frame for its own delay (a delay of 10 ms or less shows for 100 ms, as browsers do). Frames are decoded on a thread of their own and the first pass is kept while it fits in 96 MB; longer animations keep streaming from the file. The first frame is what editing and markup work on, so the animation pauses (and shows it) while they are open.
 - **PDFs:** continuous scrolling, a table of contents, search, and clickable links. Only the pages near the view are rendered, and that happens on a pool of background threads that does the newest request first. Pages re-render sharply at every zoom level and on HiDPI screens.
 - **Search:** Ctrl+F finds text across the whole document (case-insensitive), highlights every match and jumps between them. It starts from the page you are on, results appear while it scans, and each page's text is read only once. The 477-page Ghostscript manual is fully indexed in about 0.7 s.
 - **Reading order:** pages set in columns of running text (two, three or more, also on turned pages) are read column by column for copying and search, even when the file draws them line by line across. Everything else (tables, code, forms, diagrams) keeps the order the file has, which is usually the right one.
@@ -121,6 +122,7 @@ xdg-mime default io.github.imanolgo.LumenRs.desktop application/pdf
 | `src/pages.rs` | Page plans (reorder, turn, delete, insert) and writing them (lopdf) |
 | `src/app/pagelist.rs` | The Pages sidebar tab and the go-to-page box |
 | `src/app/slideshow.rs` | The slideshow |
+| `src/animation.rs`, `src/app/anim.rs` | Animated pictures: the decoder thread, and playing the frames |
 | `src/export.rs`, `src/app/export.rs` | Exporting pages as PNG or PDF and pictures as PDF; the Export dialog |
 | `src/trash.rs` | Moving files to the trash and back (freedesktop Trash spec) |
 | `src/properties.rs` | What the Properties dialog shows |

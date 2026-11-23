@@ -13,7 +13,7 @@ pub enum Kind {
 
 const RASTER: &[&str] = &[
     "png", "jpg", "jpeg", "jpe", "jfif", "gif", "webp", "bmp", "tif", "tiff", "ico", "qoi", "tga", "pnm", "pbm", "pgm",
-    "ppm", "pam",
+    "ppm", "pam", "jxl", "jp2", "j2k", "j2c", "jpx", "exr",
 ];
 
 impl Kind {

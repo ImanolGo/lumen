@@ -58,7 +58,7 @@ pub fn load_for_print(path: &Path) -> Result<image::RgbImage> {
             let rgba = Vec::from(pic.rgba);
             RgbaImage::from_raw(pic.width, pic.height, rgba).context("bad SVG raster")?
         }
-        Some(Kind::Image) => decode(path)?.into_rgba8(),
+        Some(Kind::Image) => to_rgba8(decode(path)?),
         _ => bail!("not a picture"),
     };
     let (w, h) = rgba.dimensions();
@@ -86,7 +86,122 @@ fn limits() -> Limits {
     limits
 }
 
+/// The formats `image` cannot read, told apart by their extension.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Special {
+    JpegXl,
+    Jpeg2000,
+}
+
+fn special(path: &Path) -> Option<Special> {
+    match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
+        "jxl" => Some(Special::JpegXl),
+        "jp2" | "j2k" | "j2c" | "jpx" => Some(Special::Jpeg2000),
+        _ => None,
+    }
+}
+
+/// JPEG XL, rendered in sRGB (jxl-oxide, pure Rust).
+fn decode_jxl(path: &Path) -> Result<DynamicImage> {
+    use jxl_oxide::{EnumColourEncoding, JxlImage, PixelFormat, RenderingIntent};
+    let file = std::fs::File::open(path).with_context(|| format!("cannot open {}", path.display()))?;
+    let mut image = JxlImage::builder()
+        .read(BufReader::new(file))
+        .map_err(|e| anyhow::anyhow!("unsupported or damaged JPEG XL picture ({e})"))?;
+    let (w, h) = (image.width(), image.height());
+    if u64::from(w) * u64::from(h) * 4 > MAX_ALLOC {
+        bail!("the picture is too large");
+    }
+    image.request_color_encoding(EnumColourEncoding::srgb(RenderingIntent::Relative));
+    let channels = match image.pixel_format() {
+        PixelFormat::Gray => 1,
+        PixelFormat::Graya => 2,
+        PixelFormat::Rgb => 3,
+        PixelFormat::Rgba => 4,
+        _ => bail!("CMYK JPEG XL pictures are not supported"),
+    };
+    let render = image.render_frame(0).map_err(|e| anyhow::anyhow!("the JPEG XL picture is damaged ({e})"))?;
+    let mut stream = render.stream();
+    let mut samples = vec![0u8; w as usize * h as usize * channels];
+    stream.write_to_buffer(&mut samples);
+    let mut rgba = Vec::with_capacity(w as usize * h as usize * 4);
+    for px in samples.chunks_exact(channels) {
+        rgba.extend_from_slice(&match channels {
+            1 => [px[0], px[0], px[0], 255],
+            2 => [px[0], px[0], px[0], px[1]],
+            3 => [px[0], px[1], px[2], 255],
+            _ => [px[0], px[1], px[2], px[3]],
+        });
+    }
+    let (sw, sh) = (stream.width(), stream.height());
+    Ok(DynamicImage::ImageRgba8(RgbaImage::from_raw(sw, sh, rgba).context("bad JPEG XL raster")?))
+}
+
+/// JPEG 2000 (hayro-jpeg2000, pure Rust).
+fn decode_jpeg2000(path: &Path) -> Result<DynamicImage> {
+    use hayro_jpeg2000::{ColorSpace, DecodeSettings, DecoderContext, Image};
+    let data = std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
+    let image = Image::new(&data, &DecodeSettings::default())
+        .map_err(|e| anyhow::anyhow!("unsupported or damaged JPEG 2000 picture ({e})"))?;
+    let (w, h) = (image.width(), image.height());
+    if u64::from(w) * u64::from(h) * 4 > MAX_ALLOC {
+        bail!("the picture is too large");
+    }
+    let alpha = image.has_alpha();
+    let channels = match image.color_space() {
+        ColorSpace::Gray => 1 + usize::from(alpha),
+        ColorSpace::RGB => 3 + usize::from(alpha),
+        ColorSpace::Icc { num_channels, .. } if *num_channels == 1 || *num_channels == 3 => {
+            *num_channels as usize + usize::from(alpha)
+        }
+        _ => bail!("this colour space of JPEG 2000 pictures is not supported"),
+    };
+    let mut context = DecoderContext::default();
+    let decoded = image.decode(&mut context).map_err(|e| anyhow::anyhow!("the JPEG 2000 picture is damaged ({e})"))?;
+    let samples = decoded.data_u8();
+    let mut rgba = Vec::with_capacity(w as usize * h as usize * 4);
+    for px in samples.chunks_exact(channels) {
+        rgba.extend_from_slice(&match channels {
+            1 => [px[0], px[0], px[0], 255],
+            2 => [px[0], px[0], px[0], px[1]],
+            3 => [px[0], px[1], px[2], 255],
+            _ => [px[0], px[1], px[2], px[3]],
+        });
+    }
+    Ok(DynamicImage::ImageRgba8(RgbaImage::from_raw(w, h, rgba).context("bad JPEG 2000 raster")?))
+}
+
+/// 8-bit RGBA from any decoded picture. Floating-point pictures (OpenEXR) hold linear
+/// light, so they are clamped to the displayable range and given the sRGB curve.
+pub fn to_rgba8(img: DynamicImage) -> RgbaImage {
+    if !matches!(img, DynamicImage::ImageRgb32F(_) | DynamicImage::ImageRgba32F(_)) {
+        return img.into_rgba8();
+    }
+    let linear = img.into_rgba32f();
+    let (w, h) = linear.dimensions();
+    let encode = |v: f32| {
+        let v = if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 };
+        let s = if v <= 0.003_130_8 { v * 12.92 } else { 1.055 * v.powf(1.0 / 2.4) - 0.055 };
+        (s * 255.0 + 0.5) as u8
+    };
+    let mut out = Vec::with_capacity(w as usize * h as usize * 4);
+    for px in linear.pixels() {
+        out.extend_from_slice(&[
+            encode(px[0]),
+            encode(px[1]),
+            encode(px[2]),
+            (px[3].clamp(0.0, 1.0) * 255.0 + 0.5) as u8,
+        ]);
+    }
+    RgbaImage::from_raw(w, h, out).expect("the buffer has the right size")
+}
+
 fn decode(path: &Path) -> Result<DynamicImage> {
+    match special(path) {
+        Some(Special::JpegXl) => return decode_jxl(path),
+        Some(Special::Jpeg2000) => return decode_jpeg2000(path),
+        None => {}
+    }
     let reader =
         ImageReader::open(path).with_context(|| format!("cannot open {}", path.display()))?.with_guessed_format()?;
     let mut reader = reader;
@@ -106,7 +221,7 @@ fn load_raster(path: &Path) -> Result<Picture> {
     } else {
         img
     };
-    Ok(Picture::from_rgba(img.into_rgba8(), original))
+    Ok(Picture::from_rgba(to_rgba8(img), original))
 }
 
 pub(crate) fn svg_options() -> usvg::Options<'static> {
@@ -155,7 +270,7 @@ pub fn thumbnail(path: &Path) -> Result<Picture> {
             let _turn = FULL_DECODE.lock().unwrap_or_else(|e| e.into_inner());
             let img = decode(path)?;
             let original = (img.width(), img.height());
-            Ok(Picture::from_rgba(img.thumbnail(THUMB_SIDE, THUMB_SIDE).into_rgba8(), original))
+            Ok(Picture::from_rgba(to_rgba8(img.thumbnail(THUMB_SIDE, THUMB_SIDE)), original))
         }
         _ => bail!("not a picture"),
     }
@@ -331,6 +446,46 @@ mod tests {
         }
         // The dispatcher reaches the same result for a picture without an embedded preview.
         assert_eq!(thumbnail(&path).unwrap().width, THUMB_SIDE);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn fixture(name: &str) -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)
+    }
+
+    #[test]
+    fn decodes_jpeg_xl_and_jpeg_2000() {
+        // Both fixtures are the same 64x32 gradient: red grows to the right, green downwards, blue is 128.
+        for name in ["gradient.jxl", "gradient.jp2"] {
+            let pic = load(&fixture(name)).unwrap_or_else(|e| panic!("{name}: {e:#}"));
+            assert_eq!((pic.width, pic.height), (64, 32), "{name}");
+            let px = |x: usize, y: usize| &pic.rgba[(y * 64 + x) * 4..][..4];
+            let (a, b) = (px(0, 0), px(63, 31));
+            assert!(a[0] < 10 && a[1] < 10, "{name}: {a:?}");
+            assert!(b[0] > 200 && b[1] > 200, "{name}: {b:?}");
+            assert!(a[2].abs_diff(128) < 8 && a[3] == 255, "{name}: {a:?}");
+            // Thumbnails and the file list know them too.
+            assert_eq!(Kind::of(&fixture(name)), Some(Kind::Image));
+            assert!(thumbnail(&fixture(name)).is_ok());
+        }
+    }
+
+    #[test]
+    fn decodes_openexr_with_the_srgb_curve() {
+        let dir = std::env::temp_dir().join(format!("lumen-rs-exr-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("t.exr");
+        // Linear light: 0.5 should come out as about 188 after the sRGB curve, 2.0 clamps to 255.
+        let mut img = image::Rgba32FImage::from_pixel(8, 4, image::Rgba([0.5, 0.0, 2.0, 1.0]));
+        img.put_pixel(0, 0, image::Rgba([0.2140, 1.0, 0.0, 0.5]));
+        DynamicImage::ImageRgba32F(img).save(&path).unwrap();
+        let pic = load(&path).unwrap();
+        assert_eq!((pic.width, pic.height), (8, 4));
+        let px = &pic.rgba[4..8];
+        assert!(px[0].abs_diff(188) <= 1, "{px:?}");
+        assert_eq!((px[1], px[2], px[3]), (0, 255, 255));
+        let first = &pic.rgba[..4];
+        assert!(first[0].abs_diff(128) <= 2 && first[1] == 255 && first[3].abs_diff(128) <= 1, "{first:?}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
