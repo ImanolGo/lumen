@@ -19,6 +19,7 @@ use iced::{
 
 mod anim;
 mod chooser;
+mod control;
 mod edit;
 mod export;
 mod forms;
@@ -255,6 +256,8 @@ pub struct App {
     properties: Option<Result<crate::properties::Sheet, String>>,
     /// What the file chooser's answer will export.
     export_job: Option<ExportJob>,
+    /// A file is being found for the control interface's `Open`.
+    control_opening: bool,
     /// The file last moved to the trash (and where it sat in the list), while its toast offers Undo: the toast's id comes first.
     /// The slideshow, while one is running.
     slideshow: Option<Slideshow>,
@@ -425,6 +428,7 @@ impl PdfView {
 pub enum Message {
     SystemTheme(Mode),
     Pref(prefs::PrefMsg),
+    Control(crate::control::Shared),
     WindowEvent(window::Id, window::Event),
     ScaleFactor(f32),
     Key(keyboard::Event),
@@ -687,6 +691,7 @@ impl App {
             dialog: None,
             properties: None,
             export_job: None,
+            control_opening: false,
             trash_undo: None,
             slideshow: None,
             chooser: None,
@@ -729,6 +734,11 @@ impl App {
             fading,
             self.slideshow_subscription(),
             self.anim_subscription(),
+            if crate::control::enabled() {
+                Subscription::run(crate::control::requests).map(Message::Control)
+            } else {
+                Subscription::none()
+            },
             system::theme_changes().map(Message::SystemTheme),
             window::events().map(|(id, e)| Message::WindowEvent(id, e)),
             keyboard::listen().map(Message::Key),
@@ -850,7 +860,11 @@ impl App {
             Message::Chosen(Ok(paths)) if paths.is_empty() => Task::none(),
             Message::Chosen(Ok(paths)) => expand(paths, false),
             Message::Chosen(Err(e)) => self.toast(e),
-            Message::Expanded { files, start, append } => self.set_files(files, start, append),
+            Message::Expanded { files, start, append } => {
+                self.control_opening = false;
+                self.set_files(files, start, append)
+            }
+            Message::Control(request) => self.control_update(request),
             Message::FlushDrops => {
                 let paths = std::mem::take(&mut self.pending_drops);
                 if paths.is_empty() { Task::none() } else { expand(paths, true) }

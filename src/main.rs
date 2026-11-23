@@ -5,6 +5,7 @@
 mod animation;
 mod annotate;
 mod app;
+mod control;
 mod cups;
 mod edit;
 mod export;
