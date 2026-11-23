@@ -213,7 +213,7 @@ mod tests {
             .iter()
             .map(|p| {
                 let t = crate::structure::page_text(p, &cache);
-                (t.text(0..t.len()).split_whitespace().collect::<String>(), {
+                (t.text(0..t.len()), {
                     use hayro::hayro_syntax::page::Rotation;
                     match p.rotation() {
                         Rotation::None => 0,
@@ -239,7 +239,7 @@ mod tests {
             .unwrap();
         let pages = texts(out, "");
         assert_eq!(pages.len(), 3);
-        assert!(pages[0].0.contains("Secondpage") && pages[0].1 == 90, "{pages:?}");
+        assert!(pages[0].0 == "Second page" && pages[0].1 == 90, "{pages:?}");
         assert!(pages[1].0.contains("Hello") && pages[2].0.contains("Hello"), "{pages:?}");
     }
 

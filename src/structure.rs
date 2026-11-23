@@ -342,12 +342,55 @@ pub enum Gap {
     Line,
 }
 
+/// Which way text runs on the page as shown: left to right normally, top to bottom
+/// on a page turned a quarter clockwise, and so on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Dir {
+    #[default]
+    Right,
+    Down,
+    Left,
+    Up,
+}
+
+impl Dir {
+    /// The direction closest to the vector (`dx`, `dy`) in page space (y down).
+    fn of(dx: f64, dy: f64) -> Self {
+        if dx.abs() >= dy.abs() {
+            if dx >= 0.0 { Self::Right } else { Self::Left }
+        } else if dy >= 0.0 {
+            Self::Down
+        } else {
+            Self::Up
+        }
+    }
+
+    /// `p` in line coordinates: how far along the line, and how far across (towards the next line).
+    fn line(self, p: Point) -> (f64, f64) {
+        match self {
+            Self::Right => (p.x, p.y),
+            // Turned clockwise, lines run down and the next line is to the left.
+            Self::Down => (p.y, -p.x),
+            Self::Left => (-p.x, -p.y),
+            Self::Up => (-p.y, p.x),
+        }
+    }
+
+    /// `r` in line coordinates: (start, end) along and (start, end) across.
+    fn span(self, r: &Rect) -> ((f64, f64), (f64, f64)) {
+        let (a0, c0) = self.line(Point::new(r.x0, r.y0));
+        let (a1, c1) = self.line(Point::new(r.x1, r.y1));
+        ((a0.min(a1), a0.max(a1)), (c0.min(c1), c0.max(c1)))
+    }
+}
+
 /// One glyph's worth of text (a few characters for ligatures) and the box it covers.
 #[derive(Debug, Clone)]
 pub struct TextItem {
     pub text: String,
     pub rect: Rect,
     pub gap: Gap,
+    pub dir: Dir,
 }
 
 /// The text of one page in content order: glyphs with their boxes for selection, and a
@@ -357,8 +400,8 @@ pub struct PageText {
     items: Vec<TextItem>,
     /// Lower-cased characters; word and line breaks are a single space.
     chars: Vec<char>,
-    /// Box of each character, in page points; `None` for inserted spaces.
-    boxes: Vec<Option<Rect>>,
+    /// Box and writing direction of each character, in page points; `None` for inserted spaces.
+    boxes: Vec<Option<(Rect, Dir)>>,
 }
 
 impl PageText {
@@ -377,7 +420,7 @@ impl PageText {
         let mut i = 0;
         while i + needle.len() <= self.chars.len() {
             if self.chars[i..i + needle.len()] == needle[..] {
-                hits.push(merge_boxes(self.boxes[i..i + needle.len()].iter().flatten()));
+                hits.push(merge_boxes(self.boxes[i..i + needle.len()].iter().flatten().copied()));
                 i += needle.len();
             } else {
                 i += 1;
@@ -388,24 +431,33 @@ impl PageText {
 
     /// Whether `p` (page points) is on a glyph, give or take the space between words.
     pub fn is_over_text(&self, p: Point) -> bool {
-        self.items.iter().any(|item| item.rect.inflate(2.0, 0.5).contains(p))
+        self.items.iter().any(|item| {
+            // A little slack along the line (the gaps between words), hardly any across.
+            let (along, across) = if matches!(item.dir, Dir::Right | Dir::Left) { (2.0, 0.5) } else { (0.5, 2.0) };
+            item.rect.inflate(along, across).contains(p)
+        })
     }
 
     /// The glyph nearest to `p`, preferring glyphs on the same line.
     fn nearest(&self, p: Point) -> Option<usize> {
-        let distance = |r: &Rect| {
-            let dy = (r.y0 - p.y).max(p.y - r.y1).max(0.0);
-            let dx = (r.x0 - p.x).max(p.x - r.x1).max(0.0);
-            dy * 8.0 + dx
+        let distance = |item: &TextItem| {
+            let ((a0, a1), (c0, c1)) = item.dir.span(&item.rect);
+            let (a, c) = item.dir.line(p);
+            let across = (c0 - c).max(c - c1).max(0.0);
+            let along = (a0 - a).max(a - a1).max(0.0);
+            across * 8.0 + along
         };
-        (0..self.items.len()).min_by(|&a, &b| distance(&self.items[a].rect).total_cmp(&distance(&self.items[b].rect)))
+        (0..self.items.len()).min_by(|&a, &b| distance(&self.items[a]).total_cmp(&distance(&self.items[b])))
     }
 
     /// The caret (a position between glyphs, `0..=len`) nearest to `p`.
     pub fn caret_at(&self, p: Point) -> usize {
         match self.nearest(p) {
-            Some(i) if p.x > self.items[i].rect.center().x => i + 1,
-            Some(i) => i,
+            Some(i) => {
+                let item = &self.items[i];
+                let past_middle = item.dir.line(p).0 > item.dir.line(item.rect.center()).0;
+                if past_middle { i + 1 } else { i }
+            }
             None => 0,
         }
     }
@@ -427,7 +479,7 @@ impl PageText {
     /// Boxes covering the glyphs in `range`, one per line.
     pub fn boxes(&self, range: std::ops::Range<usize>) -> Vec<Rect> {
         let range = range.start.min(self.items.len())..range.end.min(self.items.len());
-        merge_boxes(self.items[range].iter().map(|item| &item.rect))
+        merge_boxes(self.items[range].iter().map(|item| (item.rect, item.dir)))
     }
 
     /// The text of the glyphs in `range`, with spaces and line breaks where the page has them.
@@ -468,18 +520,23 @@ fn normalise(s: &str) -> Vec<char> {
     out
 }
 
+/// Whether `b` continues the line of `last`, both running in `dir`.
+fn same_line(last: &Rect, b: &Rect, dir: Dir) -> bool {
+    let (_, (l0, l1)) = dir.span(last);
+    let (_, (b0, b1)) = dir.span(b);
+    ((b0 + b1) / 2.0 - (l0 + l1) / 2.0).abs() < (l1 - l0).max(b1 - b0) * 0.5
+}
+
 /// Joins character boxes into one box per line.
-fn merge_boxes<'a>(boxes: impl Iterator<Item = &'a Rect>) -> Vec<Rect> {
-    let mut lines: Vec<Rect> = Vec::new();
-    for b in boxes {
+fn merge_boxes(boxes: impl Iterator<Item = (Rect, Dir)>) -> Vec<Rect> {
+    let mut lines: Vec<(Rect, Dir)> = Vec::new();
+    for (b, dir) in boxes {
         match lines.last_mut() {
-            Some(last) if (b.center().y - last.center().y).abs() < last.height().max(b.height()) * 0.5 => {
-                *last = last.union(*b)
-            }
-            _ => lines.push(*b),
+            Some((last, d)) if *d == dir && same_line(last, &b, dir) => *last = last.union(b),
+            _ => lines.push((b, dir)),
         }
     }
-    lines
+    lines.into_iter().map(|(r, _)| r).collect()
 }
 
 /// Extracts the text of `page` by running its content through a device that only records glyphs.
@@ -501,14 +558,14 @@ pub fn page_text<'a>(page: &Page<'a>, cache: &InterpreterCache<'a>) -> PageText 
 #[derive(Default)]
 struct TextDevice {
     text: PageText,
-    /// Box of the previous glyph, for spotting word and line breaks.
-    last: Option<Rect>,
+    /// Box and direction of the previous glyph, for spotting word and line breaks.
+    last: Option<(Rect, Dir)>,
     /// A space glyph was drawn since the last visible one.
     space: bool,
 }
 
 impl TextDevice {
-    fn push(&mut self, s: &str, rect: Rect) {
+    fn push(&mut self, s: &str, rect: Rect, dir: Dir) {
         let s: String = s.chars().filter(|c| !c.is_control() || c.is_whitespace()).collect();
         if s.trim().is_empty() {
             self.space |= !s.is_empty();
@@ -516,10 +573,15 @@ impl TextDevice {
         }
         let gap = match self.last {
             None => Gap::None,
-            Some(last) => {
-                let size = last.height().max(rect.height()).max(1.0);
-                let new_line = (rect.center().y - last.center().y).abs() > size * 0.5;
-                let gap = rect.x0 - last.x1;
+            // Text turning another way starts a new line.
+            Some((_, last_dir)) if last_dir != dir => Gap::Line,
+            Some((last, _)) => {
+                // Measured along and across the line, so turned text reads like upright text.
+                let ((_, last_end), (l0, l1)) = dir.span(&last);
+                let ((start, _), (r0, r1)) = dir.span(&rect);
+                let size = (l1 - l0).max(r1 - r0).max(1.0);
+                let new_line = ((r0 + r1) / 2.0 - (l0 + l1) / 2.0).abs() > size * 0.5;
+                let gap = start - last_end;
                 if new_line || gap < -size * 2.0 {
                     Gap::Line
                 } else if self.space || gap > size * 0.15 {
@@ -543,11 +605,11 @@ impl TextDevice {
                 }
             } else {
                 t.chars.push(c);
-                t.boxes.push(Some(rect));
+                t.boxes.push(Some((rect, dir)));
             }
         }
-        t.items.push(TextItem { text: s, rect, gap });
-        self.last = Some(rect);
+        t.items.push(TextItem { text: s, rect, gap, dir });
+        self.last = Some((rect, dir));
     }
 }
 
@@ -578,9 +640,12 @@ impl<'a> Device<'a> for TextDevice {
             if !(rect.x0.is_finite() && rect.y0.is_finite() && rect.x1.is_finite() && rect.y1.is_finite()) {
                 continue;
             }
+            // The way the glyph advances on the page, turned with the page and the text.
+            let along = full * Point::new(advance, 0.0) - full * Point::ORIGIN;
+            let dir = Dir::of(along.x, along.y);
             match unicode {
-                BfString::Char(c) => self.push(c.encode_utf8(&mut [0; 4]), rect),
-                BfString::String(s) => self.push(&s, rect),
+                BfString::Char(c) => self.push(c.encode_utf8(&mut [0; 4]), rect, dir),
+                BfString::String(s) => self.push(&s, rect, dir),
             }
         }
     }
@@ -603,7 +668,7 @@ mod tests {
         let mut x = 0.0;
         for word in ["Hello", "World"] {
             for c in word.chars() {
-                device.push(&c.to_string(), Rect::new(x, 0.0, x + 6.0, 12.0));
+                device.push(&c.to_string(), Rect::new(x, 0.0, x + 6.0, 12.0), Dir::Right);
                 x += 6.0;
             }
             x += 6.0; // a word gap
@@ -623,10 +688,10 @@ mod tests {
             let mut x = 0.0;
             for word in words {
                 for c in word.chars() {
-                    device.push(&c.to_string(), Rect::new(x, y, x + 6.0, y + 12.0));
+                    device.push(&c.to_string(), Rect::new(x, y, x + 6.0, y + 12.0), Dir::Right);
                     x += 6.0;
                 }
-                device.push(" ", Rect::new(x, y, x + 3.0, y + 12.0));
+                device.push(" ", Rect::new(x, y, x + 3.0, y + 12.0), Dir::Right);
                 x += 3.0;
             }
         }
@@ -642,6 +707,58 @@ mod tests {
         assert_eq!(t.boxes(0..t.len()).len(), 2, "one box per line");
         assert!(t.is_over_text(Point::new(3.0, 6.0)));
         assert!(!t.is_over_text(Point::new(3.0, 16.0)));
+    }
+
+    /// The page of `selects_and_copies`, turned a quarter clockwise: lines run down, the
+    /// next line is to the left. A point (x, y) on the upright page is at (H - y, x) here.
+    #[test]
+    fn turned_pages_read_like_upright_ones() {
+        const H: f64 = 40.0;
+        let turn = |r: Rect| Rect::new(H - r.y1, r.x0, H - r.y0, r.x1);
+        let at = |x: f64, y: f64| Point::new(H - y, x);
+        let mut device = TextDevice::default();
+        for (line, words) in [["Hello", "World"], ["Second", "line"]].iter().enumerate() {
+            let y = line as f64 * 20.0;
+            let mut x = 0.0;
+            for word in words {
+                for c in word.chars() {
+                    device.push(&c.to_string(), turn(Rect::new(x, y, x + 6.0, y + 12.0)), Dir::Down);
+                    x += 6.0;
+                }
+                device.push(" ", turn(Rect::new(x, y, x + 3.0, y + 12.0)), Dir::Down);
+                x += 3.0;
+            }
+        }
+        let t = &device.text;
+        assert_eq!(t.text(0..t.len()), "Hello World\nSecond line");
+        let (from, to) = (t.caret_at(at(28.0, 6.0)), t.caret_at(at(5.0, 26.0)));
+        assert_eq!(t.text(from..to), "World\nS");
+        assert_eq!(t.text(t.word_at(at(60.0, 6.0))), "World");
+        let lines = t.boxes(0..t.len());
+        assert_eq!(lines.len(), 2, "one box per line");
+        assert!(lines[0].height() > lines[0].width(), "a turned line is tall: {lines:?}");
+        assert_eq!(t.find("hello world").len(), 1);
+        assert_eq!(t.find("world second")[0].len(), 2, "a match over two lines has two boxes");
+        assert!(t.is_over_text(at(3.0, 6.0)) && !t.is_over_text(at(3.0, 16.0)));
+
+        // Text turning from one line to the next still breaks the line.
+        let mut mixed = TextDevice::default();
+        mixed.push("a", Rect::new(0.0, 0.0, 6.0, 12.0), Dir::Right);
+        mixed.push("b", Rect::new(6.0, 0.0, 12.0, 12.0), Dir::Down);
+        assert_eq!(mixed.text.text(0..2), "a\nb");
+    }
+
+    /// A real page with /Rotate 90: its text comes out in words and lines, not a letter a line.
+    #[test]
+    fn text_of_a_rotated_page() {
+        let bytes = crate::pdf::tests::structured_bytes();
+        let plan = [crate::pages::Entry { source: 0, index: 0, rotate: 90 }];
+        let turned = crate::pages::compose(&crate::pages::Source { bytes, password: None }, &[], &plan).unwrap();
+        let pdf = Pdf::new(turned).unwrap();
+        let cache = InterpreterCache::new();
+        let text = page_text(&pdf.pages()[0], &cache);
+        assert_eq!(text.text(0..text.len()), "Hello Lumen World");
+        assert_eq!(text.find("lumen").len(), 1);
     }
 
     #[test]
