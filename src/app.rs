@@ -47,6 +47,8 @@ const SIDEBAR_W: f32 = 220.0;
 const ROW_H: f32 = 150.0;
 /// Height of the picture in a sidebar row; the file name goes underneath.
 const ROW_THUMB: f32 = 112.0;
+/// How long a zoom change takes to ease in.
+const ZOOM_EASE: Duration = Duration::from_millis(170);
 /// How long the floating controls stay after the pointer stops moving.
 const CONTROLS_LINGER: Duration = Duration::from_millis(1800);
 /// Height of one table-of-contents row.
@@ -204,6 +206,23 @@ pub struct App {
     last_pointer: Instant,
     hide_pending: bool,
     over_controls: bool,
+    zoom_ease: Option<ZoomEase>,
+}
+
+/// A zoom change easing in: from one zoom to another, and what to settle on.
+#[derive(Debug, Clone, Copy)]
+struct ZoomEase {
+    from: f32,
+    to: f32,
+    start: Instant,
+    end: ZoomEnd,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ZoomEnd {
+    /// A picture's zoom; `None` fits it to the window.
+    Image(Option<f32>),
+    Pdf(PdfFit),
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -520,6 +539,7 @@ impl App {
             last_pointer: Instant::now(),
             hide_pending: false,
             over_controls: false,
+            zoom_ease: None,
         };
         let mut tasks = vec![system::theme().map(Message::SystemTheme)];
         if !paths.is_empty() {
@@ -542,7 +562,7 @@ impl App {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        let fading = if self.controls.is_animating(self.now) {
+        let fading = if self.controls.is_animating(self.now) || self.zoom_ease.is_some() {
             window::frames().map(Message::Frame)
         } else {
             Subscription::none()
@@ -942,8 +962,11 @@ impl App {
             Message::ZoomFit => self.zoom_fit(false),
             Message::ZoomFitWidth => self.zoom_fit(true),
             Message::ZoomActual => match &self.doc {
-                Doc::Image(_) => self.set_image_zoom(Some(1.0 / self.scale_factor)),
-                Doc::Pdf(_) => self.set_pdf_zoom(PT_TO_PX, PdfFit::Manual),
+                Doc::Image(_) => {
+                    let z = 1.0 / self.scale_factor;
+                    self.ease_zoom(z, ZoomEnd::Image(Some(z)))
+                }
+                Doc::Pdf(_) => self.ease_zoom(PT_TO_PX, ZoomEnd::Pdf(PdfFit::Manual)),
                 _ => Task::none(),
             },
             Message::Rotate(dir) => self.edit_update(if dir > 0 { EditMsg::RotateCw } else { EditMsg::RotateCcw }),
@@ -1085,7 +1108,7 @@ impl App {
             }
             Message::Frame(now) => {
                 self.now = now;
-                Task::none()
+                self.step_zoom(now)
             }
         }
     }
@@ -1252,6 +1275,7 @@ impl App {
             return Task::none();
         }
         self.organizer = None;
+        self.zoom_ease = None;
         self.detach_form();
         self.detach_markup();
         if let Doc::Image(view) = &mut self.doc
@@ -1578,26 +1602,77 @@ impl App {
         }
     }
 
-    fn zoom_by(&mut self, factor: f32) -> Task<Message> {
+    /// The zoom on screen right now (logical pixels per picture pixel or per PDF point).
+    fn shown_zoom(&self) -> Option<f32> {
         match &self.doc {
-            Doc::Image(v) => {
-                let z = v.zoom.unwrap_or_else(|| self.image_fit_zoom(v)) * factor;
-                self.set_image_zoom(Some(z))
-            }
-            Doc::Pdf(v) => self.set_pdf_zoom(v.zoom * factor, PdfFit::Manual),
+            Doc::Image(v) => Some(v.zoom.unwrap_or_else(|| self.image_fit_zoom(v))),
+            Doc::Pdf(v) => Some(v.zoom),
+            _ => None,
+        }
+    }
+
+    fn zoom_by(&mut self, factor: f32) -> Task<Message> {
+        // Steps taken while easing add up from where it is heading, so fast scrolling stays smooth.
+        let Some(base) = self.zoom_ease.map(|e| e.to).or_else(|| self.shown_zoom()) else { return Task::none() };
+        let z = (base * factor).clamp(MIN_ZOOM, MAX_ZOOM);
+        match &self.doc {
+            Doc::Image(_) => self.ease_zoom(z, ZoomEnd::Image(Some(z))),
+            Doc::Pdf(_) => self.ease_zoom(z, ZoomEnd::Pdf(PdfFit::Manual)),
             _ => Task::none(),
         }
     }
 
     fn zoom_fit(&mut self, width: bool) -> Task<Message> {
         match &self.doc {
-            Doc::Image(_) => self.set_image_zoom(None),
+            Doc::Image(v) => {
+                let z = self.image_fit_zoom(v);
+                self.ease_zoom(z, ZoomEnd::Image(None))
+            }
             Doc::Pdf(v) => {
                 let fit = if width { PdfFit::Width } else { PdfFit::Page };
                 let z = self.pdf_fit_zoom(v, fit);
-                self.set_pdf_zoom(z, fit)
+                self.ease_zoom(z, ZoomEnd::Pdf(fit))
             }
             _ => Task::none(),
+        }
+    }
+
+    /// Starts easing the zoom towards `to`; frames carry it there (see [`App::step_zoom`]).
+    fn ease_zoom(&mut self, to: f32, end: ZoomEnd) -> Task<Message> {
+        let Some(from) = self.shown_zoom() else { return Task::none() };
+        let to = to.clamp(MIN_ZOOM, MAX_ZOOM);
+        if (to / from - 1.0).abs() < 1e-3 {
+            self.zoom_ease = None;
+            return self.settle_zoom(end, to);
+        }
+        let now = Instant::now();
+        self.now = now;
+        self.zoom_ease = Some(ZoomEase { from, to, start: now, end });
+        Task::none()
+    }
+
+    /// One frame of an easing zoom: ease-out, in proportion (so in and out feel the same).
+    fn step_zoom(&mut self, now: Instant) -> Task<Message> {
+        let Some(ease) = self.zoom_ease else { return Task::none() };
+        let t = (now.saturating_duration_since(ease.start).as_secs_f32() / ZOOM_EASE.as_secs_f32()).min(1.0);
+        if t >= 1.0 {
+            self.zoom_ease = None;
+            return self.settle_zoom(ease.end, ease.to);
+        }
+        let eased = 1.0 - (1.0 - t).powi(3);
+        let z = ease.from * (ease.to / ease.from).powf(eased);
+        match &self.doc {
+            Doc::Image(_) => self.set_image_zoom(Some(z)),
+            // Pages are stretched while easing and drawn sharp once it settles.
+            Doc::Pdf(_) => self.set_pdf_zoom_now(z, PdfFit::Manual, false),
+            _ => Task::none(),
+        }
+    }
+
+    fn settle_zoom(&mut self, end: ZoomEnd, to: f32) -> Task<Message> {
+        match end {
+            ZoomEnd::Image(zoom) => self.set_image_zoom(zoom),
+            ZoomEnd::Pdf(fit) => self.set_pdf_zoom(to, fit),
         }
     }
 
@@ -1619,13 +1694,20 @@ impl App {
         } else {
             (w * new / 2.0, h * new / 2.0)
         };
-        operation::scroll_to(
-            scroll_id(),
-            scrollable::AbsoluteOffset { x: (cx - area.width / 2.0).max(0.0), y: (cy - area.height / 2.0).max(0.0) },
-        )
+        // Where the view is going, known now, so the next frame of an easing zoom builds on it.
+        let x = (cx - area.width / 2.0).max(0.0).min((w * new - area.width).max(0.0));
+        let y = (cy - area.height / 2.0).max(0.0).min((h * new - area.height).max(0.0));
+        self.viewport.x = x;
+        self.viewport.y = y;
+        operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x, y })
     }
 
     fn set_pdf_zoom(&mut self, zoom: f32, fit: PdfFit) -> Task<Message> {
+        self.set_pdf_zoom_now(zoom, fit, true)
+    }
+
+    /// Sets the PDF's zoom keeping the middle of the view in place; `render` asks for sharp pages.
+    fn set_pdf_zoom_now(&mut self, zoom: f32, fit: PdfFit, render: bool) -> Task<Message> {
         let vp = self.viewport;
         let area = self.area;
         let Doc::Pdf(view) = &mut self.doc else { return Task::none() };
@@ -1643,7 +1725,8 @@ impl App {
         let x = (old_cx * view.content_width() - area.width / 2.0).max(0.0);
         self.viewport.y = y;
         self.viewport.x = x;
-        Task::batch([operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x, y }), self.request_pages()])
+        let pages = if render { self.request_pages() } else { Task::none() };
+        Task::batch([operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x, y }), pages])
     }
 
     /// Re-applies "fit" zoom after the window or the chrome changed size.
