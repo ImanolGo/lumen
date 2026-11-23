@@ -544,7 +544,7 @@ pub(crate) mod tests {
             .map(|(field, value)| crate::annotate::pdf::Fill { field, value })
             .collect();
         assert_eq!(fills.len(), 4);
-        let saved = crate::annotate::pdf::save(&bytes, &[], &fills).unwrap();
+        let saved = crate::annotate::pdf::save(&bytes, &[], &fills, None).unwrap();
         assert!(saved.starts_with(&bytes));
         let back = read_bytes(&saved);
         assert_eq!(back.values(), values);
@@ -564,7 +564,7 @@ pub(crate) mod tests {
             name.get::<Dict<'_>>("AP").and_then(|ap| ap.get::<hayro::hayro_syntax::object::Stream<'_>>("N")).is_some()
         );
         // Hiding the widgets for editing keeps the values.
-        let hidden = crate::annotate::pdf::hide(&saved, &back.hidden_widgets()).unwrap();
+        let hidden = crate::annotate::pdf::hide(&saved, &back.hidden_widgets(), None).unwrap();
         assert_eq!(read_bytes(&hidden).fields.len(), 1, "hidden widgets are not offered again; the signature stays");
     }
 }

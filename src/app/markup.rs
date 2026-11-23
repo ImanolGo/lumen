@@ -103,6 +103,7 @@ struct Pending {
     pages: Vec<usize>,
     form: std::sync::Arc<crate::forms::Form>,
     values: Vec<crate::forms::Value>,
+    password: Option<String>,
 }
 
 impl Pending {
@@ -113,6 +114,7 @@ impl Pending {
             pages: &self.pages,
             form: &self.form,
             values: &self.values,
+            password: self.password.as_deref(),
         }
     }
 }
@@ -141,7 +143,7 @@ pub enum MarkupMsg {
     Save,
     SaveAs,
     SaveTo(Result<Option<PathBuf>, String>),
-    Prepared(u64, PathBuf, Result<pdf::Opened, String>),
+    Prepared(u64, PathBuf, Result<pdf::Opened, pdf::OpenError>),
     PdfSaved(u64, PathBuf, Layers, Result<pdf::Opened, String>),
     PictureSaved(u64, PathBuf, Layers, Result<(), String>),
     TextAction(text_editor::Action),
@@ -217,12 +219,16 @@ impl App {
                 let path = view.doc.path().to_owned();
                 self.markup_busy = Some("Preparing…");
                 let generation = self.generation;
+                let password = view.doc.password().map(str::to_owned);
                 Task::perform(
                     {
                         let path = path.clone();
-                        blocking(move || pdf::Document::open_full(&path, true).map_err(err_string))
+                        blocking(move || pdf::Document::open_full(&path, true, password.as_deref()))
                     },
-                    move |r| Message::Markup(MarkupMsg::Prepared(generation, path.clone(), r.and_then(|r| r))),
+                    move |r| {
+                        let r = r.map_err(pdf::OpenError::Failed).and_then(|r| r.map_err(pdf::OpenError::from));
+                        Message::Markup(MarkupMsg::Prepared(generation, path.clone(), r))
+                    },
                 )
             }
             _ => Task::none(),
@@ -520,11 +526,9 @@ impl App {
                 }
                 match result {
                     Ok(opened) => self.install_opened(path, opened),
-                    Err(error) if matches!(&self.doc, Doc::Loading(p) if *p == path) => {
-                        self.doc = Doc::Failed { path, error };
-                        Task::none()
-                    }
-                    Err(e) => self.toast(format!("Markup is not available for this PDF: {e}")),
+                    Err(error) if matches!(&self.doc, Doc::Loading(p) if *p == path) => self.pdf_failed(path, error),
+                    Err(pdf::OpenError::Failed(e)) => self.toast(format!("Markup is not available for this PDF: {e}")),
+                    Err(pdf::OpenError::Password { .. }) => self.toast("Markup is not available for this PDF"),
                 }
             }
             MarkupMsg::Save => {
@@ -633,7 +637,11 @@ impl App {
             Some(f) => (f.form.clone(), f.values.clone()),
             None => Default::default(),
         };
-        Pending { layers, refs, pages, form, values }
+        let password = match &self.doc {
+            Doc::Pdf(view) => view.doc.password().map(str::to_owned),
+            _ => None,
+        };
+        Pending { layers, refs, pages, form, values, password }
     }
 
     fn save_pdf(&mut self, target: PathBuf) -> Task<Message> {
@@ -687,12 +695,21 @@ impl App {
     /// For printing: a copy of the file with its markup, when it has markup the file lacks.
     pub(super) fn printable_copy(&self) -> Option<Task<Result<PathBuf, String>>> {
         match &self.doc {
-            Doc::Pdf(view) if self.has_unsaved_changes() => {
+            // Unsaved changes are printed too; a protected PDF is printed unlocked (the print system cannot open it).
+            Doc::Pdf(view) if self.has_unsaved_changes() || view.doc.password().is_some() => {
                 let source = view.doc.path().to_owned();
                 let pending = self.pdf_changes();
+                let unsaved = self.has_unsaved_changes();
                 Some(Task::perform(
                     blocking(move || {
-                        let bytes = pdf::Document::with_changes(&source, &pending.changes()).map_err(err_string)?;
+                        let mut bytes = if unsaved {
+                            pdf::Document::with_changes(&source, &pending.changes()).map_err(err_string)?
+                        } else {
+                            std::fs::read(&source).map_err(|e| e.to_string())?
+                        };
+                        if let Some(password) = &pending.password {
+                            bytes = pdf::decrypted(&bytes, password).map_err(err_string)?;
+                        }
                         let copy = print_copy(&file_name(&source))?;
                         std::fs::write(&copy, bytes).map_err(|e| e.to_string())?;
                         Ok(copy)

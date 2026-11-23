@@ -12,7 +12,7 @@ use std::sync::{Arc, Condvar, Mutex};
 
 use anyhow::{Context, Result, anyhow, bail};
 use hayro::hayro_interpret::InterpreterSettings;
-use hayro::hayro_syntax::{LoadPdfError, Pdf};
+use hayro::hayro_syntax::{DecryptionError, LoadPdfError, Pdf};
 use hayro::{PixmapSettings, RenderCache, RenderSettings};
 use tokio::sync::oneshot;
 
@@ -98,6 +98,8 @@ pub struct Changes<'a> {
     pub form: &'a Form,
     /// One per field of `form`; the ones that differ from the file are written.
     pub values: &'a [forms::Value],
+    /// The password the PDF was opened with.
+    pub password: Option<&'a str>,
 }
 
 /// An open PDF. Cheap to clone; the render threads stop when the last clone drops.
@@ -115,6 +117,8 @@ struct Inner {
     /// Extracted text per page, filled in as search needs it.
     text: Mutex<Vec<Option<Arc<PageText>>>>,
     queue: Arc<Queue>,
+    /// What opened it, if it is password-protected; kept in memory only.
+    password: Option<String>,
 }
 
 impl Drop for Inner {
@@ -129,11 +133,45 @@ impl std::fmt::Debug for Document {
     }
 }
 
-fn describe(e: LoadPdfError) -> anyhow::Error {
-    match e {
-        LoadPdfError::Decryption(_) => anyhow!("this PDF is password-protected"),
-        LoadPdfError::Invalid => anyhow!("this PDF is damaged or not a PDF"),
+/// The PDF is password-protected and the password given (if any) does not open it.
+#[derive(Debug, Clone, Copy)]
+pub struct PasswordNeeded {
+    /// A password was given, and it was wrong.
+    pub wrong: bool,
+}
+
+impl std::fmt::Display for PasswordNeeded {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.wrong { "the password is not right" } else { "this PDF is password-protected" })
     }
+}
+
+impl std::error::Error for PasswordNeeded {}
+
+/// Why a PDF did not open: it wants a password, or something else went wrong.
+#[derive(Debug, Clone)]
+pub enum OpenError {
+    Password { wrong: bool },
+    Failed(String),
+}
+
+impl From<anyhow::Error> for OpenError {
+    fn from(e: anyhow::Error) -> Self {
+        match e.downcast_ref::<PasswordNeeded>() {
+            Some(p) => Self::Password { wrong: p.wrong },
+            None => Self::Failed(format!("{e:#}")),
+        }
+    }
+}
+
+fn parse(bytes: impl Into<hayro::hayro_syntax::PdfData>, password: Option<&str>) -> Result<Pdf> {
+    Pdf::new_with_password(bytes, password.unwrap_or("")).map_err(|e| match e {
+        LoadPdfError::Decryption(DecryptionError::PasswordProtected) => {
+            anyhow::Error::new(PasswordNeeded { wrong: password.is_some_and(|p| !p.is_empty()) })
+        }
+        LoadPdfError::Decryption(e) => anyhow!("this PDF's encryption is not supported ({e:?})"),
+        LoadPdfError::Invalid => anyhow!("this PDF is damaged or not a PDF"),
+    })
 }
 
 impl Document {
@@ -141,19 +179,20 @@ impl Document {
     #[cfg(test)]
     pub fn open(path: &Path) -> Result<Self> {
         let bytes = std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
-        Self::from_bytes(path, bytes)
+        Self::from_bytes(path, bytes, None)
     }
 
     /// Opens `path` with its form, and (with `markup`) its editable annotations. What Lumen
     /// shows itself (form inputs, annotations being edited) is hidden from the renderer. Blocking.
-    pub fn open_full(path: &Path, markup: bool) -> Result<Opened> {
+    /// A `password` opens a password-protected PDF (a wrong or missing one gives [`PasswordNeeded`]).
+    pub fn open_full(path: &Path, markup: bool, password: Option<&str>) -> Result<Opened> {
         let bytes = std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
-        Self::full_from_bytes(path, bytes, markup)
+        Self::full_from_bytes(path, bytes, markup, password)
     }
 
-    fn full_from_bytes(path: &Path, bytes: Vec<u8>, markup: bool) -> Result<Opened> {
+    fn full_from_bytes(path: &Path, bytes: Vec<u8>, markup: bool, password: Option<&str>) -> Result<Opened> {
         let (mut form, imported) = {
-            let pdf = Pdf::new(Arc::new(bytes.clone())).map_err(describe)?;
+            let pdf = parse(Arc::new(bytes.clone()), password)?;
             let form = catch_unwind(AssertUnwindSafe(|| forms::read(&pdf))).unwrap_or_else(|_| {
                 tracing::warn!("could not read the form of {}", path.display());
                 Form::default()
@@ -167,7 +206,7 @@ impl Document {
         let shown = if hidden.is_empty() {
             bytes
         } else {
-            match annotate::pdf::hide(&bytes, &hidden) {
+            match annotate::pdf::hide(&bytes, &hidden, password) {
                 Ok(shown) => shown,
                 // Markup cannot work without it; a form can still be shown, just not filled in.
                 Err(e) if imported.is_none() => {
@@ -178,7 +217,7 @@ impl Document {
                 Err(e) => return Err(e),
             }
         };
-        Ok(Opened { doc: Self::from_bytes(path, shown)?, imported, form: Arc::new(form) })
+        Ok(Opened { doc: Self::from_bytes(path, shown, password)?, imported, form: Arc::new(form) })
     }
 
     /// Writes `changes` into the PDF at `source` and saves the result to `target` (which may
@@ -186,7 +225,7 @@ impl Document {
     pub fn save_changes(source: &Path, target: &Path, changes: &Changes<'_>, markup: bool) -> Result<Opened> {
         let bytes = Self::with_changes(source, changes)?;
         write_atomic(target, &bytes)?;
-        Self::full_from_bytes(target, bytes, markup)
+        Self::full_from_bytes(target, bytes, markup, changes.password)
     }
 
     /// The bytes of the PDF at `source` with `changes` written in. Blocking.
@@ -209,13 +248,13 @@ impl Document {
             .filter(|(field, value)| field.value != **value)
             .map(|(field, value)| Fill { field, value })
             .collect();
-        catch_unwind(AssertUnwindSafe(|| annotate::pdf::save(&bytes, &edits, &fills)))
+        catch_unwind(AssertUnwindSafe(|| annotate::pdf::save(&bytes, &edits, &fills, changes.password)))
             .map_err(|_| anyhow!("the PDF could not be written"))?
     }
 
-    fn from_bytes(path: &Path, bytes: Vec<u8>) -> Result<Self> {
+    fn from_bytes(path: &Path, bytes: Vec<u8>, password: Option<&str>) -> Result<Self> {
         let bytes = Arc::new(bytes);
-        let pdf = Pdf::new(bytes.clone()).map_err(describe)?;
+        let pdf = parse(bytes.clone(), password)?;
         let pages: Vec<(f32, f32)> = pdf.pages().iter().map(|p| p.render_dimensions()).collect();
         if pages.is_empty() {
             bail!("this PDF has no pages");
@@ -233,18 +272,25 @@ impl Document {
         for i in 0..threads {
             let queue = queue.clone();
             let bytes = bytes.clone();
+            let password = password.map(str::to_owned);
             std::thread::Builder::new()
                 .name(format!("pdf-render-{i}"))
-                .spawn(move || worker(bytes, &queue))
+                .spawn(move || worker(bytes, password.as_deref(), &queue))
                 .context("cannot start a render thread")?;
         }
 
         let text = Mutex::new(vec![None; pages.len()]);
-        Ok(Self { inner: Arc::new(Inner { path: path.to_owned(), pages, outline, links, text, queue }) })
+        let password = password.filter(|p| !p.is_empty()).map(str::to_owned);
+        Ok(Self { inner: Arc::new(Inner { path: path.to_owned(), pages, outline, links, text, queue, password }) })
     }
 
     pub fn path(&self) -> &Path {
         &self.inner.path
+    }
+
+    /// The password it was opened with, if it needed one.
+    pub fn password(&self) -> Option<&str> {
+        self.inner.password.as_deref()
     }
 
     pub fn page_count(&self) -> usize {
@@ -291,8 +337,8 @@ impl Document {
     }
 }
 
-fn worker(bytes: Arc<Vec<u8>>, queue: &Queue) {
-    let Ok(pdf) = Pdf::new(bytes) else { return };
+fn worker(bytes: Arc<Vec<u8>>, password: Option<&str>, queue: &Queue) {
+    let Ok(pdf) = parse(bytes, password) else { return };
     let pages = pdf.pages();
     let cache = RenderCache::new();
     let interpreter = InterpreterSettings::default();
@@ -341,6 +387,16 @@ fn worker(bytes: Arc<Vec<u8>>, queue: &Queue) {
     }
 }
 
+/// A copy of a password-protected PDF without the protection, for printing (the print
+/// system cannot open it). Blocking.
+pub fn decrypted(bytes: &[u8], password: &str) -> Result<Vec<u8>> {
+    let mut doc = lopdf::Document::load_mem_with_options(bytes, lopdf::LoadOptions::with_password(password))
+        .context("the PDF could not be unlocked")?;
+    let mut out = Vec::with_capacity(bytes.len());
+    doc.save_to(&mut out).context("the PDF could not be written")?;
+    Ok(out)
+}
+
 /// Replaces `path` with `bytes` all at once: a crash half-way leaves the old file, not half a new one.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     use std::io::Write as _;
@@ -365,7 +421,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 /// A first-page thumbnail for the file strip. Blocking.
 pub fn thumbnail(path: &Path, side: u32) -> Result<Picture> {
     let bytes = Arc::new(std::fs::read(path)?);
-    let pdf = Pdf::new(bytes).map_err(describe)?;
+    let pdf = parse(bytes, None)?;
     let page = pdf.pages().first().context("no pages")?;
     let (w, h) = page.render_dimensions();
     let scale = side as f32 / w.max(h).max(1.0);
@@ -516,6 +572,49 @@ mod tests {
             chars += doc.text(p).await.find("the").len();
         }
         println!("'the' found {chars} times; text of all pages in {:?}", start.elapsed());
+    }
+
+    /// `tests/fixtures/encrypted.pdf` has the user password "secret".
+    #[tokio::test]
+    async fn password_protected_pdfs() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/encrypted.pdf");
+        let wants = |r: Result<Opened>| match r.map_err(OpenError::from) {
+            Err(OpenError::Password { wrong }) => Some(wrong),
+            _ => None,
+        };
+        assert_eq!(wants(Document::open_full(&path, false, None)), Some(false));
+        assert_eq!(wants(Document::open_full(&path, false, Some("wrong"))), Some(true));
+        let opened = Document::open_full(&path, true, Some("secret")).unwrap();
+        assert_eq!(opened.doc.password(), Some("secret"));
+        let pic = opened.doc.render(0, 0.5).await.unwrap();
+        assert!(pic.rgba.chunks(4).any(|p| p[0] < 128), "the page has visible content");
+        assert!(!opened.doc.text(0).await.find("e").is_empty(), "the text is readable");
+
+        // Markup saved into it stays protected, and comes back with the password.
+        let mut layer = AnnotationLayer::default();
+        layer.add(
+            annotate::Shape::Rect(annotate::Rect::new(50.0, 50.0, 100.0, 60.0)),
+            annotate::model::Style::default(),
+        );
+        let layers = BTreeMap::from([(0, layer)]);
+        let form = Form::default();
+        let refs = opened.imported.as_ref().unwrap().refs.clone();
+        let changes =
+            Changes { layers: &layers, refs: &refs, pages: &[0], form: &form, values: &[], password: Some("secret") };
+        let dir = std::env::temp_dir().join(format!("lumen-rs-locked-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("saved.pdf");
+        let again = Document::save_changes(&path, &target, &changes, true).unwrap();
+        assert_eq!(again.imported.unwrap().layers[&0].items.len(), 1);
+        assert_eq!(wants(Document::open_full(&target, false, None)), Some(false), "still protected");
+
+        // The printable copy opens without a password.
+        let plain = decrypted(&std::fs::read(&target).unwrap(), "secret").unwrap();
+        let copy = dir.join("plain.pdf");
+        std::fs::write(&copy, plain).unwrap();
+        let unlocked = Document::open_full(&copy, true, None).unwrap();
+        assert_eq!(unlocked.imported.unwrap().layers[&0].items.len(), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

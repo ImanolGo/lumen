@@ -238,12 +238,15 @@ pub(crate) fn parse_da(da: Option<Vec<u8>>) -> (f64, Option<Color>) {
 
 // ---------------------------------------------------------------- writing
 
-fn load(bytes: &[u8]) -> Result<lopdf::IncrementalDocument> {
-    let doc = lopdf::IncrementalDocument::load_from(bytes).context("the PDF could not be read for saving")?;
-    if doc.get_prev_documents().is_encrypted() {
-        bail!("markup cannot be saved into this encrypted PDF");
+fn load(bytes: &[u8], password: Option<&str>) -> Result<lopdf::IncrementalDocument> {
+    // An encrypted PDF is decrypted for editing; lopdf encrypts what it appends the same way.
+    let options = lopdf::LoadOptions { password: password.map(str::to_owned), ..lopdf::LoadOptions::default() };
+    let prev =
+        lopdf::Document::load_mem_with_options(bytes, options).context("the PDF could not be read for saving")?;
+    if prev.is_encrypted() {
+        bail!("changes cannot be saved into this encrypted PDF");
     }
-    Ok(doc)
+    Ok(lopdf::IncrementalDocument::create_from(bytes.to_vec(), prev))
 }
 
 fn finish(mut doc: lopdf::IncrementalDocument) -> Result<Vec<u8>> {
@@ -255,8 +258,8 @@ fn finish(mut doc: lopdf::IncrementalDocument) -> Result<Vec<u8>> {
 
 /// The document with the given annotations hidden, so hayro does not draw them while
 /// Lumen draws (and edits) them instead. Only ever held in memory.
-pub fn hide(bytes: &[u8], refs: &[ObjRef]) -> Result<Vec<u8>> {
-    let mut doc = load(bytes)?;
+pub fn hide(bytes: &[u8], refs: &[ObjRef], password: Option<&str>) -> Result<Vec<u8>> {
+    let mut doc = load(bytes, password)?;
     for &id in refs {
         if doc.opt_clone_object_to_new_document(id).is_err() {
             continue;
@@ -283,12 +286,13 @@ pub struct Fill<'a> {
 }
 
 /// `bytes` with the pages in `edits` carrying their new annotations, and the fields in `fills` filled in.
-pub fn save(bytes: &[u8], edits: &[PageEdit<'_>], fills: &[Fill<'_>]) -> Result<Vec<u8>> {
-    let hayro_doc = Pdf::new(bytes.to_vec()).map_err(|_| anyhow::anyhow!("the PDF could not be read"))?;
+pub fn save(bytes: &[u8], edits: &[PageEdit<'_>], fills: &[Fill<'_>], password: Option<&str>) -> Result<Vec<u8>> {
+    let hayro_doc = Pdf::new_with_password(bytes.to_vec(), password.unwrap_or(""))
+        .map_err(|_| anyhow::anyhow!("the PDF could not be read"))?;
     let to_view = transforms(&hayro_doc);
     drop(hayro_doc);
 
-    let mut doc = load(bytes)?;
+    let mut doc = load(bytes, password)?;
     let pages = doc.get_prev_documents().get_pages();
     if pages.len() != to_view.len() {
         bail!("the pages of this PDF could not be matched up for saving");
@@ -644,7 +648,7 @@ mod tests {
     #[test]
     fn hiding_keeps_the_rest_of_the_document() {
         let bytes = fixture(false);
-        let hidden = hide(&bytes, &read(&bytes).refs[0]).unwrap();
+        let hidden = hide(&bytes, &read(&bytes).refs[0], None).unwrap();
         assert!(hidden.starts_with(&bytes), "an incremental update only appends");
         let again = read(&hidden);
         assert!(again.is_empty(), "hidden annotations are not editable twice");
@@ -671,7 +675,7 @@ mod tests {
                 layer.add(shape, style.clone());
             }
             let edit = PageEdit { page: 0, layer: Some(&layer), replaces: &imported.refs[0] };
-            let saved = save(&bytes, &[edit], &[]).unwrap();
+            let saved = save(&bytes, &[edit], &[], None).unwrap();
             assert!(saved.starts_with(&bytes));
 
             let back = read(&saved);
@@ -710,7 +714,7 @@ mod tests {
             assert!(rgba.chunks(4).any(|p| p[0] > 150 && p[2] < 100), "the amber shapes are drawn");
 
             // Deleting everything removes the list.
-            let empty = save(&saved, &[PageEdit { page: 0, layer: None, replaces: &back.refs[0] }], &[]).unwrap();
+            let empty = save(&saved, &[PageEdit { page: 0, layer: None, replaces: &back.refs[0] }], &[], None).unwrap();
             assert!(read(&empty).is_empty());
             assert_eq!(crate::structure::read(&Pdf::new(empty).unwrap()).1[0].len(), 1);
         }

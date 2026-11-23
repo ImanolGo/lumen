@@ -86,3 +86,7 @@ icon!(width_medium, r#"<path d="M5 12h14" stroke-width="3"/>"#);
 icon!(width_thick, r#"<path d="M5 12h14" stroke-width="5.5"/>"#);
 icon!(save_copy, r#"<path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4"/><path d="M8 20v-6h8v6"/>"#);
 icon!(signature, r#"<path d="M3 17c2-1 3.5-5 5-5s0 5 2 5 3-4 4.5-4 1 3 2.5 3 2-1 3-1.5"/><path d="M3 21h18"/>"#);
+icon!(
+    lock,
+    r#"<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><path d="M12 14v3"/>"#
+);

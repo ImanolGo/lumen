@@ -70,6 +70,9 @@ fn contents_id() -> Id {
 fn search_input_id() -> Id {
     Id::new("search")
 }
+fn password_input_id() -> Id {
+    Id::new("password")
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidebarTab {
@@ -161,6 +164,9 @@ pub struct App {
     markup_busy: Option<&'static str>,
     last_drag: Option<(f64, f64)>,
     confirm_quit: bool,
+    /// Passwords of the protected PDFs opened this session, kept in memory only.
+    passwords: HashMap<PathBuf, String>,
+    password_input: String,
 
     /// The form of the PDF on screen, and the file it belongs to.
     form: Option<FormState>,
@@ -203,7 +209,15 @@ impl From<Picture> for Loaded {
 enum Doc {
     Empty,
     Loading(PathBuf),
-    Failed { path: PathBuf, error: String },
+    Failed {
+        path: PathBuf,
+        error: String,
+    },
+    /// A password-protected PDF waiting for its password.
+    Locked {
+        path: PathBuf,
+        wrong: bool,
+    },
     Image(ImageView),
     Pdf(PdfView),
 }
@@ -328,7 +342,9 @@ pub enum Message {
 
     PictureLoaded(u64, PathBuf, Result<Picture, String>),
     Preloaded(PathBuf, Result<Picture, String>),
-    PdfOpened(u64, PathBuf, Result<pdf::Opened, String>),
+    PdfOpened(u64, PathBuf, Result<pdf::Opened, pdf::OpenError>),
+    PasswordInput(String),
+    Unlock,
     PageRendered(u64, usize, f32, Result<Picture, String>),
     Thumb(PathBuf, Option<Picture>),
     SidebarScrolled(f32, f32),
@@ -444,6 +460,8 @@ impl App {
             markup_busy: None,
             last_drag: None,
             confirm_quit: false,
+            passwords: HashMap::new(),
+            password_input: String::new(),
             form: None,
             form_path: None,
             stash_forms: HashMap::new(),
@@ -626,10 +644,7 @@ impl App {
                 }
                 match result {
                     Ok(opened) => self.install_opened(path, opened),
-                    Err(error) => {
-                        self.doc = Doc::Failed { path, error };
-                        Task::none()
-                    }
+                    Err(error) => self.pdf_failed(path, error),
                 }
             }
             Message::PageRendered(generation, page, scale, result) => {
@@ -977,6 +992,22 @@ impl App {
                 }
                 iced::exit()
             }
+            Message::PasswordInput(text) => {
+                self.password_input = text;
+                Task::none()
+            }
+            Message::Unlock => {
+                let Doc::Locked { path, .. } = &self.doc else { return Task::none() };
+                if self.password_input.is_empty() {
+                    return Task::none();
+                }
+                let path = path.clone();
+                // Kept in memory only, so flipping back to the file does not ask again.
+                self.passwords.insert(path.clone(), std::mem::take(&mut self.password_input));
+                self.load_started = Some(Instant::now());
+                let markup = self.opens_for_markup(&path);
+                self.load_pdf(path, markup)
+            }
             Message::Markup(msg) => self.markup_update(msg),
             Message::Form(msg) => self.form_update(msg),
             Message::Sign(msg) => self.sign_update(msg),
@@ -1157,25 +1188,8 @@ impl App {
 
         let load = match Kind::of(&path) {
             Some(Kind::Pdf) => {
-                self.doc = Doc::Loading(path.clone());
                 let markup = self.opens_for_markup(&path);
-                if markup {
-                    self.markup_busy = Some("Preparing…");
-                }
-                Task::perform(
-                    {
-                        let path = path.clone();
-                        blocking(move || pdf::Document::open_full(&path, markup).map_err(err_string))
-                    },
-                    move |r| {
-                        let r = r.and_then(|r| r);
-                        if markup {
-                            Message::Markup(MarkupMsg::Prepared(generation, path.clone(), r))
-                        } else {
-                            Message::PdfOpened(generation, path.clone(), r)
-                        }
-                    },
-                )
+                self.load_pdf(path.clone(), markup)
             }
             _ => {
                 if let Some(loaded) = self.cached(&path) {
@@ -1200,6 +1214,51 @@ impl App {
         };
         let reset = operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 });
         Task::batch([load, reset, self.request_thumbs(), self.reveal_in_sidebar()])
+    }
+
+    /// Opens the PDF at `path` off the UI thread, with the password given for it earlier, if any;
+    /// with `markup` it is made ready for editing too.
+    fn load_pdf(&mut self, path: PathBuf, markup: bool) -> Task<Message> {
+        self.doc = Doc::Loading(path.clone());
+        if markup {
+            self.markup_busy = Some("Preparing…");
+        }
+        let generation = self.generation;
+        let password = self.passwords.get(&path).cloned();
+        Task::perform(
+            {
+                let path = path.clone();
+                blocking(move || pdf::Document::open_full(&path, markup, password.as_deref()))
+            },
+            move |r| {
+                let r = r.map_err(pdf::OpenError::Failed).and_then(|r| r.map_err(pdf::OpenError::from));
+                if markup {
+                    Message::Markup(MarkupMsg::Prepared(generation, path.clone(), r))
+                } else {
+                    Message::PdfOpened(generation, path.clone(), r)
+                }
+            },
+        )
+    }
+
+    /// A PDF did not open: ask for its password, or say why.
+    fn pdf_failed(&mut self, path: PathBuf, error: pdf::OpenError) -> Task<Message> {
+        self.markup_busy = None;
+        match error {
+            pdf::OpenError::Password { wrong } => {
+                if wrong {
+                    self.passwords.remove(&path);
+                }
+                self.log_opened(&path, "locked");
+                self.doc = Doc::Locked { path, wrong };
+                self.password_input.clear();
+                operation::focus(password_input_id())
+            }
+            pdf::OpenError::Failed(error) => {
+                self.doc = Doc::Failed { path, error };
+                Task::none()
+            }
+        }
     }
 
     fn open_pdf_view(&mut self, path: PathBuf, doc: pdf::Document) -> Task<Message> {
@@ -1770,6 +1829,7 @@ impl App {
             Doc::Empty => ("Lumen".to_string(), String::new()),
             Doc::Loading(p) => (file_name(p), "Loading…".into()),
             Doc::Failed { path, .. } => (file_name(path), "Could not open".into()),
+            Doc::Locked { path, .. } => (file_name(path), "Password-protected".into()),
             Doc::Image(v) => {
                 let (w, h) = v.shown.original;
                 (file_name(&v.path), format!("{w} × {h}"))
@@ -1880,6 +1940,7 @@ impl App {
         match &self.doc {
             Doc::Empty => self.empty_state(),
             Doc::Loading(_) => center(text("Loading…").size(15).style(muted)).into(),
+            Doc::Locked { path, wrong } => self.locked_view(path, *wrong),
             Doc::Failed { path, error } => center(
                 column![
                     svg(icons::broken()).width(56).height(56).style(style::icon_muted),
@@ -2265,6 +2326,42 @@ impl App {
                 row![open, folder].spacing(12),
                 space().height(4),
                 text("or drop files and folders anywhere").size(13).style(muted),
+            ]
+            .spacing(10)
+            .align_x(Alignment::Center),
+        )
+        .into()
+    }
+
+    /// Asks for the password of a protected PDF.
+    fn locked_view<'a>(&'a self, path: &'a Path, wrong: bool) -> Element<'a, Message> {
+        let input = text_input("Password", &self.password_input)
+            .id(password_input_id())
+            .secure(true)
+            .on_input(Message::PasswordInput)
+            .on_submit(Message::Unlock)
+            .size(15)
+            .padding([8, 10])
+            .width(280);
+        let unlock = button(text("Unlock").size(15))
+            .padding([8, 18])
+            .style(style::primary)
+            .on_press_maybe((!self.password_input.is_empty()).then_some(Message::Unlock));
+        let hint: Element<'_, Message> = if wrong {
+            text("That password is not right. Try again.")
+                .size(13)
+                .style(|t: &Theme| text::Style { color: Some(t.extended_palette().danger.base.color) })
+                .into()
+        } else {
+            text("Enter the password to open it.").size(13).style(muted).into()
+        };
+        center(
+            column![
+                svg(icons::lock()).width(56).height(56).style(style::icon_muted),
+                text(format!("“{}” is password-protected", file_name(path))).size(18),
+                hint,
+                space().height(4),
+                row![input, unlock].spacing(8).align_y(Alignment::Center),
             ]
             .spacing(10)
             .align_x(Alignment::Center),
