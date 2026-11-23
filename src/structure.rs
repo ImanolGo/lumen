@@ -552,12 +552,16 @@ pub fn page_text<'a>(page: &Page<'a>, cache: &InterpreterCache<'a>) -> PageText 
     );
     let mut device = TextDevice::default();
     interpret_page(page, &mut context, &mut device);
-    device.text
+    device.finish()
 }
 
 #[derive(Default)]
 struct TextDevice {
-    text: PageText,
+    /// Glyphs in content order; [`TextDevice::finish`] puts them in reading order.
+    items: Vec<TextItem>,
+    /// Per item, whether a fragment (a run of text on one line) starts there.
+    breaks: Vec<bool>,
+    chars: usize,
     /// Box and direction of the previous glyph, for spotting word and line breaks.
     last: Option<(Rect, Dir)>,
     /// A space glyph was drawn since the last visible one.
@@ -592,24 +596,279 @@ impl TextDevice {
             }
         };
         self.space = false;
-        let t = &mut self.text;
-        if gap != Gap::None && t.chars.last().is_some_and(|c| *c != ' ') {
-            t.chars.push(' ');
-            t.boxes.push(None);
-        }
-        for c in s.chars().flat_map(char::to_lowercase) {
-            if c.is_whitespace() {
-                if t.chars.last().is_some_and(|c| *c != ' ') {
-                    t.chars.push(' ');
-                    t.boxes.push(None);
+        self.chars += s.chars().count();
+        // A jump far along the line (to the next column, say) also starts a fragment.
+        let jump = self.last.is_some_and(|(last, d)| {
+            let ((_, end), (c0, c1)) = d.span(&last);
+            d == dir && dir.span(&rect).0.0 - end > (c1 - c0).max(1.0) * 1.2
+        });
+        self.breaks.push(gap == Gap::Line || jump);
+        self.items.push(TextItem { text: s, rect, gap, dir });
+        self.last = Some((rect, dir));
+    }
+
+    /// The page's text, in reading order.
+    fn finish(self) -> PageText {
+        PageText::new(reading_order(self.items, &self.breaks))
+    }
+}
+
+impl PageText {
+    /// Builds the search copy (lower-cased, one space per break) from `items`.
+    fn new(items: Vec<TextItem>) -> Self {
+        let mut chars = Vec::new();
+        let mut boxes = Vec::new();
+        for item in &items {
+            if item.gap != Gap::None && chars.last().is_some_and(|c| *c != ' ') {
+                chars.push(' ');
+                boxes.push(None);
+            }
+            for c in item.text.chars().flat_map(char::to_lowercase) {
+                if c.is_whitespace() {
+                    if chars.last().is_some_and(|c| *c != ' ') {
+                        chars.push(' ');
+                        boxes.push(None);
+                    }
+                } else {
+                    chars.push(c);
+                    boxes.push(Some((item.rect, item.dir)));
                 }
-            } else {
-                t.chars.push(c);
-                t.boxes.push(Some((rect, dir)));
             }
         }
-        t.items.push(TextItem { text: s, rect, gap, dir });
-        self.last = Some((rect, dir));
+        Self { items, chars, boxes }
+    }
+}
+
+// ---------------------------------------------------------------- reading order
+//
+// Content order is how the file happens to draw the text. It is usually right, and
+// for tables and code it is better than anything worked out from positions; but
+// for pages in columns it often goes across them, line by line. So the order is
+// changed only where the page clearly has columns of running text: glyphs are
+// grouped into fragments (runs on one line), fragments into rows, and consecutive
+// rows that share a narrow vertical gap (a gutter) into a band. A band whose sides
+// are both set flush and in long lines is read column by column (recursively, so
+// three columns work too); everything else keeps the file's order.
+
+/// A run of glyphs on one line, in content order, and its extent along and across the line.
+#[derive(Debug, Clone, Copy)]
+struct Fragment {
+    items: (usize, usize),
+    along: (f64, f64),
+    across: (f64, f64),
+    dir: Dir,
+}
+
+impl Fragment {
+    fn height(&self) -> f64 {
+        self.across.1 - self.across.0
+    }
+}
+
+/// Deepest nesting of columns looked for.
+const MAX_COLUMN_DEPTH: u8 = 6;
+
+fn reading_order(items: Vec<TextItem>, breaks: &[bool]) -> Vec<TextItem> {
+    if items.len() < 2 {
+        return items;
+    }
+    let mut fragments: Vec<Fragment> = Vec::new();
+    for (i, item) in items.iter().enumerate() {
+        let ((a0, a1), (c0, c1)) = item.dir.span(&item.rect);
+        match fragments.last_mut() {
+            Some(f) if !breaks.get(i).copied().unwrap_or(true) => {
+                f.items.1 = i + 1;
+                f.along = (f.along.0.min(a0), f.along.1.max(a1));
+                f.across = (f.across.0.min(c0), f.across.1.max(c1));
+            }
+            _ => fragments.push(Fragment { items: (i, i + 1), along: (a0, a1), across: (c0, c1), dir: item.dir }),
+        }
+    }
+    // Each writing direction is laid out on its own, in the order it first appears.
+    let mut dirs: Vec<Dir> = Vec::new();
+    for f in &fragments {
+        if !dirs.contains(&f.dir) {
+            dirs.push(f.dir);
+        }
+    }
+    let mut order = Vec::with_capacity(fragments.len());
+    for dir in dirs {
+        let group: Vec<usize> = (0..fragments.len()).filter(|&i| fragments[i].dir == dir).collect();
+        layout(&fragments, group, 0, &mut order);
+    }
+
+    if order.iter().enumerate().all(|(i, &k)| i == k) {
+        return items;
+    }
+    let mut slots: Vec<Option<TextItem>> = items.into_iter().map(Some).collect();
+    let mut out = Vec::with_capacity(slots.len());
+    let mut previous: Option<(usize, &Fragment)> = None;
+    for &k in &order {
+        let f = &fragments[k];
+        for i in f.items.0..f.items.1 {
+            let Some(mut item) = slots[i].take() else { continue };
+            if i == f.items.0 {
+                item.gap = match previous {
+                    None => Gap::None,
+                    // Still in the file's order: keep its spacing.
+                    Some((p, _)) if p + 1 == k => item.gap,
+                    // Next to the previous fragment on the same line: a word gap.
+                    Some((_, p)) if p.dir == f.dir && same_row(p, f) && f.along.0 >= p.along.1 - p.height() => {
+                        Gap::Space
+                    }
+                    Some(_) => Gap::Line,
+                };
+            }
+            out.push(item);
+        }
+        previous = Some((k, f));
+    }
+    out
+}
+
+/// Whether two fragments sit on the same line.
+fn same_row(a: &Fragment, b: &Fragment) -> bool {
+    let overlap = a.across.1.min(b.across.1) - a.across.0.max(b.across.0);
+    overlap > a.height().min(b.height()) * 0.5
+}
+
+/// The gaps of at least `min` between `spans` (sorted, possibly overlapping) inside `lo..hi`.
+fn free_space(spans: &[(f64, f64)], lo: f64, hi: f64, min: f64) -> Vec<(f64, f64)> {
+    let mut gaps = Vec::new();
+    let mut at = lo;
+    for &(s, e) in spans {
+        if s - at >= min {
+            gaps.push((at, s));
+        }
+        at = at.max(e);
+    }
+    if hi - at >= min {
+        gaps.push((at, hi));
+    }
+    gaps
+}
+
+fn intersect(a: &[(f64, f64)], b: &[(f64, f64)], min: f64) -> Vec<(f64, f64)> {
+    let mut out = Vec::new();
+    for &(a0, a1) in a {
+        for &(b0, b1) in b {
+            let (s, e) = (a0.max(b0), a1.min(b1));
+            if e - s >= min {
+                out.push((s, e));
+            }
+        }
+    }
+    out
+}
+
+/// Appends the fragments of `group` to `order` in reading order.
+fn layout(fragments: &[Fragment], mut group: Vec<usize>, depth: u8, order: &mut Vec<usize>) {
+    if group.len() < 2 {
+        order.extend(group);
+        return;
+    }
+    let mut heights: Vec<f64> = group.iter().map(|&i| fragments[i].height()).collect();
+    heights.sort_by(f64::total_cmp);
+    let size = heights[heights.len() / 2].max(1.0);
+    let gutter = size;
+    let lo = group.iter().map(|&i| fragments[i].along.0).fold(f64::INFINITY, f64::min);
+    let hi = group.iter().map(|&i| fragments[i].along.1).fold(f64::NEG_INFINITY, f64::max);
+
+    // Rows: fragments whose extents across overlap, top to bottom.
+    group.sort_by(|&a, &b| fragments[a].across.0.total_cmp(&fragments[b].across.0));
+    let mut rows: Vec<Vec<usize>> = Vec::new();
+    let mut row_end = f64::NEG_INFINITY;
+    for &i in &group {
+        let f = &fragments[i];
+        match rows.last_mut() {
+            Some(row) if f.across.0 < row_end - f.height().min(size) * 0.3 => {
+                row.push(i);
+                row_end = row_end.max(f.across.1);
+            }
+            _ => {
+                rows.push(vec![i]);
+                row_end = f.across.1;
+            }
+        }
+    }
+    let spans = |row: &[usize]| {
+        let mut v: Vec<(f64, f64)> = row.iter().map(|&i| fragments[i].along).collect();
+        v.sort_by(|a, b| a.0.total_cmp(&b.0));
+        v
+    };
+    // Gaps between a row's own pieces (not its margins).
+    let inner = |row: &[usize]| {
+        let s = spans(row);
+        let (first, last) = (s.first().map_or(lo, |x| x.0), s.iter().map(|x| x.1).fold(lo, f64::max));
+        free_space(&s, first, last, gutter)
+    };
+
+    // Bands of consecutive rows that share a gutter. A clearly wider gap than between
+    // lines (before a footer, say) also ends a band of columns.
+    let top = |row: &[usize]| row.iter().map(|&i| fragments[i].across.0).fold(f64::INFINITY, f64::min);
+    let bottom = |row: &[usize]| row.iter().map(|&i| fragments[i].across.1).fold(f64::NEG_INFINITY, f64::max);
+    let mut bands: Vec<(Vec<Vec<usize>>, Vec<(f64, f64)>)> = Vec::new();
+    for row in rows {
+        let own = inner(&row);
+        let free = free_space(&spans(&row), lo, hi, gutter);
+        let apart = bands.last().and_then(|(r, _)| r.last()).is_some_and(|last| top(&row) - bottom(last) > 1.8 * size);
+        match bands.last_mut() {
+            Some((_, gaps)) if !gaps.is_empty() && apart => bands.push((vec![row], own)),
+            Some((band_rows, gaps)) if !gaps.is_empty() => {
+                let kept = intersect(gaps, &free, gutter);
+                if kept.is_empty() {
+                    bands.push((vec![row], own));
+                } else {
+                    *gaps = kept;
+                    band_rows.push(row);
+                }
+            }
+            Some((band_rows, _)) if own.is_empty() => band_rows.push(row),
+            _ => bands.push((vec![row], own)),
+        }
+    }
+
+    for (band_rows, gaps) in bands {
+        let members: Vec<usize> = band_rows.iter().flatten().copied().collect();
+        // The first gutter splits off the first column (the rest is split again), if both
+        // sides read like running text.
+        let split = gaps.iter().copied().min_by(|a, b| a.0.total_cmp(&b.0)).and_then(|(g0, g1)| {
+            let (left, right): (Vec<usize>, Vec<usize>) =
+                members.iter().partition(|&&i| fragments[i].along.1 <= (g0 + g1) / 2.0);
+            // Running text: lines of at least ten ems.
+            let prose = |side: &[usize]| {
+                let mut widths: Vec<f64> = side.iter().map(|&i| fragments[i].along.1 - fragments[i].along.0).collect();
+                widths.sort_by(f64::total_cmp);
+                !widths.is_empty() && widths[widths.len() / 2] >= 10.0 * size
+            };
+            // A column of text is set flush: most of its lines start, and end, at the same
+            // place. Code with comments beside it, or a table, is ragged somewhere.
+            let flush = |side: &[usize]| {
+                let start = side.iter().map(|&i| fragments[i].along.0).fold(f64::INFINITY, f64::min);
+                let end = side.iter().map(|&i| fragments[i].along.1).fold(f64::NEG_INFINITY, f64::max);
+                let starts = side.iter().filter(|&&i| fragments[i].along.0 - start <= 0.6 * size).count();
+                let ends = side.iter().filter(|&&i| end - fragments[i].along.1 <= 0.6 * size).count();
+                starts * 10 >= side.len() * 6 && ends * 10 >= side.len() * 6
+            };
+            let narrow = g1 - g0 <= 5.0 * size;
+            let columns = band_rows.len() >= 3 && depth < MAX_COLUMN_DEPTH && narrow;
+            // The right side may hold more columns; judge the one next to the gutter.
+            let next: Vec<usize> = right.iter().copied().filter(|&i| fragments[i].along.0 - g1 <= 0.6 * size).collect();
+            (columns && next.len() >= 3 && prose(&left) && prose(&next) && flush(&left) && flush(&next))
+                .then_some((left, right))
+        });
+        match split {
+            Some((left, right)) => {
+                layout(fragments, left, depth + 1, order);
+                layout(fragments, right, depth + 1, order);
+            }
+            // No columns here: the file's order.
+            None => {
+                let mut members = members;
+                members.sort_unstable();
+                order.extend(members);
+            }
+        }
     }
 }
 
@@ -624,7 +883,7 @@ impl<'a> Device<'a> for TextDevice {
     fn draw_glyph_run(&mut self, run: &GlyphRun<'_, 'a>, props: DrawProps<'a>, _: &DrawMode) {
         // Invisible text (OCR layers) is drawn too, so scanned documents are searchable.
         for glyph in run.glyphs() {
-            if self.text.chars.len() > 2_000_000 {
+            if self.chars > 2_000_000 {
                 return;
             }
             let Some(unicode) = glyph.as_unicode() else { continue };
@@ -673,11 +932,12 @@ mod tests {
             }
             x += 6.0; // a word gap
         }
-        let hits = device.text.find("o  w");
+        let text = device.finish();
+        let hits = text.find("o  w");
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].len(), 1, "one line, one box");
-        assert!(device.text.find("hello world").len() == 1);
-        assert!(device.text.find("xyz").is_empty());
+        assert!(text.find("hello world").len() == 1);
+        assert!(text.find("xyz").is_empty());
     }
 
     #[test]
@@ -695,7 +955,7 @@ mod tests {
                 x += 3.0;
             }
         }
-        let t = &device.text;
+        let t = &device.finish();
         assert_eq!(t.len(), 20);
         assert_eq!(t.text(0..t.len()), "Hello World\nSecond line");
         // From the right half of the "o" of "Hello" to the right half of the "S" of "Second".
@@ -729,7 +989,7 @@ mod tests {
                 x += 3.0;
             }
         }
-        let t = &device.text;
+        let t = &device.finish();
         assert_eq!(t.text(0..t.len()), "Hello World\nSecond line");
         let (from, to) = (t.caret_at(at(28.0, 6.0)), t.caret_at(at(5.0, 26.0)));
         assert_eq!(t.text(from..to), "World\nS");
@@ -745,7 +1005,7 @@ mod tests {
         let mut mixed = TextDevice::default();
         mixed.push("a", Rect::new(0.0, 0.0, 6.0, 12.0), Dir::Right);
         mixed.push("b", Rect::new(6.0, 0.0, 12.0, 12.0), Dir::Down);
-        assert_eq!(mixed.text.text(0..2), "a\nb");
+        assert_eq!(mixed.finish().text(0..2), "a\nb");
     }
 
     /// A real page with /Rotate 90: its text comes out in words and lines, not a letter a line.
@@ -759,6 +1019,142 @@ mod tests {
         let text = page_text(&pdf.pages()[0], &cache);
         assert_eq!(text.text(0..text.len()), "Hello Lumen World");
         assert_eq!(text.find("lumen").len(), 1);
+    }
+
+    /// Draws `text` as 6×12 glyphs from (`x`, `y`), mapped through `place` (for turned pages).
+    fn draw(device: &mut TextDevice, text: &str, x: f64, y: f64, place: &dyn Fn(Rect) -> Rect, dir: Dir) {
+        let mut x = x;
+        for c in text.chars() {
+            let w = if c == ' ' { 3.0 } else { 6.0 };
+            device.push(&c.to_string(), place(Rect::new(x, y, x + w, y + 12.0)), dir);
+            x += w;
+        }
+    }
+
+    /// A title, two columns of three lines drawn across (left line, right line, …), and a footer.
+    fn two_columns(place: &dyn Fn(Rect) -> Rect, dir: Dir) -> String {
+        let mut d = TextDevice::default();
+        draw(&mut d, "A Title Across Both Columns", 0.0, 0.0, place, dir);
+        // Justified columns: every line the same width, a 24 pt gutter between them.
+        let left =
+            ["left column first line of text", "left column second line of it", "left column third and last one"];
+        let right = ["right column first line of it", "right column second line here", "right column third and last o"];
+        for (k, (l, r)) in left.iter().zip(right).enumerate() {
+            let y = 30.0 + k as f64 * 16.0;
+            draw(&mut d, l, 0.0, y, place, dir);
+            draw(&mut d, r, 180.0, y, place, dir);
+        }
+        draw(&mut d, "Page footer", 0.0, 100.0, place, dir);
+        let t = d.finish();
+        t.text(0..t.len())
+    }
+
+    const TWO_COLUMNS: &str = "A Title Across Both Columns\nleft column first line of text\nleft column second line of it\n\
+         left column third and last one\nright column first line of it\nright column second line here\n\
+         right column third and last o\nPage footer";
+
+    #[test]
+    fn columns_are_read_one_after_the_other() {
+        assert_eq!(two_columns(&|r| r, Dir::Right), TWO_COLUMNS);
+        // The same page turned a quarter clockwise reads the same.
+        const H: f64 = 200.0;
+        assert_eq!(two_columns(&|r: Rect| Rect::new(H - r.y1, r.x0, H - r.y0, r.x1), Dir::Down), TWO_COLUMNS);
+
+        let mut d = TextDevice::default();
+        for k in 0..4 {
+            let y = k as f64 * 16.0;
+            for (c, x) in ["a", "b", "c"].iter().zip([0.0, 190.0, 380.0]) {
+                draw(&mut d, &format!("column {c} line {k} has some words"), x, y, &|r| r, Dir::Right);
+            }
+        }
+        let t = d.finish();
+        let text = t.text(0..t.len());
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], "column a line 0 has some words");
+        assert_eq!(lines[3], "column a line 3 has some words");
+        assert_eq!(lines[4], "column b line 0 has some words");
+        assert_eq!(lines[11], "column c line 3 has some words");
+        // Search follows reading order: from the end of one column into the next.
+        assert_eq!(t.find("line 3 has some words column b line 0").len(), 1);
+    }
+
+    #[test]
+    fn code_with_comments_beside_it_stays_in_rows() {
+        let mut d = TextDevice::default();
+        for (k, (code, note)) in [
+            ("profile *device_named;", "/* The named color profile */"),
+            ("profile *gray;", "/* Default gray profile for gray */"),
+            ("profile *default_rgb;", "/* Default RGB profile for RGB */"),
+            ("bool override;", "/* Whether to override the profiles */"),
+        ]
+        .iter()
+        .enumerate()
+        {
+            let y = k as f64 * 16.0;
+            draw(&mut d, code, 0.0, y, &|r| r, Dir::Right);
+            draw(&mut d, note, 220.0, y, &|r| r, Dir::Right);
+        }
+        let t = d.finish();
+        assert!(t.text(0..t.len()).starts_with("profile *device_named; /* The named color profile */\nprofile *gray;"));
+    }
+
+    #[test]
+    fn tables_of_contents_and_short_columns_stay_in_rows() {
+        let mut d = TextDevice::default();
+        for (k, (title, page)) in
+            [("Introduction", "1"), ("Getting started", "4"), ("Advanced topics", "12"), ("Index", "40")]
+                .iter()
+                .enumerate()
+        {
+            let y = k as f64 * 16.0;
+            draw(&mut d, title, 0.0, y, &|r| r, Dir::Right);
+            draw(&mut d, page, 300.0, y, &|r| r, Dir::Right);
+        }
+        let t = d.finish();
+        assert_eq!(t.text(0..t.len()), "Introduction 1\nGetting started 4\nAdvanced topics 12\nIndex 40");
+
+        // Two short side-by-side lines (a heading and a date, say) are not columns.
+        let mut d = TextDevice::default();
+        draw(&mut d, "Letter heading", 0.0, 0.0, &|r| r, Dir::Right);
+        draw(&mut d, "3 May", 300.0, 0.0, &|r| r, Dir::Right);
+        draw(&mut d, "Dear reader, this is one column of text.", 0.0, 20.0, &|r| r, Dir::Right);
+        let t = d.finish();
+        assert_eq!(t.text(0..t.len()), "Letter heading 3 May\nDear reader, this is one column of text.");
+    }
+
+    /// A real two-column page whose content is drawn across the columns.
+    #[test]
+    fn a_two_column_pdf_reads_in_columns() {
+        use pdf_writer::{Content, Finish, Name, Rect as PRect, Ref, Str};
+        let r = Ref::new;
+        let mut w = pdf_writer::Pdf::new();
+        w.catalog(r(1)).pages(r(2));
+        w.pages(r(2)).kids([r(3)]).count(1);
+        let mut page = w.page(r(3));
+        page.parent(r(2)).media_box(PRect::new(0.0, 0.0, 600.0, 800.0)).contents(r(4));
+        page.resources().fonts().pair(Name(b"F1"), r(5));
+        page.finish();
+        let mut c = Content::new();
+        c.begin_text().set_font(Name(b"F1"), 10.0);
+        for k in 0..5 {
+            let y = 700.0 - k as f32 * 14.0;
+            c.set_text_matrix([1.0, 0.0, 0.0, 1.0, 50.0, y])
+                .show(Str(format!("Left column line {k} of prose").as_bytes()));
+            c.set_text_matrix([1.0, 0.0, 0.0, 1.0, 200.0, y])
+                .show(Str(format!("Right column line {k} of prose").as_bytes()));
+        }
+        c.end_text();
+        w.stream(r(4), &c.finish());
+        w.type1_font(r(5)).base_font(Name(b"Helvetica"));
+        let pdf = Pdf::new(w.finish()).unwrap();
+        let text = page_text(&pdf.pages()[0], &InterpreterCache::new());
+        let all = text.text(0..text.len());
+        let lines: Vec<&str> = all.lines().collect();
+        assert_eq!(lines.len(), 10, "{all}");
+        assert!(
+            lines[..5].iter().all(|l| l.starts_with("Left")) && lines[5..].iter().all(|l| l.starts_with("Right")),
+            "{all}"
+        );
     }
 
     #[test]
