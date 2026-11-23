@@ -23,6 +23,7 @@ mod forms;
 mod markup;
 mod menu;
 mod overlay;
+mod pagelist;
 mod pages;
 mod palette;
 mod printing;
@@ -33,6 +34,7 @@ use edit::{CropState, EditMsg, PicEdit, ResizeForm};
 use forms::{FormMsg, FormState};
 use markup::{DocMarkup, MarkupMsg, TextEdit};
 use menu::{Dialog, Menu};
+use pagelist::PageThumbs;
 use pages::{Organizer, PagesMsg};
 use printing::{PrintDialog, PrintMsg};
 use signature::{Pad, SignMsg};
@@ -100,6 +102,7 @@ fn password_input_id() -> Id {
 pub enum SidebarTab {
     Files,
     Contents,
+    Pages,
 }
 
 /// One search match: the boxes (one per line) it covers on its page, in page points.
@@ -136,6 +139,12 @@ pub struct App {
     /// The tab the user picked; until then a PDF's contents are preferred over the file list.
     sidebar_tab: Option<SidebarTab>,
     contents_scroll: (f32, f32),
+    /// Thumbnails for the Pages tab.
+    page_thumbs: PageThumbs,
+    /// The go-to-page box, with what has been typed.
+    goto: Option<String>,
+    /// Night mode for PDF pages (this session only until there are preferences).
+    night: bool,
     search: Option<Search>,
     search_seq: u64,
     selection: Option<TextSel>,
@@ -235,6 +244,8 @@ pub struct App {
     pinch_scale: f32,
     menu: Option<Menu>,
     dialog: Option<Dialog>,
+    /// What the Properties dialog shows; none while it is being read.
+    properties: Option<Result<crate::properties::Sheet, String>>,
     /// Lumen's own file chooser and print dialog, when the desktop has no portal for them.
     chooser: Option<Chooser>,
     print_dialog: Option<PrintDialog>,
@@ -426,12 +437,21 @@ pub enum Message {
     PdfOpened(u64, PathBuf, Result<pdf::Opened, pdf::OpenError>),
     PasswordInput(String),
     Unlock,
-    PageRendered(u64, usize, f32, Result<Picture, String>),
+    /// A rendered page: generation, page, scale, night mode it was drawn for, bitmap.
+    PageRendered(u64, usize, f32, bool, Result<Picture, String>),
+    ToggleNight,
     /// A thumbnail, or none; `true` when the file is password-protected and its password not known.
     Thumb(PathBuf, Option<Picture>, bool),
     SidebarScrolled(f32, f32),
     SidebarTab(SidebarTab),
     ContentsScrolled(f32, f32),
+    PageThumbsScrolled(f32, f32),
+    PageThumb(u64, usize, bool, Result<Picture, String>),
+    GoToPage(usize),
+    GoToOpen,
+    GoToInput(String),
+    GoToSubmit,
+    GoToClose,
     GoTo(Target),
     LinkOpened(Result<(), String>),
 
@@ -491,6 +511,8 @@ pub enum Message {
     Menu(Option<Menu>),
     MenuPick(Box<Message>),
     Dialog(Option<Dialog>),
+    ShowProperties,
+    PropertiesRead(Result<crate::properties::Sheet, String>),
     Chooser(ChooserMsg),
     Printing(PrintMsg),
     ControlsCheck,
@@ -561,6 +583,9 @@ impl App {
             sidebar_scroll: (0.0, 0.0),
             sidebar_tab: None,
             contents_scroll: (0.0, 0.0),
+            page_thumbs: PageThumbs::default(),
+            goto: None,
+            night: false,
             search: None,
             search_seq: 0,
             selection: None,
@@ -630,6 +655,7 @@ impl App {
             pinch_scale: 1.0,
             menu: None,
             dialog: None,
+            properties: None,
             chooser: None,
             print_dialog: None,
         };
@@ -768,8 +794,8 @@ impl App {
                     page_changed = page != view.current_page;
                     view.current_page = page;
                 }
-                let follow = page_changed && self.sidebar_shows() == Some(SidebarTab::Contents);
-                Task::batch([self.request_pages(), if follow { self.reveal_in_contents() } else { Task::none() }])
+                let follow = if page_changed { self.follow_in_sidebar() } else { Task::none() };
+                Task::batch([self.request_pages(), follow])
             }
 
             Message::Open { folder } => {
@@ -834,8 +860,19 @@ impl App {
                     Err(error) => self.pdf_failed(path, error),
                 }
             }
-            Message::PageRendered(generation, page, scale, result) => {
-                if generation != self.generation {
+            Message::ToggleNight => {
+                self.night = !self.night;
+                if let Doc::Pdf(view) = &mut self.doc {
+                    for slot in &mut view.slots {
+                        slot.shown = None;
+                        slot.pending = None;
+                    }
+                }
+                self.reset_page_thumbs();
+                Task::batch([self.request_pages(), self.request_page_thumbs()])
+            }
+            Message::PageRendered(generation, page, scale, night, result) => {
+                if generation != self.generation || night != self.night {
                     return Task::none();
                 }
                 let Doc::Pdf(view) = &mut self.doc else { return Task::none() };
@@ -874,7 +911,26 @@ impl App {
                 match tab {
                     SidebarTab::Files => Task::batch([self.request_thumbs(), self.reveal_in_sidebar()]),
                     SidebarTab::Contents => self.reveal_in_contents(),
+                    SidebarTab::Pages => Task::batch([self.request_page_thumbs(), self.reveal_page_thumb()]),
                 }
+            }
+            Message::PageThumbsScrolled(offset, height) => self.page_thumbs_scrolled(offset, height),
+            Message::PageThumb(generation, page, night, result) => {
+                if night == self.night {
+                    self.page_thumb_ready(generation, page, result);
+                }
+                Task::none()
+            }
+            Message::GoToPage(page) => self.go_to_page(page),
+            Message::GoToOpen => self.goto_open(),
+            Message::GoToInput(typed) => {
+                self.goto = Some(typed);
+                Task::none()
+            }
+            Message::GoToSubmit => self.goto_submit(),
+            Message::GoToClose => {
+                self.goto = None;
+                Task::none()
             }
             Message::ContentsScrolled(offset, height) => {
                 self.contents_scroll = (offset, height);
@@ -1006,6 +1062,8 @@ impl App {
                     Task::none()
                 } else if let Some(task) = self.markup_escape() {
                     task
+                } else if self.goto.take().is_some() {
+                    Task::none()
                 } else if self.search.is_some() {
                     self.search = None;
                     Task::none()
@@ -1156,7 +1214,11 @@ impl App {
             Message::ToggleFullscreen => self.set_fullscreen(!self.fullscreen),
             Message::ToggleSidebar => {
                 self.show_sidebar = !self.show_sidebar;
-                if self.show_sidebar { self.reveal_in_sidebar() } else { Task::none() }
+                if self.show_sidebar {
+                    Task::batch([self.reveal_in_sidebar(), self.request_page_thumbs()])
+                } else {
+                    Task::none()
+                }
             }
             Message::DismissToast(id) => {
                 if self.toast.as_ref().is_some_and(|(t, ..)| *t == id) {
@@ -1229,6 +1291,25 @@ impl App {
             }
             Message::Menu(menu) => self.menu_update(menu),
             Message::MenuPick(msg) => self.menu_pick(*msg),
+            Message::ShowProperties => {
+                let (path, password) = match &self.doc {
+                    Doc::Pdf(v) => (v.doc.path().to_path_buf(), v.doc.password().map(str::to_string)),
+                    Doc::Image(v) => (v.path.clone(), None),
+                    _ => return Task::none(),
+                };
+                self.properties = None;
+                self.dialog = Some(Dialog::Properties);
+                Task::perform(
+                    blocking(move || crate::properties::read(&path, password.as_deref()).map_err(err_string)),
+                    |r| Message::PropertiesRead(r.and_then(|r| r)),
+                )
+            }
+            Message::PropertiesRead(result) => {
+                if self.dialog == Some(Dialog::Properties) {
+                    self.properties = Some(result);
+                }
+                Task::none()
+            }
             Message::Dialog(dialog) => {
                 self.menu = None;
                 self.dialog = dialog;
@@ -1324,8 +1405,8 @@ impl App {
                 ("f", true, _) if is_pdf => Message::SearchOpen,
                 ("c", true, _) if is_pdf => Message::Copy,
                 ("a", true, _) if is_pdf => Message::SelectAll,
-                ("g", true, false) if is_pdf => Message::SearchNext,
-                ("g", true, true) if is_pdf => Message::SearchPrev,
+                ("g", true, _) if is_pdf => Message::GoToOpen,
+                ("n", true, true) if is_pdf => Message::ToggleNight,
                 ("q" | "w", true, _) => Message::Quit,
                 ("+" | "=", _, _) => Message::ZoomIn,
                 ("-" | "_", _, _) => Message::ZoomOut,
@@ -1541,9 +1622,12 @@ impl App {
         self.viewport.y = 0.0;
         self.viewport.x = 0.0;
         self.contents_scroll = (0.0, 0.0);
+        self.reset_page_thumbs();
         Task::batch([
             operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 }),
             operation::scroll_to(contents_id(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 }),
+            operation::scroll_to(pagelist::list_id(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 }),
+            self.request_page_thumbs(),
             self.request_pages(),
             self.start_search(),
         ])
@@ -1698,14 +1782,26 @@ impl App {
 
     /// The sidebar tab actually shown: the chosen one if it has anything to show.
     fn sidebar_shows(&self) -> Option<SidebarTab> {
-        let files = self.files.len() > 1;
-        let contents = self.has_contents();
+        let available = |tab| self.sidebar_tabs().contains(&tab);
         match self.sidebar_tab {
-            Some(SidebarTab::Contents) | None if contents => Some(SidebarTab::Contents),
-            _ if files => Some(SidebarTab::Files),
-            _ if contents => Some(SidebarTab::Contents),
-            _ => None,
+            Some(tab) if available(tab) => Some(tab),
+            _ => [SidebarTab::Contents, SidebarTab::Files, SidebarTab::Pages].into_iter().find(|t| available(*t)),
         }
+    }
+
+    /// The tabs there is something to show in, in display order.
+    fn sidebar_tabs(&self) -> Vec<SidebarTab> {
+        let mut tabs = Vec::new();
+        if self.files.len() > 1 {
+            tabs.push(SidebarTab::Files);
+        }
+        if self.has_contents() {
+            tabs.push(SidebarTab::Contents);
+        }
+        if matches!(&self.doc, Doc::Pdf(v) if v.doc.page_count() > 1) {
+            tabs.push(SidebarTab::Pages);
+        }
+        tabs
     }
 
     /// Scrolls the sidebar just enough to show the current file.
@@ -1949,7 +2045,17 @@ impl App {
         Task::batch([
             operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x: None, y: Some(y) }),
             self.request_pages(),
+            self.follow_in_sidebar(),
         ])
+    }
+
+    /// Keeps the sidebar's contents or page list on the page in view.
+    fn follow_in_sidebar(&self) -> Task<Message> {
+        match self.sidebar_shows() {
+            Some(SidebarTab::Contents) => self.reveal_in_contents(),
+            Some(SidebarTab::Pages) => self.reveal_page_thumb(),
+            _ => Task::none(),
+        }
     }
 
     /// Scrolls so that `point` (page points from the page's top-left) is near the top-left of the view.
@@ -1964,7 +2070,11 @@ impl App {
         let x = (left + x * view.zoom - area.width / 2.0).max(0.0);
         self.viewport.y = y;
         self.viewport.x = x;
-        Task::batch([operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x, y }), self.request_pages()])
+        Task::batch([
+            operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x, y }),
+            self.request_pages(),
+            self.follow_in_sidebar(),
+        ])
     }
 
     /// Copies the selected text to the clipboard (or the primary selection). Pages whose text
@@ -2060,6 +2170,7 @@ impl App {
         let hi = (*visible.end() + 1).min(n - 1);
         // Quantise so tiny zoom changes reuse what is already rendered.
         let wanted = ((view.zoom * scale_factor * 16.0).round() / 16.0).max(0.05);
+        let night = self.night;
 
         let mut tasks = Vec::new();
         // Visible pages first, then the neighbours.
@@ -2072,9 +2183,10 @@ impl App {
             }
             slot.pending = Some(wanted);
             let doc = view.doc.clone();
-            tasks.push(Task::perform(async move { doc.render(i, wanted).await.map_err(err_string) }, move |r| {
-                Message::PageRendered(generation, i, wanted, r)
-            }));
+            tasks.push(Task::perform(
+                async move { doc.render_toned(i, wanted, night).await.map_err(err_string) },
+                move |r| Message::PageRendered(generation, i, wanted, night, r),
+            ));
         }
         // Text for selection, for the pages in view.
         for i in visible.clone() {
@@ -2168,14 +2280,22 @@ impl App {
         {
             body = body.push(self.sidebar(tab));
         }
-        let content: Element<'_, Message> = match &self.search {
-            Some(search) if matches!(self.doc, Doc::Pdf(_)) => stack![
-                content,
-                container(self.search_bar(search)).width(Length::Fill).align_x(Alignment::End).padding([10, 18])
-            ]
-            .into(),
-            _ => content.into(),
-        };
+        // Always a stack, so the view's shape (and the scroll position inside it) does not
+        // change when a floating box comes and goes.
+        let mut floating = stack![content];
+        if let (Some(search), Doc::Pdf(_)) = (&self.search, &self.doc) {
+            floating = floating
+                .push(container(self.search_bar(search)).width(Length::Fill).align_x(Alignment::End).padding([10, 18]));
+        }
+        if let (Some(typed), Doc::Pdf(v)) = (&self.goto, &self.doc) {
+            floating = floating.push(
+                container(self.goto_bar(typed, v.doc.page_count()))
+                    .width(Length::Fill)
+                    .align_x(Alignment::Center)
+                    .padding([10, 18]),
+            );
+        }
+        let content: Element<'_, Message> = floating.into();
         body = body.push(content);
         let mut layout = column![];
         if !self.fullscreen {
@@ -2279,7 +2399,15 @@ impl App {
         .align_x(Alignment::Center)
         .spacing(1);
         if !subtitle.is_empty() {
-            titles = titles.push(text(subtitle).size(12).style(muted));
+            let label = text(subtitle).size(12).style(muted);
+            titles = titles.push(if is_pdf {
+                tip(
+                    button(label).padding([0, 6]).style(style::tool).on_press(Message::GoToOpen).into(),
+                    "Go to page (Ctrl+G)",
+                )
+            } else {
+                label.into()
+            });
         }
 
         let mut right = row![].spacing(2).align_y(Alignment::Center);
@@ -2549,9 +2677,11 @@ impl App {
         let list = match tab {
             SidebarTab::Files => self.file_list(),
             SidebarTab::Contents => self.contents_list(),
+            SidebarTab::Pages => self.page_list(),
         };
         let mut col = column![];
-        if self.files.len() > 1 && self.has_contents() {
+        let tabs = self.sidebar_tabs();
+        if tabs.len() > 1 {
             let segment = |label: &'static str, this: SidebarTab| {
                 button(text(label).size(12).width(Length::Fill).align_x(Alignment::Center))
                     .padding([4, 8])
@@ -2559,12 +2689,15 @@ impl App {
                     .style(style::segment(tab == this))
                     .on_press(Message::SidebarTab(this))
             };
-            col = col.push(
-                container(
-                    row![segment("Files", SidebarTab::Files), segment("Contents", SidebarTab::Contents)].spacing(2),
-                )
-                .padding([6, 10]),
-            );
+            let segments = tabs.iter().map(|&t| {
+                let label = match t {
+                    SidebarTab::Files => "Files",
+                    SidebarTab::Contents => "Contents",
+                    SidebarTab::Pages => "Pages",
+                };
+                segment(label, t).into()
+            });
+            col = col.push(container(row(segments).spacing(2)).padding([6, 10]));
         }
         container(col.push(list)).width(SIDEBAR_W).height(Length::Fill).style(style::bar).into()
     }

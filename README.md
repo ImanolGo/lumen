@@ -24,6 +24,10 @@ The original Lumen is built on GTK 4, libadwaita and poppler. This edition:
 - **Search:** Ctrl+F finds text across the whole document (case-insensitive), highlights every match and jumps between them. It starts from the page you are on, results appear while it scans, and each page's text is read only once. The 477-page Ghostscript manual is fully indexed in about 0.7 s.
 - **Reading order:** pages set in columns of running text (two, three or more, also on turned pages) are read column by column for copying and search, even when the file draws them line by line across. Everything else (tables, code, forms, diagrams) keeps the order the file has, which is usually the right one.
 - **Text selection:** drag over text to select it (Shift+click extends, double-click picks a word), Ctrl+C copies, Ctrl+A selects the whole document. Like other Linux apps, the selection also goes to the primary selection for middle-click paste. Dragging anywhere that is not text still pans.
+- **Pages sidebar:** a third tab, next to Files and Contents, shows a thumbnail of every page (drawn only for the rows on screen); click one to go there, and the page you are on is ringed and followed as you scroll.
+- **Go to page:** Ctrl+G (or a click on "Page x of y" in the header) asks for a page number.
+- **Night mode:** Ctrl+Shift+N (or ☰ → Night Mode) turns paper dark and text light while pictures in the page keep their colours (the GTK Lumen's colour matrix); page thumbnails follow. It is remembered for the session.
+- **Properties:** ☰ → Properties… shows the file (name, folder, size, dates in UTC) and, for a PDF, its title, author, producer, version, page count and size, protection and form fields; for a picture its format, size, colour profile and EXIF summary (camera, lens, exposure, date, location).
 - **Table of contents:** the PDF's outline appears in the sidebar, follows you as you scroll, and jumps to the exact spot of each section.
 - **Links:** links inside the document jump to their target. Web and mail links open in your browser or mail app through the desktop portal; other kinds of link (files, programs) are ignored for safety.
 - **Markup:** press M (or the pen button) to draw on a picture or a PDF page: highlighter, pen, rectangles, ellipses, lines, arrows and text boxes, in eight colours and three line widths. Select, move, resize, recolour and delete what you drew, with undo and redo. On a PDF the highlighter marks the text you drag over.
@@ -58,6 +62,8 @@ Everything from the original Lumen is ported.
 | Ctrl+S / Ctrl+Shift+S | Save markup and form values into the PDF / save a copy (a picture always saves a copy) |
 | Ctrl+C / Ctrl+A | Copy the selected text / select all text (PDF) |
 | Ctrl+F | Find in the PDF (Enter / Shift+Enter or F3 / Shift+F3 for next / previous, Esc to close) |
+| Ctrl+G | Go to page (PDF) |
+| Ctrl+Shift+N | Night mode (PDF) |
 | ← → (Space / Backspace for pictures) | Next / previous file |
 | Home / End | First / last file (first / last page in a PDF) |
 | Page Up / Page Down | Previous / next page (PDF) |
@@ -67,7 +73,7 @@ Everything from the original Lumen is ported.
 | R / Shift+R | Turn right / left (pictures; selected pages in the organiser) |
 | E | Edit the picture (Enter applies a crop, Esc cancels it) |
 | G | Organise the PDF's pages (Del deletes, Ctrl+← / → moves, Ctrl+A selects all) |
-| T | Show or hide the sidebar (files, and the PDF's contents) |
+| T | Show or hide the sidebar (files, the PDF's contents and pages) |
 | F / F11, Esc | Fullscreen, leave fullscreen |
 | Ctrl+Q / Ctrl+W | Quit |
 
@@ -109,6 +115,8 @@ xdg-mime default io.github.imanolgo.LumenRs.desktop application/pdf
 | `src/edit/` | Picture edits: turns, mirrors, crop geometry, resizing, colour adjustments, and how each moves markup |
 | `src/metadata.rs` | Carrying EXIF data and colour profiles into saved copies |
 | `src/pages.rs` | Page plans (reorder, turn, delete, insert) and writing them (lopdf) |
+| `src/app/pagelist.rs` | The Pages sidebar tab and the go-to-page box |
+| `src/properties.rs` | What the Properties dialog shows |
 | `src/app/edit.rs`, `src/app/pages.rs` | The picture editing bar, crop overlay and colour panel; the page organiser |
 | `src/forms.rs` | PDF forms: reading the fields, writing values and their appearances |
 | `src/signatures.rs` | Saved signatures |

@@ -26,7 +26,7 @@ use crate::structure::{self, Link, OutlineItem, PageText};
 const MAX_SIDE: f32 = 8192.0;
 
 enum Work {
-    Render { scale: f32, reply: oneshot::Sender<Result<Picture>> },
+    Render { scale: f32, night: bool, reply: oneshot::Sender<Result<Picture>> },
     Text { reply: oneshot::Sender<Arc<PageText>> },
 }
 
@@ -164,7 +164,7 @@ impl From<anyhow::Error> for OpenError {
     }
 }
 
-fn parse(bytes: impl Into<hayro::hayro_syntax::PdfData>, password: Option<&str>) -> Result<Pdf> {
+pub(crate) fn parse(bytes: impl Into<hayro::hayro_syntax::PdfData>, password: Option<&str>) -> Result<Pdf> {
     Pdf::new_with_password(bytes, password.unwrap_or("")).map_err(|e| match e {
         LoadPdfError::Decryption(DecryptionError::PasswordProtected) => {
             anyhow::Error::new(PasswordNeeded { wrong: password.is_some_and(|p| !p.is_empty()) })
@@ -317,8 +317,13 @@ impl Document {
 
     /// Renders `page` at `scale` pixels per point, off the UI thread.
     pub async fn render(&self, page: usize, scale: f32) -> Result<Picture> {
+        self.render_toned(page, scale, false).await
+    }
+
+    /// Like [`Document::render`], for night mode when `night` is set (see [`night_tone`]).
+    pub async fn render_toned(&self, page: usize, scale: f32, night: bool) -> Result<Picture> {
         let (reply, rx) = oneshot::channel();
-        self.inner.queue.push(Job { page, work: Work::Render { scale, reply } });
+        self.inner.queue.push(Job { page, work: Work::Render { scale, night, reply } });
         rx.await.map_err(|_| anyhow!("the document was closed"))?
     }
 
@@ -362,7 +367,7 @@ fn worker(bytes: Arc<Vec<u8>>, password: Option<&str>, queue: &Queue) {
                     });
                 let _ = reply.send(Arc::new(text));
             }
-            Work::Render { scale, reply } => {
+            Work::Render { scale, night, reply } => {
                 let (w, h) = page.render_dimensions();
                 // Keep the bitmap within limits whatever the zoom.
                 let scale = scale.min(MAX_SIDE / w.max(h).max(1.0)).max(0.01);
@@ -378,11 +383,29 @@ fn worker(bytes: Arc<Vec<u8>>, password: Option<&str>, queue: &Queue) {
                 .map_err(|_| anyhow!("page {} could not be rendered", job.page + 1))
                 .map(|pixmap| {
                     let (width, height) = (pixmap.width() as u32, pixmap.height() as u32);
-                    let rgba = pixmap.take_rgba8(hayro::vello_cpu::peniko::ImageAlphaType::Alpha);
+                    let mut rgba = pixmap.take_rgba8(hayro::vello_cpu::peniko::ImageAlphaType::Alpha);
+                    if night {
+                        night_tone(&mut rgba);
+                    }
                     Picture { width, height, original: (w.round() as u32, h.round() as u32), rgba: rgba.into() }
                 });
                 let _ = reply.send(result);
             }
+        }
+    }
+}
+
+/// Night mode for an opaque RGBA bitmap: the colours inverted, then turned half way round
+/// the colour wheel, so paper goes dark, text goes light and pictures keep their hues
+/// instead of turning into negatives (the same matrix as the GTK Lumen).
+pub fn night_tone(rgba: &mut [u8]) {
+    // Fixed point, 10 fractional bits; the last term is the offset of 1.0.
+    const M: [[i32; 3]; 3] = [[588, -1464, -147], [-436, -440, -147], [-436, -1464, 877]];
+    const OFFSET: i32 = 255 * 1024 + 512;
+    for px in rgba.as_chunks_mut::<4>().0 {
+        let (r, g, b) = (px[0] as i32, px[1] as i32, px[2] as i32);
+        for (out, row) in px.iter_mut().zip(M) {
+            *out = ((row[0] * r + row[1] * g + row[2] * b + OFFSET) >> 10).clamp(0, 255) as u8;
         }
     }
 }
@@ -464,6 +487,20 @@ pub(crate) mod tests {
         // Paper is white and opaque.
         assert_eq!(&pic.rgba[..4], &[255, 255, 255, 255]);
         assert!(doc.render(9999, 1.0).await.is_err());
+    }
+
+    #[test]
+    fn night_tone_turns_paper_dark_and_keeps_hues() {
+        let mut px = [255, 255, 255, 255, 0, 0, 0, 255, 255, 0, 0, 255, 0, 0, 255, 255];
+        night_tone(&mut px);
+        // White paper goes to black, black text to white.
+        assert!(px[..3].iter().all(|&c| c <= 1), "{:?}", &px[..3]);
+        assert!(px[4..7].iter().all(|&c| c >= 254), "{:?}", &px[4..7]);
+        // Red stays red (a lighter one), blue stays blue.
+        assert!(px[8] > px[9] && px[8] > px[10], "{:?}", &px[8..11]);
+        assert!(px[14] > px[12] && px[14] > px[13], "{:?}", &px[12..15]);
+        // Alpha is untouched.
+        assert!([px[3], px[7], px[11], px[15]].iter().all(|&a| a == 255));
     }
 
     #[test]

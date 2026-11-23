@@ -14,6 +14,7 @@ mod pages;
 mod pdf;
 mod portal;
 mod print;
+mod properties;
 mod raster;
 mod signatures;
 mod structure;

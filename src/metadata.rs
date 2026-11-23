@@ -78,7 +78,7 @@ fn exif_for_copy(source: &Path, width: u32, height: u32) -> Option<Vec<u8>> {
     }
 }
 
-fn icc_profile(source: &Path) -> Option<Vec<u8>> {
+pub(crate) fn icc_profile(source: &Path) -> Option<Vec<u8>> {
     let reader = image::ImageReader::open(source).ok()?.with_guessed_format().ok()?;
     reader.into_decoder().ok()?.icc_profile().ok().flatten()
 }

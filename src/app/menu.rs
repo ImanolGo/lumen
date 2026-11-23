@@ -22,6 +22,7 @@ pub enum Menu {
 pub enum Dialog {
     Shortcuts,
     About,
+    Properties,
 }
 
 /// One line of a menu: a label, its shortcut, and what it does (greyed out without).
@@ -57,6 +58,8 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
         "PDF",
         &[
             ("Ctrl+F, F3", "Find, next match"),
+            ("Ctrl+G", "Go to page"),
+            ("Ctrl+Shift+N", "Night mode"),
             ("Page Up / Down", "Previous / next page"),
             ("Ctrl+C, Ctrl+A", "Copy text, select all"),
             ("G", "Organise pages"),
@@ -126,6 +129,11 @@ impl App {
         if is_pdf {
             items.push(Some(("Find…", "Ctrl+F", Some(Message::SearchOpen))));
             items.push(Some((
+                if self.night { "Leave Night Mode" } else { "Night Mode" },
+                "Ctrl+Shift+N",
+                Some(Message::ToggleNight),
+            )));
+            items.push(Some((
                 "Organise Pages",
                 "G",
                 self.markup_busy.is_none().then_some(Message::Pages(PagesMsg::Open)),
@@ -143,6 +151,7 @@ impl App {
         }
         items.push(Some(("Save a Copy…", "Ctrl+Shift+S", doc(Message::Markup(MarkupMsg::SaveAs)))));
         items.push(None);
+        items.push(Some(("Properties…", "", doc(Message::ShowProperties))));
         items.push(Some(("Keyboard Shortcuts", "", Some(Message::Dialog(Some(Dialog::Shortcuts))))));
         items.push(Some(("About Lumen", "", Some(Message::Dialog(Some(Dialog::About))))));
         items
@@ -226,6 +235,41 @@ impl App {
                 ]
                 .spacing(14)
                 .width(420)
+                .into()
+            }
+            Dialog::Properties => {
+                let mut sections = column![].spacing(16);
+                match &self.properties {
+                    None => sections = sections.push(text("Reading…").size(13).style(muted)),
+                    Some(Err(e)) => sections = sections.push(text(e.as_str()).size(13)),
+                    Some(Ok(sheet)) => {
+                        for (name, rows) in &sheet.sections {
+                            let mut group = column![
+                                text(name.as_str())
+                                    .size(13)
+                                    .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
+                            ]
+                            .spacing(6);
+                            for (key, value) in rows {
+                                group = group.push(
+                                    row![
+                                        text(key.as_str()).size(12).style(muted).width(104),
+                                        text(value.as_str()).size(13).width(Length::Fill),
+                                    ]
+                                    .spacing(10),
+                                );
+                            }
+                            sections = sections.push(group);
+                        }
+                    }
+                }
+                column![
+                    title("Properties"),
+                    scrollable(container(sections).padding([0, 12])).height(Length::Shrink),
+                    row![space().width(Length::Fill), close]
+                ]
+                .spacing(14)
+                .width(460)
                 .into()
             }
             Dialog::About => column![
