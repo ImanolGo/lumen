@@ -10,6 +10,7 @@ use iced::{Alignment, Element, Font, Length, Task};
 
 use super::{App, Message, blocking, err_string, muted};
 use crate::cups::{self, Job, Printer};
+use crate::i18n::tr;
 use crate::style;
 
 /// A paper size a printer offers.
@@ -120,8 +121,8 @@ impl App {
             PrintMsg::Done(result) => {
                 self.print_dialog = None;
                 return match result {
-                    Ok(()) => self.notice("Sent to the printer"),
-                    Err(e) => self.toast(format!("Could not print: {e}")),
+                    Ok(()) => self.notice(tr("Sent to the printer")),
+                    Err(e) => self.toast(trf!("Could not print: {}", e)),
                 };
             }
         }
@@ -131,29 +132,29 @@ impl App {
     pub(super) fn print_dialog_view(&self) -> Option<Element<'_, Message>> {
         let dialog = self.print_dialog.as_ref()?;
         let p = |m: PrintMsg| Message::Printing(m);
-        let title = text(format!("Print “{}”", super::file_name(&dialog.path)))
+        let title = text(trf!("Print “{}”", super::file_name(&dialog.path)))
             .size(18)
             .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT });
-        let label = |t: &'static str| text(t).size(13).width(110);
+        let label = |t: String| text(t).size(13).width(110);
         let body: Element<'_, Message> = match &dialog.printers {
-            None => text("Looking for printers…").size(14).style(muted).into(),
-            Some(Err(e)) => text(format!("Printing is not available: {e}")).size(14).into(),
+            None => text(tr("Looking for printers…")).size(14).style(muted).into(),
+            Some(Err(e)) => text(trf!("Printing is not available: {}", e)).size(14).into(),
             Some(Ok(printers)) if printers.is_empty() => {
-                text("No printers are set up. Add one in your system's printer settings.").size(14).into()
+                text(tr("No printers are set up. Add one in your system's printer settings.")).size(14).into()
             }
             Some(Ok(printers)) => {
                 let printer = dialog.printer.as_ref();
                 let media = printer.map(media_of).unwrap_or_default();
                 let mut form = column![
                     row![
-                        label("Printer"),
+                        label(tr("Printer")),
                         pick_list(printers.clone(), dialog.printer.clone(), move |x| p(PrintMsg::Printer(x)))
                             .width(Length::Fill)
                             .text_size(14)
                     ]
                     .align_y(Alignment::Center),
                     row![
-                        label("Copies"),
+                        label(tr("Copies")),
                         text_input("1", &dialog.copies)
                             .on_input(move |t| p(PrintMsg::Copies(t)))
                             .on_submit(p(PrintMsg::Print))
@@ -166,7 +167,7 @@ impl App {
                 if !media.is_empty() {
                     form = form.push(
                         row![
-                            label("Paper"),
+                            label(tr("Paper")),
                             pick_list(media, dialog.media.clone(), move |m| p(PrintMsg::Media(m)))
                                 .width(Length::Fill)
                                 .text_size(14)
@@ -177,9 +178,9 @@ impl App {
                 if printer.is_some_and(|p| p.two_sided) {
                     form = form.push(
                         row![
-                            label(""),
+                            label(String::new()),
                             checkbox(dialog.two_sided)
-                                .label("Print on both sides")
+                                .label(tr("Print on both sides"))
                                 .on_toggle(move |on| p(PrintMsg::TwoSided(on)))
                                 .text_size(14)
                         ]
@@ -193,17 +194,17 @@ impl App {
         let card = container(
             column![
                 title,
-                text("Printing directly, without the desktop's print dialog.").size(12).style(muted),
+                text(tr("Printing directly, without the desktop's print dialog.")).size(12).style(muted),
                 space().height(4),
                 body,
                 space().height(4),
                 row![
                     space().width(Length::Fill),
-                    button(text("Cancel").size(14))
+                    button(text(tr("Cancel")).size(14))
                         .padding([8, 16])
                         .style(style::secondary)
                         .on_press(p(PrintMsg::Cancel)),
-                    button(text(if dialog.sending { "Sending…" } else { "Print" }).size(14))
+                    button(text(if dialog.sending { tr("Sending…") } else { tr("Print") }).size(14))
                         .padding([8, 16])
                         .style(style::primary)
                         .on_press_maybe(ready.then_some(p(PrintMsg::Print))),

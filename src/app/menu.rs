@@ -11,6 +11,7 @@ use super::markup::MarkupMsg;
 use super::pages::PagesMsg;
 use super::signature::SignMsg;
 use super::{App, Doc, Message, TOOLBAR_H, muted};
+use crate::i18n::tr;
 use crate::style;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,7 +30,7 @@ pub enum Dialog {
 }
 
 /// One line of a menu: a label, its shortcut, and what it does (greyed out without).
-type Item = (&'static str, &'static str, Option<Message>);
+type Item = (String, &'static str, Option<Message>);
 
 /// The keyboard shortcuts, in the groups the dialog shows them.
 const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
@@ -105,97 +106,97 @@ impl App {
         let is_image = matches!(self.doc, Doc::Image(_));
         let doc = |m: Message| has_doc.then_some(m);
         let mut items: Vec<Option<Item>> = vec![
-            Some(("Print…", "Ctrl+P", (has_doc && !self.printing).then_some(Message::Print))),
+            Some((tr("Print…"), "Ctrl+P", (has_doc && !self.printing).then_some(Message::Print))),
             None,
-            Some(("Best Fit", "0", doc(Message::ZoomFit))),
+            Some((tr("Best Fit"), "0", doc(Message::ZoomFit))),
         ];
         if is_pdf {
-            items.push(Some(("Fit Width", "W", Some(Message::ZoomFitWidth))));
+            items.push(Some((tr("Fit Width"), "W", Some(Message::ZoomFitWidth))));
         }
-        items.push(Some(("Actual Size", "1", doc(Message::ZoomActual))));
+        items.push(Some((tr("Actual Size"), "1", doc(Message::ZoomActual))));
         if is_image {
-            items.push(Some(("Rotate Right", "R", Some(Message::Rotate(1)))));
-            items.push(Some(("Rotate Left", "Shift+R", Some(Message::Rotate(-1)))));
+            items.push(Some((tr("Rotate Right"), "R", Some(Message::Rotate(1)))));
+            items.push(Some((tr("Rotate Left"), "Shift+R", Some(Message::Rotate(-1)))));
         }
         items.push(Some((
-            if self.slideshow.is_some() { "Stop Slideshow" } else { "Slideshow" },
+            tr(if self.slideshow.is_some() { "Stop Slideshow" } else { "Slideshow" }),
             "F5",
             (self.can_slideshow() || self.slideshow.is_some()).then_some(Message::Slideshow),
         )));
         items.push(Some((
-            if self.fullscreen { "Leave Fullscreen" } else { "Fullscreen" },
+            tr(if self.fullscreen { "Leave Fullscreen" } else { "Fullscreen" }),
             "F",
             Some(Message::ToggleFullscreen),
         )));
         if self.sidebar_shows().is_some() {
             items.push(Some((
-                if self.show_sidebar { "Hide Sidebar" } else { "Show Sidebar" },
+                tr(if self.show_sidebar { "Hide Sidebar" } else { "Show Sidebar" }),
                 "T",
                 Some(Message::ToggleSidebar),
             )));
         }
         items.push(None);
         if is_pdf {
-            items.push(Some(("Find…", "Ctrl+F", Some(Message::SearchOpen))));
+            items.push(Some((tr("Find…"), "Ctrl+F", Some(Message::SearchOpen))));
             items.push(Some((
-                if self.night { "Leave Night Mode" } else { "Night Mode" },
+                tr(if self.night { "Leave Night Mode" } else { "Night Mode" }),
                 "Ctrl+Shift+N",
                 Some(Message::ToggleNight),
             )));
             items.push(Some((
-                "Organise Pages",
+                tr("Organise Pages"),
                 "G",
                 self.markup_busy.is_none().then_some(Message::Pages(PagesMsg::Open)),
             )));
         }
         if is_image {
-            items.push(Some(("Edit Picture", "E", Some(Message::Edit(EditMsg::Toggle)))));
+            items.push(Some((tr("Edit Picture"), "E", Some(Message::Edit(EditMsg::Toggle)))));
         }
-        items.push(Some(("Markup", "M", doc(Message::Markup(MarkupMsg::Toggle)))));
-        items.push(Some(("Sign…", "", doc(Message::Sign(SignMsg::Menu)))));
+        items.push(Some((tr("Markup"), "M", doc(Message::Markup(MarkupMsg::Toggle)))));
+        items.push(Some((tr("Sign…"), "", doc(Message::Sign(SignMsg::Menu)))));
         items.push(None);
         if is_pdf {
             let save = self.has_unsaved_changes() && self.markup_busy.is_none();
-            items.push(Some(("Save", "Ctrl+S", save.then_some(Message::Markup(MarkupMsg::Save)))));
+            items.push(Some((tr("Save"), "Ctrl+S", save.then_some(Message::Markup(MarkupMsg::Save)))));
         }
         if self.picture_in_place().is_some() {
             let changed = matches!(&self.doc, Doc::Image(v) if v.edit.is_dirty())
                 || self.marks.as_ref().is_some_and(|m| m.has_items());
             items.push(Some((
-                "Save",
+                tr("Save"),
                 "Ctrl+S",
                 (changed && self.markup_busy.is_none()).then_some(Message::Markup(MarkupMsg::Save)),
             )));
         }
-        items.push(Some(("Save a Copy…", "Ctrl+Shift+S", doc(Message::Markup(MarkupMsg::SaveAs)))));
+        items.push(Some((tr("Save a Copy…"), "Ctrl+Shift+S", doc(Message::Markup(MarkupMsg::SaveAs)))));
         if is_pdf {
-            items.push(Some(("Export Pages…", "", Some(Message::Export(ExportMsg::Open)))));
+            items.push(Some((tr("Export Pages…"), "", Some(Message::Export(ExportMsg::Open)))));
             items.push(Some((
-                "Combine Files…",
+                tr("Combine Files…"),
                 "",
                 self.markup_busy.is_none().then_some(Message::Export(ExportMsg::Combine)),
             )));
         }
         if is_image {
-            items.push(Some(("Export as PDF…", "", Some(Message::Export(ExportMsg::Picture)))));
+            items.push(Some((tr("Export as PDF…"), "", Some(Message::Export(ExportMsg::Picture)))));
         }
         items.push(None);
-        items.push(Some(("Properties…", "", doc(Message::ShowProperties))));
+        items.push(Some((tr("Properties…"), "", doc(Message::ShowProperties))));
         items.push(None);
-        items.push(Some(("Show in Folder", "", doc(Message::ShowInFolder))));
-        items.push(Some(("Open With…", "", doc(Message::OpenWith))));
-        items.push(Some(("Move to Trash", "", doc(Message::Trash))));
+        items.push(Some((tr("Show in Folder"), "", doc(Message::ShowInFolder))));
+        items.push(Some((tr("Open With…"), "", doc(Message::OpenWith))));
+        items.push(Some((tr("Move to Trash"), "", doc(Message::Trash))));
         items.push(None);
-        items.push(Some(("Preferences", "", Some(Message::Dialog(Some(Dialog::Preferences))))));
-        items.push(Some(("Keyboard Shortcuts", "", Some(Message::Dialog(Some(Dialog::Shortcuts))))));
-        items.push(Some(("About Lumen", "", Some(Message::Dialog(Some(Dialog::About))))));
+        items.push(Some((tr("Preferences"), "", Some(Message::Dialog(Some(Dialog::Preferences))))));
+        items.push(Some((tr("Keyboard Shortcuts"), "", Some(Message::Dialog(Some(Dialog::Shortcuts))))));
+        items.push(Some((tr("About Lumen"), "", Some(Message::Dialog(Some(Dialog::About))))));
         items
     }
 
     fn open_items() -> Vec<Option<Item>> {
         vec![
-            Some(("Open Files…", "Ctrl+O", Some(Message::Open { folder: false }))),
-            Some(("Open Folder…", "Ctrl+Shift+O", Some(Message::Open { folder: true }))),
+            Some((tr("Open Files…"), "Ctrl+O", Some(Message::Open { folder: false }))),
+            Some((tr("Open Folder…"), "Ctrl+Shift+O", Some(Message::Open { folder: true }))),
         ]
     }
 
@@ -242,29 +243,30 @@ impl App {
 
     pub(super) fn dialog_view(&self) -> Option<Element<'_, Message>> {
         let dialog = self.dialog?;
-        let title = |t: &'static str| {
-            text(t).size(18).font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
-        };
+        let title =
+            |t: String| text(t).size(18).font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT });
         let close =
-            button(text("Close").size(14)).padding([8, 16]).style(style::secondary).on_press(Message::Dialog(None));
+            button(text(tr("Close")).size(14)).padding([8, 16]).style(style::secondary).on_press(Message::Dialog(None));
         let body: Element<'_, Message> = match dialog {
             Dialog::Shortcuts => {
                 let mut groups = column![].spacing(16);
                 for (name, keys) in SHORTCUTS {
                     let mut group = column![
-                        text(*name).size(13).font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
+                        text(tr(name))
+                            .size(13)
+                            .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
                     ]
                     .spacing(6);
                     for (key, what) in *keys {
                         group = group.push(
-                            row![text(*what).size(13).width(Length::Fill), text(*key).size(12).style(muted)]
+                            row![text(tr(what)).size(13).width(Length::Fill), text(*key).size(12).style(muted)]
                                 .spacing(12),
                         );
                     }
                     groups = groups.push(group);
                 }
                 column![
-                    title("Keyboard Shortcuts"),
+                    title(tr("Keyboard Shortcuts")),
                     scrollable(groups).height(Length::Shrink),
                     row![space().width(Length::Fill), close]
                 ]
@@ -272,12 +274,12 @@ impl App {
                 .width(420)
                 .into()
             }
-            Dialog::Preferences => self.prefs_dialog(title("Preferences").into(), close.into()),
-            Dialog::Export => self.export_dialog(title("Export").into(), close.into()),
+            Dialog::Preferences => self.prefs_dialog(title(tr("Preferences")).into(), close.into()),
+            Dialog::Export => self.export_dialog(title(tr("Export")).into(), close.into()),
             Dialog::Properties => {
                 let mut sections = column![].spacing(16);
                 match &self.properties {
-                    None => sections = sections.push(text("Reading…").size(13).style(muted)),
+                    None => sections = sections.push(text(tr("Reading…")).size(13).style(muted)),
                     Some(Err(e)) => sections = sections.push(text(e.as_str()).size(13)),
                     Some(Ok(sheet)) => {
                         for (name, rows) in &sheet.sections {
@@ -301,7 +303,7 @@ impl App {
                     }
                 }
                 column![
-                    title("Properties"),
+                    title(tr("Properties")),
                     scrollable(container(sections).padding([0, 12])).height(Length::Shrink),
                     row![space().width(Length::Fill), close]
                 ]
@@ -311,16 +313,16 @@ impl App {
             }
             Dialog::About => column![
                 center(iced::widget::svg(crate::icons::app()).width(80).height(80)).height(90),
-                container(title("Lumen")).center_x(Length::Fill),
-                container(text(format!("Version {}", env!("CARGO_PKG_VERSION"))).size(13).style(muted))
+                container(title(tr("Lumen"))).center_x(Length::Fill),
+                container(text(trf!("Version {}", env!("CARGO_PKG_VERSION"))).size(13).style(muted))
                     .center_x(Length::Fill),
                 container(
-                    text("A fast, safe viewer and editor for pictures and PDFs, in pure Rust with iced.")
+                    text(tr("A fast, safe viewer and editor for pictures and PDFs, in pure Rust with iced."))
                         .size(14)
                         .align_x(Alignment::Center)
                 )
                 .center_x(Length::Fill),
-                container(text("GPL-3.0-or-later · github.com/ImanolGo/lumen-rs").size(12).style(muted))
+                container(text(tr("GPL-3.0-or-later · github.com/ImanolGo/lumen-rs")).size(12).style(muted))
                     .center_x(Length::Fill),
                 row![space().width(Length::Fill), close],
             ]

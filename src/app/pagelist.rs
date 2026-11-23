@@ -7,6 +7,7 @@ use iced::widget::{Id, button, column, container, image, operation, row, scrolla
 use iced::{Alignment, ContentFit, Element, Length, Task, Theme};
 
 use super::{App, Doc, Message, SIDEBAR_W};
+use crate::i18n::tr;
 use crate::raster::Picture;
 use crate::style;
 
@@ -168,7 +169,7 @@ impl App {
     pub(super) fn goto_bar<'a>(&'a self, typed: &'a str, pages: usize) -> Element<'a, Message> {
         container(
             row![
-                text_input(&format!("Page (1–{pages})"), typed)
+                text_input(&trf!("Page (1–{})", pages), typed)
                     .id(goto_input_id())
                     .on_input(|t| Message::GoToInput(clean_page_input(&t)))
                     .on_submit(Message::GoToSubmit)
@@ -176,7 +177,7 @@ impl App {
                     .padding([6, 8])
                     .width(130),
                 text(format!("of {pages}")).size(12).style(super::muted),
-                super::icon_button(crate::icons::close(), "Close (Esc)", Some(Message::GoToClose), false),
+                super::icon_button(crate::icons::close(), tr("Close (Esc)"), Some(Message::GoToClose), false),
             ]
             .spacing(8)
             .align_y(Alignment::Center),

@@ -1,0 +1,737 @@
+# Spanish translation of Lumen (Rust/iced).
+# Reused from the GTK Lumen where the strings match.
+msgid ""
+msgstr ""
+"Language: es\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "A document needs at least one page"
+msgstr "Un documento necesita al menos una página"
+
+msgid "A fast, safe viewer and editor for pictures and PDFs, in pure Rust with iced."
+msgstr "Un visor y editor de imágenes y PDF rápido y seguro, en Rust puro con iced."
+
+msgid "A slideshow needs more than one picture or page, and no unsaved changes"
+msgstr "Una presentación necesita más de una imagen o página, y ningún cambio sin guardar"
+
+msgid "APPEARANCE"
+msgstr "APARIENCIA"
+
+msgid "About Lumen"
+msgstr "Acerca de Lumen"
+
+msgid "Actual Size"
+msgstr "Tamaño real"
+
+msgid "Actual size"
+msgstr "Tamaño real"
+
+msgid "Add your signature"
+msgstr "Añade tu firma"
+
+msgid "Any colour…"
+msgstr "Cualquier color…"
+
+msgid "Arrow"
+msgstr "Flecha"
+
+msgid "As PNG images"
+msgstr "Como imágenes PNG"
+
+msgid "As a PDF"
+msgstr "Como PDF"
+
+msgid "Back to the original"
+msgstr "Volver al original"
+
+msgid "Best Fit"
+msgstr "Ajustar a la ventana"
+
+msgid "Best fit"
+msgstr "Ajustar a la ventana"
+
+msgid "COLOUR"
+msgstr "COLOR"
+
+msgid "Cancel"
+msgstr "Cancelar"
+
+msgid "Cancel, close"
+msgstr "Cancelar, cerrar"
+
+msgid "Clear"
+msgstr "Borrar"
+
+msgid "Close"
+msgstr "Cerrar"
+
+msgid "Close (Ctrl+Q)"
+msgstr "Cerrar (Ctrl+Q)"
+
+msgid "Close (Esc)"
+msgstr "Cerrar (Esc)"
+
+msgid "Colour and size"
+msgstr "Color y tamaño"
+
+msgid "Combine Files…"
+msgstr "Combinar archivos…"
+
+msgid "Contrast"
+msgstr "Contraste"
+
+msgid "Copies"
+msgstr "Copias"
+
+msgid "Copy text, select all"
+msgstr "Copiar texto, seleccionar todo"
+
+msgid "Could not edit the picture: {}"
+msgstr "No se pudo editar la imagen: {}"
+
+msgid "Could not export: {}"
+msgstr "No se pudo exportar: {}"
+
+msgid "Could not insert “{}”: {}"
+msgstr "No se pudo insertar «{}»: {}"
+
+msgid "Could not move it to the trash: {}"
+msgstr "No se pudo mover a la papelera: {}"
+
+msgid "Could not open"
+msgstr "No se pudo abrir"
+
+msgid "Could not open the link: {}"
+msgstr "No se pudo abrir el enlace: {}"
+
+msgid "Could not open “{}”"
+msgstr "No se pudo abrir «{}»"
+
+msgid "Could not print: {}"
+msgstr "No se pudo imprimir: {}"
+
+msgid "Could not restore it: {}"
+msgstr "No se pudo restaurar: {}"
+
+msgid "Could not save: {}"
+msgstr "No se pudo guardar: {}"
+
+msgid "Crop"
+msgstr "Recortar"
+
+msgid "DESKTOP"
+msgstr "ESCRITORIO"
+
+msgid "Decode neighbours up to"
+msgstr "Decodificar vecinas hasta"
+
+msgid "Decode pictures in a sandbox"
+msgstr "Decodificar imágenes en un entorno aislado"
+
+msgid "Delete (Del)"
+msgstr "Eliminar (Supr)"
+
+msgid "Delete the selection"
+msgstr "Eliminar la selección"
+
+msgid "Draw a New Signature…"
+msgstr "Dibujar una firma nueva…"
+
+msgid "Draw your signature"
+msgstr "Dibuja tu firma"
+
+msgid "Drop to open"
+msgstr "Suelta para abrir"
+
+msgid "Each picture is opened by a separate process that can do nothing but decode it. Costs a few milliseconds a picture. LUMEN_NO_SANDBOX=1 turns it off."
+msgstr "Cada imagen la abre un proceso aparte que solo puede decodificarla. Cuesta unos milisegundos por imagen. LUMEN_NO_SANDBOX=1 lo desactiva."
+
+msgid "Edit Picture"
+msgstr "Editar imagen"
+
+msgid "Edit the picture"
+msgstr "Editar la imagen"
+
+msgid "Edit: crop, turn, resize, light and colour (E)"
+msgstr "Editar: recortar, girar, cambiar el tamaño, luz y color (E)"
+
+msgid "Ellipse"
+msgstr "Elipse"
+
+msgid "End"
+msgstr "Fin"
+
+msgid "End of the slideshow"
+msgstr "Fin de la presentación"
+
+msgid "Enter the password to open it."
+msgstr "Escribe la contraseña para abrirlo."
+
+msgid "Export"
+msgstr "Exportar"
+
+msgid "Export Pages…"
+msgstr "Exportar páginas…"
+
+msgid "Export as PDF…"
+msgstr "Exportar como PDF…"
+
+msgid "Export here"
+msgstr "Exportar aquí"
+
+msgid "Export the selected pages…"
+msgstr "Exportar las páginas seleccionadas…"
+
+msgid "Export to Folder"
+msgstr "Exportar a una carpeta"
+
+msgid "Exposure"
+msgstr "Exposición"
+
+msgid "File name"
+msgstr "Nombre del archivo"
+
+msgid "Find (Ctrl+F)"
+msgstr "Buscar (Ctrl+F)"
+
+msgid "Find in document"
+msgstr "Buscar en el documento"
+
+msgid "Find, next match"
+msgstr "Buscar, siguiente resultado"
+
+msgid "Find…"
+msgstr "Buscar…"
+
+msgid "First / last file (page in a PDF)"
+msgstr "Primer / último archivo (página en un PDF)"
+
+msgid "Fit Width"
+msgstr "Ajustar al ancho"
+
+msgid "Fit width"
+msgstr "Ajustar al ancho"
+
+msgid "Fit width (PDF)"
+msgstr "Ajustar al ancho (PDF)"
+
+msgid "Forget this signature"
+msgstr "Olvidar esta firma"
+
+msgid "Full size: {} × {}"
+msgstr "Tamaño completo: {} × {}"
+
+msgid "Fullscreen"
+msgstr "Pantalla completa"
+
+msgid "Go to page"
+msgstr "Ir a la página"
+
+msgid "Go to page (Ctrl+G)"
+msgstr "Ir a la página (Ctrl+G)"
+
+msgid "Go to page {}"
+msgstr "Ir a la página {}"
+
+msgid "Hidden files"
+msgstr "Archivos ocultos"
+
+msgid "Insert"
+msgstr "Insertar"
+
+msgid "Insert Pages From"
+msgstr "Insertar páginas de"
+
+msgid "Insert pages from another PDF…"
+msgstr "Insertar páginas de otro PDF…"
+
+msgid "It is kept for next time, on this computer only."
+msgstr "Se guarda para la próxima vez, solo en este equipo."
+
+msgid "Just now"
+msgstr "Ahora mismo"
+
+msgid "Keep proportions"
+msgstr "Mantener proporciones"
+
+msgid "Keyboard Shortcuts"
+msgstr "Atajos de teclado"
+
+msgid "LINE WIDTH"
+msgstr "Grosor de línea"
+
+msgid "Light and colour"
+msgstr "Luz y color"
+
+msgid "Line"
+msgstr "Línea"
+
+msgid "Loading…"
+msgstr "Cargando…"
+
+msgid "Looking for printers…"
+msgstr "Buscando impresoras…"
+
+msgid "MEMORY AND SPEED"
+msgstr "MEMORIA Y VELOCIDAD"
+
+msgid "Markup"
+msgstr "Anotaciones"
+
+msgid "Markup is not available for this PDF"
+msgstr "Las anotaciones no están disponibles para este PDF"
+
+msgid "Markup is not available for this PDF: {}"
+msgstr "Las anotaciones no están disponibles para este PDF: {}"
+
+msgid "Markup: draw, highlight, add text (M)"
+msgstr "Anotar: dibujar, resaltar, añadir texto (M)"
+
+msgid "Menu"
+msgstr "Menú"
+
+msgid "Mirror left to right"
+msgstr "Reflejar de izquierda a derecha"
+
+msgid "Mirror top to bottom"
+msgstr "Reflejar de arriba abajo"
+
+msgid "Move earlier (Ctrl+←)"
+msgstr "Mover antes (Ctrl+←)"
+
+msgid "Move later (Ctrl+→)"
+msgstr "Mover después (Ctrl+→)"
+
+msgid "Move to Trash"
+msgstr "Mover a la papelera"
+
+msgid "Moved to the trash"
+msgstr "Movido a la papelera"
+
+msgid "Moved “{}” to the trash"
+msgstr "«{}» movido a la papelera"
+
+msgid "Next match (Enter)"
+msgstr "Coincidencia siguiente (Intro)"
+
+msgid "Night mode"
+msgstr "Modo nocturno"
+
+msgid "No folders here"
+msgstr "No hay carpetas aquí"
+
+msgid "No matches"
+msgstr "Sin resultados"
+
+msgid "No printers are set up. Add one in your system's printer settings."
+msgstr "No hay impresoras configuradas. Añade una en los ajustes de impresoras del sistema."
+
+msgid "No saved signatures yet."
+msgstr "Aún no hay firmas guardadas."
+
+msgid "Nothing here"
+msgstr "No hay nada aquí"
+
+msgid "Nothing to show: no pictures or PDFs there"
+msgstr "Nada que mostrar: no hay imágenes ni PDF ahí"
+
+msgid "OPACITY"
+msgstr "OPACIDAD"
+
+msgid "Open"
+msgstr "Abrir"
+
+msgid "Open Files"
+msgstr "Abrir archivos"
+
+msgid "Open Files…"
+msgstr "Abrir archivos…"
+
+msgid "Open Folder"
+msgstr "Abrir carpeta"
+
+msgid "Open Folder…"
+msgstr "Abrir carpeta…"
+
+msgid "Open With…"
+msgstr "Abrir con…"
+
+msgid "Open a Folder"
+msgstr "Abrir una carpeta"
+
+msgid "Open a folder"
+msgstr "Abrir una carpeta"
+
+msgid "Open files"
+msgstr "Abrir archivos"
+
+msgid "Organise Pages"
+msgstr "Organizar páginas"
+
+msgid "Organise pages"
+msgstr "Organizar páginas"
+
+msgid "Organise pages (G)"
+msgstr "Organizar páginas (G)"
+
+msgid "PDFS"
+msgstr "PDF"
+
+msgid "Page (1–{})"
+msgstr "Página (1–{})"
+
+msgid "Page {} of {}"
+msgstr "Página {} de {}"
+
+msgid "Pages are drawn at that resolution; several pages go into a folder you choose."
+msgstr "Las páginas se dibujan con esa resolución; varias páginas van a una carpeta que elijas."
+
+msgid "Paper"
+msgstr "Papel"
+
+msgid "Password"
+msgstr "Contraseña"
+
+msgid "Password-protected"
+msgstr "Protegido con contraseña"
+
+msgid "Pen"
+msgstr "Lápiz"
+
+msgid "Pictures and PDFs, fast and simple"
+msgstr "Imágenes y PDF, rápido y sencillo"
+
+msgid "Pictures kept decoded"
+msgstr "Imágenes que se mantienen decodificadas"
+
+msgid "Preferences"
+msgstr "Preferencias"
+
+msgid "Preparing…"
+msgstr "Preparando…"
+
+msgid "Previous / next file"
+msgstr "Archivo anterior / siguiente"
+
+msgid "Previous / next page"
+msgstr "Página anterior / siguiente"
+
+msgid "Previous match (Shift+Enter)"
+msgstr "Coincidencia anterior (Mayús+Intro)"
+
+msgid "Print"
+msgstr "Imprimir"
+
+msgid "Print on both sides"
+msgstr "Imprimir a doble cara"
+
+msgid "Print “{}”"
+msgstr "Imprimir «{}»"
+
+msgid "Printer"
+msgstr "Impresora"
+
+msgid "Printing directly, without the desktop's print dialog."
+msgstr "Imprimiendo directamente, sin el diálogo de impresión del escritorio."
+
+msgid "Printing is not available: {}"
+msgstr "La impresión no está disponible: {}"
+
+msgid "Print…"
+msgstr "Imprimir…"
+
+msgid "Properties"
+msgstr "Propiedades"
+
+msgid "Properties…"
+msgstr "Propiedades…"
+
+msgid "Quit"
+msgstr "Salir"
+
+msgid "Quit Without Saving"
+msgstr "Salir sin guardar"
+
+msgid "Quit without saving?"
+msgstr "¿Salir sin guardar?"
+
+msgid "Reading…"
+msgstr "Leyendo…"
+
+msgid "Rectangle"
+msgstr "Rectángulo"
+
+msgid "Redo (Ctrl+Shift+Z)"
+msgstr "Rehacer (Ctrl+Mayús+Z)"
+
+msgid "Replace"
+msgstr "Reemplazar"
+
+msgid "Reset"
+msgstr "Restablecer"
+
+msgid "Reset to defaults"
+msgstr "Restablecer valores"
+
+msgid "Resize"
+msgstr "Cambiar tamaño"
+
+msgid "Restored “{}”"
+msgstr "«{}» restaurado"
+
+msgid "Rotate Left"
+msgstr "Girar a la izquierda"
+
+msgid "Rotate Right"
+msgstr "Girar a la derecha"
+
+msgid "Rotate left (Shift+R)"
+msgstr "Girar a la izquierda (Mayús+R)"
+
+msgid "Rotate right (R)"
+msgstr "Girar a la derecha (R)"
+
+msgid "SECURITY"
+msgstr "SEGURIDAD"
+
+msgid "SLIDESHOW"
+msgstr "PRESENTACIÓN"
+
+msgid "Saturation"
+msgstr "Saturación"
+
+msgid "Save"
+msgstr "Guardar"
+
+msgid "Save (a copy of a picture)"
+msgstr "Guardar (una copia de una imagen)"
+
+msgid "Save a Copy"
+msgstr "Guardar una copia"
+
+msgid "Save a Copy…"
+msgstr "Guardar una copia…"
+
+msgid "Save a copy"
+msgstr "Guardar una copia"
+
+msgid "Save a copy… (Ctrl+Shift+S)"
+msgstr "Guardar una copia… (Ctrl+Mayús+S)"
+
+msgid "Save as a new PDF… (Ctrl+Shift+S)"
+msgstr "Guardar como PDF nuevo… (Ctrl+Mayús+S)"
+
+msgid "Save into the PDF (Ctrl+S)"
+msgstr "Guardar en el PDF (Ctrl+S)"
+
+msgid "Save the edited picture as a new file (Ctrl+S)"
+msgstr "Guardar la imagen editada como archivo nuevo (Ctrl+S)"
+
+msgid "Save the edited picture over the file (Ctrl+S)"
+msgstr "Guardar la imagen editada sobre el archivo (Ctrl+S)"
+
+msgid "Save the new page order into the PDF (Ctrl+S)"
+msgstr "Guardar el nuevo orden de páginas en el PDF (Ctrl+S)"
+
+msgid "Save the pages as a new PDF…"
+msgstr "Guardar las páginas como PDF nuevo…"
+
+msgid "Save the picture with its markup as a new file (Ctrl+S)"
+msgstr "Guardar la imagen con sus anotaciones como archivo nuevo (Ctrl+S)"
+
+msgid "Save the picture with its markup over the file (Ctrl+S)"
+msgstr "Guardar la imagen con sus anotaciones sobre el archivo (Ctrl+S)"
+
+msgid "Saved a copy as “{}”"
+msgstr "Copia guardada como «{}»"
+
+msgid "Saved {} images in “{}”"
+msgstr "{} imágenes guardadas en «{}»"
+
+msgid "Saved “{}”"
+msgstr "«{}» guardado"
+
+msgid "Saving…"
+msgstr "Guardando…"
+
+msgid "Searching…"
+msgstr "Buscando…"
+
+msgid "Select, move and resize"
+msgstr "Seleccionar, mover y cambiar el tamaño"
+
+msgid "Sending…"
+msgstr "Enviando…"
+
+msgid "Sent to the printer"
+msgstr "Enviado a la impresora"
+
+msgid "Show in Folder"
+msgstr "Mostrar en la carpeta"
+
+msgid "Show the sidebar when Lumen starts"
+msgstr "Mostrar la barra lateral al iniciar Lumen"
+
+msgid "Sidebar"
+msgstr "Barra lateral"
+
+msgid "Sidebar (T)"
+msgstr "Barra lateral (T)"
+
+msgid "Sign here"
+msgstr "Firma aquí"
+
+msgid "Sign this field"
+msgstr "Firmar este campo"
+
+msgid "Sign…"
+msgstr "Firmar…"
+
+msgid "Sizes go from 1 to {} pixels"
+msgstr "Los tamaños van de 1 a {} píxeles"
+
+msgid "Slideshow (Space pauses, Esc leaves)"
+msgstr "Presentación (Espacio pausa, Esc sale)"
+
+msgid "Slideshow paused"
+msgstr "Presentación en pausa"
+
+msgid "Slideshow resumed"
+msgstr "Presentación reanudada"
+
+msgid "Slideshow: Space pauses, Esc leaves"
+msgstr "Presentación: Espacio pausa, Esc sale"
+
+msgid "TEXT SIZE"
+msgstr "Tamaño del texto"
+
+msgid "Text"
+msgstr "Texto"
+
+msgid "That password is not right. Try again."
+msgstr "Esa contraseña no es correcta. Inténtalo de nuevo."
+
+msgid "Theme"
+msgstr "Tema"
+
+msgid "Time for each picture"
+msgstr "Tiempo por imagen"
+
+msgid "Turn left (Shift+R)"
+msgstr "Girar a la izquierda (Mayús+R)"
+
+msgid "Turn right (R)"
+msgstr "Girar a la derecha (R)"
+
+msgid "Turn right / left"
+msgstr "Girar a la derecha / izquierda"
+
+msgid "Type a width and a height in pixels"
+msgstr "Escribe un ancho y un alto en píxeles"
+
+msgid "Type here"
+msgstr "Escribe aquí"
+
+msgid "Undo"
+msgstr "Deshacer"
+
+msgid "Undo (Ctrl+Z)"
+msgstr "Deshacer (Ctrl+Z)"
+
+msgid "Undo, redo"
+msgstr "Deshacer, rehacer"
+
+msgid "Unlock"
+msgstr "Desbloquear"
+
+msgid "Unsaved"
+msgstr "Sin guardar"
+
+msgid "Up (Backspace)"
+msgstr "Subir (Retroceso)"
+
+msgid "Use Signature"
+msgstr "Usar la firma"
+
+msgid "Use the desktop's file and print dialogs"
+msgstr "Usar los diálogos de archivos e impresión del escritorio"
+
+msgid "Version {}"
+msgstr "Versión {}"
+
+msgid "When a PDF opens"
+msgstr "Cuando se abre un PDF"
+
+msgid "Whole page"
+msgstr "Página completa"
+
+msgid "Without them (or without a portal) Lumen shows its own. LUMEN_THEME and LUMEN_NO_PORTAL in the environment win over these."
+msgstr "Sin ellos (o sin portal) Lumen muestra los suyos. LUMEN_THEME y LUMEN_NO_PORTAL en el entorno tienen prioridad."
+
+msgid "Working…"
+msgstr "Trabajando…"
+
+msgid "Zoom control and arrows over the picture"
+msgstr "Control de zoom y flechas sobre la imagen"
+
+msgid "Zoom in / out"
+msgstr "Acercar / alejar"
+
+msgid "open"
+msgstr "Abrir"
+
+msgid "or drop files and folders here"
+msgstr "o suelta aquí archivos y carpetas"
+
+msgid "Highlight text"
+msgstr "Resaltar texto"
+
+msgid "Highlight"
+msgstr "Resaltar"
+
+msgid "Stop Slideshow"
+msgstr "Detener la presentación"
+
+msgid "Slideshow"
+msgstr "Presentación"
+
+msgid "Leave Fullscreen"
+msgstr "Salir de pantalla completa"
+
+msgid "Hide Sidebar"
+msgstr "Ocultar la barra lateral"
+
+msgid "Show Sidebar"
+msgstr "Mostrar la barra lateral"
+
+msgid "Leave Night Mode"
+msgstr "Salir del modo nocturno"
+
+msgid "Night Mode"
+msgstr "Modo nocturno"
+
+msgid "Files"
+msgstr "Archivos"
+
+msgid "Contents"
+msgstr "Contenido"
+
+msgid "Pages"
+msgstr "Páginas"
+
+msgid "{} of {}"
+msgstr "{} de {}"
+
+msgid "System"
+msgstr "Sistema"
+
+msgid "Light"
+msgstr "Claro"
+
+msgid "Dark"
+msgstr "Oscuro"
+
+msgid "Off"
+msgstr "Desactivado"

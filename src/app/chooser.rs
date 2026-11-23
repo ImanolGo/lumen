@@ -19,6 +19,7 @@ use super::export::ExportMsg;
 use super::markup::MarkupMsg;
 use super::pages::PagesMsg;
 use super::{App, Message, blocking, err_string, file_name, muted};
+use crate::i18n::tr;
 use crate::library::Kind;
 use crate::{icons, style};
 
@@ -60,14 +61,14 @@ impl Purpose {
         matches!(self, Self::OpenFolder | Self::ExportFolder)
     }
 
-    fn title(self) -> &'static str {
+    fn title(self) -> String {
         match self {
-            Self::OpenFiles => "Open Files",
-            Self::OpenFolder => "Open Folder",
-            Self::InsertPdf => "Insert Pages From",
-            Self::SaveCopy | Self::SavePages => "Save a Copy",
-            Self::Export => "Export",
-            Self::ExportFolder => "Export to Folder",
+            Self::OpenFiles => tr("Open Files"),
+            Self::OpenFolder => tr("Open Folder"),
+            Self::InsertPdf => tr("Insert Pages From"),
+            Self::SaveCopy | Self::SavePages => tr("Save a Copy"),
+            Self::Export => tr("Export"),
+            Self::ExportFolder => tr("Export to Folder"),
         }
     }
 
@@ -221,7 +222,7 @@ fn age(t: Option<SystemTime>) -> String {
         return String::new();
     };
     match secs {
-        s if s < 3600 => "Just now".into(),
+        s if s < 3600 => tr("Just now"),
         s if s < 86_400 => format!("{} h ago", s / 3600),
         s if s < 86_400 * 60 => format!("{} days ago", s / 86_400),
         s if s < 86_400 * 730 => format!("{} months ago", s / (86_400 * 30)),
@@ -452,7 +453,7 @@ impl App {
             );
         }
         let bar = row![
-            super::icon_button(icons::up(), "Up (Backspace)", c.dir.parent().map(|_| m(ChooserMsg::Up)), false),
+            super::icon_button(icons::up(), tr("Up (Backspace)"), c.dir.parent().map(|_| m(ChooserMsg::Up)), false),
             scrollable(crumbs)
                 .direction(scrollable::Direction::Horizontal(scrollable::Scrollbar::new().width(0).scroller_width(0)))
                 .width(Length::Fill),
@@ -501,12 +502,14 @@ impl App {
         }
         rows = rows.push(space().height((c.entries.len() - last) as f32 * ROW));
         let listing: Element<'_, Message> = if c.loading && c.entries.is_empty() {
-            center(text("Loading…").size(13).style(muted)).into()
+            center(text(tr("Loading…")).size(13).style(muted)).into()
         } else if let Some(e) = &c.error {
             center(text(e.as_str()).size(13).style(muted)).into()
         } else if c.entries.is_empty() {
-            center(text(if c.purpose.folder() { "No folders here" } else { "Nothing here" }).size(13).style(muted))
-                .into()
+            center(
+                text(if c.purpose.folder() { tr("No folders here") } else { tr("Nothing here") }).size(13).style(muted),
+            )
+            .into()
         } else {
             scrollable(rows.width(Length::Fill))
                 .id(list_id())
@@ -523,11 +526,11 @@ impl App {
         });
 
         let confirm = match c.purpose {
-            Purpose::OpenFiles | Purpose::OpenFolder => "Open",
-            Purpose::InsertPdf => "Insert",
-            Purpose::ExportFolder => "Export here",
-            _ if c.replace => "Replace",
-            _ => "Save",
+            Purpose::OpenFiles | Purpose::OpenFolder => tr("Open"),
+            Purpose::InsertPdf => tr("Insert"),
+            Purpose::ExportFolder => tr("Export here"),
+            _ if c.replace => tr("Replace"),
+            _ => tr("Save"),
         };
         let can = match c.purpose {
             p if p.folder() => true,
@@ -536,16 +539,17 @@ impl App {
         };
         let mut bottom = row![
             checkbox(c.hidden)
-                .label("Hidden files")
+                .label(tr("Hidden files"))
                 .on_toggle(move |on| m(ChooserMsg::Hidden(on)))
                 .text_size(13)
                 .size(16)
         ]
         .spacing(10)
         .align_y(Alignment::Center);
+        let file_name_hint = tr("File name");
         if c.purpose.saves() {
             bottom = bottom.push(
-                text_input("File name", &c.name)
+                text_input(&file_name_hint, &c.name)
                     .id(name_id())
                     .on_input(move |t| m(ChooserMsg::Name(t)))
                     .on_submit(m(ChooserMsg::Confirm))
@@ -558,7 +562,7 @@ impl App {
         }
         bottom = bottom
             .push(
-                button(text("Cancel").size(14))
+                button(text(tr("Cancel")).size(14))
                     .padding([8, 16])
                     .style(style::secondary)
                     .on_press(m(ChooserMsg::Cancel)),

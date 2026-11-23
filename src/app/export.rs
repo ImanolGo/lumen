@@ -10,6 +10,7 @@ use iced::{Alignment, Element, Font, Length, Task};
 use super::pages::PagesMsg;
 use super::{App, Doc, Message, blocking, err_string, file_name, muted};
 use crate::export;
+use crate::i18n::tr;
 use crate::pages::{self, Entry};
 use crate::{pdf, style};
 
@@ -92,7 +93,7 @@ impl App {
                 Task::perform(work, |r| Message::Export(ExportMsg::Done(r.and_then(|r| r))))
             }
             ExportMsg::Done(Ok(what)) => self.notice(what),
-            ExportMsg::Done(Err(e)) => self.toast(format!("Could not export: {e}")),
+            ExportMsg::Done(Err(e)) => self.toast(trf!("Could not export: {}", e)),
             ExportMsg::Combine => {
                 if !matches!(self.doc, Doc::Pdf(_)) {
                     return Task::none();
@@ -144,19 +145,18 @@ impl App {
                 .style(style::secondary)
                 .on_press(Message::Export(ExportMsg::Png(d)))
         };
-        let label = |t: &'static str| {
-            text(t).size(13).font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
-        };
+        let label =
+            |t: String| text(t).size(13).font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT });
         column![
             title,
             text(what).size(13).style(muted),
-            label("As PNG images"),
+            label(tr("As PNG images")),
             row(export::DPIS.iter().map(|&d| dpi(d).into())).spacing(6),
-            text("Pages are drawn at that resolution; several pages go into a folder you choose.")
+            text(tr("Pages are drawn at that resolution; several pages go into a folder you choose."))
                 .size(12)
                 .style(muted),
-            label("As a PDF"),
-            button(text("Save the pages as a new PDF…").size(13))
+            label(tr("As a PDF")),
+            button(text(tr("Save the pages as a new PDF…")).size(13))
                 .padding([6, 12])
                 .style(style::secondary)
                 .on_press(Message::Export(ExportMsg::Pdf)),
@@ -175,7 +175,7 @@ fn run(job: ExportJob, target: &Path) -> anyhow::Result<String> {
             export::need_pages(pages.len())?;
             if let [one] = pages.as_slice() {
                 export::page_to_png(&docs[one.source], one.index, one.rotate, dpi, target)?;
-                return Ok(format!("Saved “{}”", file_name(target)));
+                return Ok(trf!("Saved “{}”", file_name(target)));
             }
             let indexes: Vec<usize> = (0..pages.len()).collect();
             let names = export::numbered_names(&stem, &indexes, "png");
@@ -188,7 +188,7 @@ fn run(job: ExportJob, target: &Path) -> anyhow::Result<String> {
                     &export::free_path(target, name),
                 )?;
             }
-            Ok(format!("Saved {} images in “{}”", pages.len(), file_name(target)))
+            Ok(trf!("Saved {} images in “{}”", pages.len(), file_name(target)))
         }
         ExportJob::Pdf { pages, docs, unsaved } => {
             export::need_pages(pages.len())?;
@@ -209,12 +209,12 @@ fn run(job: ExportJob, target: &Path) -> anyhow::Result<String> {
                 &pages,
             )?;
             pdf::write_atomic(target, &out)?;
-            Ok(format!("Saved “{}”", file_name(target)))
+            Ok(trf!("Saved “{}”", file_name(target)))
         }
         ExportJob::Picture { path } => {
             let out = crate::print::picture_to_pdf_native(&path, 150.0)?;
             pdf::write_atomic(target, &out)?;
-            Ok(format!("Saved “{}”", file_name(target)))
+            Ok(trf!("Saved “{}”", file_name(target)))
         }
     }
 }

@@ -5,6 +5,7 @@ use iced::widget::{button, checkbox, column, container, row, scrollable, space, 
 use iced::{Alignment, Element, Font, Length, Task};
 
 use super::{App, Message, muted};
+use crate::i18n::tr;
 use crate::settings::{self, PdfFit, Settings, Theme};
 use crate::style;
 
@@ -86,8 +87,8 @@ impl App {
         close: Element<'a, Message>,
     ) -> Element<'a, Message> {
         let p = &self.prefs;
-        let label = |t: &'static str| text(t).size(13).width(170);
-        let heading = |t: &'static str| {
+        let label = |t: String| text(t).size(13).width(170);
+        let heading = |t: String| {
             text(t).size(12).style(muted).font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
         };
         // A row of choices, the current one lit.
@@ -101,20 +102,20 @@ impl App {
             }))
             .spacing(2)
         };
-        let line = |name: &'static str, control: Element<'a, Message>| {
+        let line = |name: String, control: Element<'a, Message>| {
             row![label(name), control].spacing(10).align_y(Alignment::Center)
         };
-        let toggle = |name: &'static str, on: bool, msg: fn(bool) -> PrefMsg| {
+        let toggle = |name: String, on: bool, msg: fn(bool) -> PrefMsg| {
             checkbox(on).label(name).on_toggle(move |v| Message::Pref(msg(v))).text_size(13).size(16)
         };
         let theme = choices(vec![
-            ("System".into(), p.theme == Theme::System, PrefMsg::Theme(Theme::System)),
-            ("Light".into(), p.theme == Theme::Light, PrefMsg::Theme(Theme::Light)),
-            ("Dark".into(), p.theme == Theme::Dark, PrefMsg::Theme(Theme::Dark)),
+            (tr("System"), p.theme == Theme::System, PrefMsg::Theme(Theme::System)),
+            (tr("Light"), p.theme == Theme::Light, PrefMsg::Theme(Theme::Light)),
+            (tr("Dark"), p.theme == Theme::Dark, PrefMsg::Theme(Theme::Dark)),
         ]);
         let fit = choices(vec![
-            ("Fit width".into(), p.pdf_fit == PdfFit::Width, PrefMsg::PdfFit(PdfFit::Width)),
-            ("Whole page".into(), p.pdf_fit == PdfFit::Page, PrefMsg::PdfFit(PdfFit::Page)),
+            (tr("Fit width"), p.pdf_fit == PdfFit::Width, PrefMsg::PdfFit(PdfFit::Width)),
+            (tr("Whole page"), p.pdf_fit == PdfFit::Page, PrefMsg::PdfFit(PdfFit::Page)),
         ]);
         let seconds = choices(
             settings::SLIDESHOW_SECONDS
@@ -129,32 +130,32 @@ impl App {
             settings::PRELOAD_MEGAPIXELS
                 .iter()
                 .map(|&m| {
-                    let name = if m == 0 { "Off".to_string() } else { format!("{m} MP") };
+                    let name = if m == 0 { tr("Off") } else { format!("{m} MP") };
                     (name, p.preload_megapixels == m, PrefMsg::PreloadMegapixels(m))
                 })
                 .collect(),
         );
         let body = column![
-            heading("APPEARANCE"),
-            line("Theme", theme.into()),
-            toggle("Show the sidebar when Lumen starts", p.sidebar_open, PrefMsg::SidebarOpen),
-            toggle("Zoom control and arrows over the picture", p.floating_controls, PrefMsg::FloatingControls),
-            heading("PDFS"),
-            line("When a PDF opens", fit.into()),
-            toggle("Night mode", self.night, PrefMsg::NightMode),
-            heading("SLIDESHOW"),
-            line("Time for each picture", seconds.into()),
-            heading("SECURITY"),
-            toggle("Decode pictures in a sandbox", p.sandbox, PrefMsg::Sandbox),
-            text("Each picture is opened by a separate process that can do nothing but decode it. Costs a few milliseconds a picture. LUMEN_NO_SANDBOX=1 turns it off.")
+            heading(tr("APPEARANCE")),
+            line(tr("Theme"), theme.into()),
+            toggle(tr("Show the sidebar when Lumen starts"), p.sidebar_open, PrefMsg::SidebarOpen),
+            toggle(tr("Zoom control and arrows over the picture"), p.floating_controls, PrefMsg::FloatingControls),
+            heading(tr("PDFS")),
+            line(tr("When a PDF opens"), fit.into()),
+            toggle(tr("Night mode"), self.night, PrefMsg::NightMode),
+            heading(tr("SLIDESHOW")),
+            line(tr("Time for each picture"), seconds.into()),
+            heading(tr("SECURITY")),
+            toggle(tr("Decode pictures in a sandbox"), p.sandbox, PrefMsg::Sandbox),
+            text(tr("Each picture is opened by a separate process that can do nothing but decode it. Costs a few milliseconds a picture. LUMEN_NO_SANDBOX=1 turns it off."))
                 .size(11)
                 .style(muted),
-            heading("MEMORY AND SPEED"),
-            line("Pictures kept decoded", cache.into()),
-            line("Decode neighbours up to", preload.into()),
-            heading("DESKTOP"),
-            toggle("Use the desktop's file and print dialogs", p.portals, PrefMsg::Portals),
-            text("Without them (or without a portal) Lumen shows its own. LUMEN_THEME and LUMEN_NO_PORTAL in the environment win over these.")
+            heading(tr("MEMORY AND SPEED")),
+            line(tr("Pictures kept decoded"), cache.into()),
+            line(tr("Decode neighbours up to"), preload.into()),
+            heading(tr("DESKTOP")),
+            toggle(tr("Use the desktop's file and print dialogs"), p.portals, PrefMsg::Portals),
+            text(tr("Without them (or without a portal) Lumen shows its own. LUMEN_THEME and LUMEN_NO_PORTAL in the environment win over these."))
                 .size(11)
                 .style(muted),
         ]
@@ -163,7 +164,7 @@ impl App {
             title,
             scrollable(container(body).padding([0, 12])).height(Length::Shrink),
             row![
-                button(text("Reset to defaults").size(13))
+                button(text(tr("Reset to defaults")).size(13))
                     .padding([8, 14])
                     .style(style::secondary)
                     .on_press(Message::Pref(PrefMsg::Reset)),

@@ -9,6 +9,7 @@ use iced::{Alignment, Color as IcedColor, Element, Length, Point, Rectangle, Ren
 use super::markup::{MarkupMsg, SWATCHES};
 use super::{App, Message, muted, tip};
 use crate::annotate::{Color, Shape, Tool};
+use crate::i18n::tr;
 use crate::style;
 
 const PICKER_W: f32 = 252.0;
@@ -115,7 +116,7 @@ impl App {
         let text_mode = self.styling_text();
         let width = (self.current_size() as f32).clamp(1.0, 8.0);
         let face: Element<'_, Message> = if text_mode {
-            text("Aa").size(14).font(style::font(iced::font::Weight::Semibold)).color(c).into()
+            text(tr("Aa")).size(14).font(style::font(iced::font::Weight::Semibold)).color(c).into()
         } else {
             container(space().width(16).height(16))
                 .style(move |t: &Theme| container::Style {
@@ -140,14 +141,14 @@ impl App {
             .padding(0)
             .style(if self.style_menu { style::tool_active } else { style::tool })
             .on_press(Message::Markup(MarkupMsg::StyleMenu));
-        tip(b.into(), "Colour and size")
+        tip(b.into(), tr("Colour and size"))
     }
 
     /// The menu itself, floating under the markup island.
     pub(super) fn style_menu_view(&self) -> Element<'_, Message> {
         let m = |x: MarkupMsg| Message::Markup(x);
         let current = self.current_color();
-        let label = |t: &'static str| text(t).size(11).font(style::font(iced::font::Weight::Medium)).style(muted);
+        let label = |t: String| text(t).size(11).font(style::font(iced::font::Weight::Medium)).style(muted);
 
         let mut swatches = row![].spacing(6).align_y(Alignment::Center);
         for (i, (name, c)) in SWATCHES.iter().enumerate() {
@@ -166,9 +167,9 @@ impl App {
             .height(22)
             .style(if self.picker_open { style::tool_active } else { style::tool })
             .on_press(m(MarkupMsg::CustomColor));
-        swatches = swatches.push(tip(more.into(), "Any colour…"));
+        swatches = swatches.push(tip(more.into(), tr("Any colour…")));
 
-        let mut col = column![label("COLOUR"), swatches].spacing(8).width(PICKER_W);
+        let mut col = column![label(tr("COLOUR")), swatches].spacing(8).width(PICKER_W);
         if self.picker_open {
             let (h, s, v) = to_hsv(current);
             let hue = if s == 0.0 || v == 0.0 { self.picker_hue } else { h };
@@ -200,7 +201,7 @@ impl App {
         let opacity = current.a;
         col = col.push(
             row![
-                label("OPACITY").width(70),
+                label(tr("OPACITY")).width(70),
                 slider(0.1..=1.0, opacity, move |a| m(MarkupMsg::Opacity(a)))
                     .step(0.01_f32)
                     .on_release(m(MarkupMsg::StyleCommit)),
@@ -213,7 +214,7 @@ impl App {
             let size = self.current_size() as f32;
             col = col.push(
                 row![
-                    label("TEXT SIZE").width(70),
+                    label(tr("TEXT SIZE")).width(70),
                     slider(6.0..=96.0, size.clamp(6.0, 96.0), move |s| m(MarkupMsg::TextSize(s)))
                         .step(1.0_f32)
                         .on_release(m(MarkupMsg::StyleCommit)),
@@ -231,7 +232,7 @@ impl App {
             let width = self.current_size() as f32;
             col = col.push(
                 row![
-                    label("LINE WIDTH").width(70),
+                    label(tr("LINE WIDTH")).width(70),
                     slider(0.5..=24.0, width.clamp(0.5, 24.0), move |w| m(MarkupMsg::LineWidth(w)))
                         .step(0.5_f32)
                         .on_release(m(MarkupMsg::StyleCommit)),

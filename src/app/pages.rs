@@ -10,6 +10,7 @@ use iced::widget::{Id, button, center, column, container, image, mouse_area, row
 use iced::{Alignment, Element, Font, Length, Radians, Rotation, Task};
 
 use super::{App, Doc, Message, blocking, err_string, file_name, icon_button, muted, separator, tip};
+use crate::i18n::tr;
 use crate::pages::{self, Entry};
 use crate::raster::Picture;
 use crate::{icons, pdf, style};
@@ -186,7 +187,7 @@ impl App {
                 let Some(o) = &mut self.organizer else { return Task::none() };
                 let positions = o.positions();
                 if positions.len() >= o.plan.len() {
-                    return self.toast("A document needs at least one page");
+                    return self.toast(tr("A document needs at least one page"));
                 }
                 o.change(|plan| pages::delete(plan, &positions));
                 let first = positions.first().copied().unwrap_or(0).min(o.plan.len() - 1);
@@ -265,7 +266,7 @@ impl App {
                             .toast(format!("“{}” is password-protected: open it in Lumen first", file_name(&path)));
                     }
                     Err(pdf::OpenError::Failed(e)) => {
-                        return self.toast(format!("Could not insert “{}”: {e}", file_name(&path)));
+                        return self.toast(trf!("Could not insert “{}”: {}", file_name(&path), e));
                     }
                 };
                 let Some(o) = &mut self.organizer else { return Task::none() };
@@ -303,10 +304,10 @@ impl App {
                 }
                 let opened = match result {
                     Ok(opened) => opened,
-                    Err(e) => return self.toast(format!("Could not save: {e}")),
+                    Err(e) => return self.toast(trf!("Could not save: {}", e)),
                 };
                 if generation != self.generation {
-                    return self.notice(format!("Saved “{}”", file_name(&target)));
+                    return self.notice(trf!("Saved “{}”", file_name(&target)));
                 }
                 // Markup and form values are in the file now; start from it afresh.
                 self.organizer = None;
@@ -323,7 +324,7 @@ impl App {
                 self.doc = Doc::Loading(target.clone());
                 Task::batch([
                     self.install_opened(target.clone(), opened),
-                    self.notice(format!("Saved “{}”", file_name(&target))),
+                    self.notice(trf!("Saved “{}”", file_name(&target))),
                 ])
             }
         }
@@ -494,7 +495,7 @@ impl App {
         let busy = o.saving;
         let count = o.plan.len();
         let status = if busy {
-            "Saving…".to_string()
+            tr("Saving…").to_string()
         } else {
             format!(
                 "{count} page{}{}",
@@ -502,67 +503,67 @@ impl App {
                 if o.is_changed() { " · unsaved" } else { "" }
             )
         };
-        let save = button(text("Save").size(13))
+        let save = button(text(tr("Save")).size(13))
             .padding([6, 14])
             .style(style::primary)
             .on_press_maybe((o.is_changed() && !busy).then_some(Message::Pages(PagesMsg::Save)));
         let content = row![
             icon_button(
                 icons::rotate_left(),
-                "Turn left (Shift+R)",
+                tr("Turn left (Shift+R)"),
                 any.then_some(Message::Pages(PagesMsg::Rotate(-90))),
                 false
             ),
             icon_button(
                 icons::rotate_right(),
-                "Turn right (R)",
+                tr("Turn right (R)"),
                 any.then_some(Message::Pages(PagesMsg::Rotate(90))),
                 false
             ),
             icon_button(
                 icons::move_back(),
-                "Move earlier (Ctrl+←)",
+                tr("Move earlier (Ctrl+←)"),
                 any.then_some(Message::Pages(PagesMsg::MoveBy(-1))),
                 false
             ),
             icon_button(
                 icons::move_forward(),
-                "Move later (Ctrl+→)",
+                tr("Move later (Ctrl+→)"),
                 any.then_some(Message::Pages(PagesMsg::MoveBy(1))),
                 false
             ),
-            icon_button(icons::delete(), "Delete (Del)", any.then_some(Message::Pages(PagesMsg::Delete)), false),
+            icon_button(icons::delete(), tr("Delete (Del)"), any.then_some(Message::Pages(PagesMsg::Delete)), false),
             separator(),
-            icon_button(icons::insert(), "Insert pages from another PDF…", p(PagesMsg::Insert), false),
+            icon_button(icons::insert(), tr("Insert pages from another PDF…"), p(PagesMsg::Insert), false),
             icon_button(
                 icons::export(),
-                "Export the selected pages…",
+                tr("Export the selected pages…"),
                 any.then_some(Message::Export(super::export::ExportMsg::Open)),
                 false
             ),
             separator(),
             icon_button(
                 icons::undo(),
-                "Undo (Ctrl+Z)",
+                tr("Undo (Ctrl+Z)"),
                 (!o.past.is_empty()).then_some(Message::Pages(PagesMsg::Undo)),
                 false
             ),
             icon_button(
                 icons::redo(),
-                "Redo (Ctrl+Shift+Z)",
+                tr("Redo (Ctrl+Shift+Z)"),
                 (!o.future.is_empty()).then_some(Message::Pages(PagesMsg::Redo)),
                 false
             ),
             separator(),
             text(status).size(12).style(muted),
-            button(text("Cancel").size(13))
+            button(text(tr("Cancel")).size(13))
                 .padding([6, 14])
                 .style(style::secondary)
                 .on_press(Message::Pages(PagesMsg::Close)),
-            tip(save.into(), "Save the new page order into the PDF (Ctrl+S)"),
+            tip(save.into(), tr("Save the new page order into the PDF (Ctrl+S)")),
             icon_button(
                 icons::save_copy(),
-                "Save as a new PDF… (Ctrl+Shift+S)",
+                tr("Save as a new PDF… (Ctrl+Shift+S)"),
                 (!busy).then_some(Message::Pages(PagesMsg::SaveAs)),
                 false
             ),
@@ -587,7 +588,7 @@ impl App {
                 } else if pos == o.plan.len() && o.dragging {
                     // Somewhere to drop pages at the very end.
                     let target = o.drop_at == Some(pos);
-                    let end = container(center(text("End").size(13).style(muted)))
+                    let end = container(center(text(tr("End")).size(13).style(muted)))
                         .width(CELL_W - 2.0 * GAP)
                         .height(CELL_H - 2.0 * GAP)
                         .style(move |t: &iced::Theme| style::drop_slot(t, target));

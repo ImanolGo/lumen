@@ -9,6 +9,7 @@ use iced::{Color, Element, Length, Task};
 use super::signature::SignMsg;
 use super::{App, Doc, Message, placed};
 use crate::forms::{Form, Kind, Value};
+use crate::i18n::tr;
 use crate::style;
 
 /// The form of the PDF on screen, and what has been filled in.
@@ -205,7 +206,7 @@ impl App {
                 }
                 (Kind::Signature, _) if self.is_signed(page, &r) => continue,
                 (Kind::Signature, _) => {
-                    let label = text("Sign here").size((height * 0.35).clamp(9.0, 16.0));
+                    let label = text(tr("Sign here")).size((height * 0.35).clamp(9.0, 16.0));
                     let rect = [r.x0, r.y0, r.width(), r.height()];
                     button(center(label))
                         .padding(0)

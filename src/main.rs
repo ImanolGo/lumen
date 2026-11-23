@@ -2,6 +2,8 @@
 
 #![forbid(unsafe_code)]
 
+#[macro_use]
+mod i18n;
 mod animation;
 mod annotate;
 mod app;

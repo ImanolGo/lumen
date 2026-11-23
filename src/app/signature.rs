@@ -12,6 +12,7 @@ use super::markup::MarkupMsg;
 use super::{App, Doc, Message, TOOLBAR_H, icon_button, muted};
 use crate::annotate::model::Style;
 use crate::annotate::{Color as InkColor, Rect, Tool};
+use crate::i18n::tr;
 use crate::signatures::Signature;
 use crate::{icons, style};
 
@@ -190,23 +191,27 @@ impl App {
 
     pub(super) fn sign_menu_view(&self) -> Element<'_, Message> {
         let mut list = column![
-            text(if self.sign_target.is_some() { "Sign this field" } else { "Add your signature" })
+            text(if self.sign_target.is_some() { tr("Sign this field") } else { tr("Add your signature") })
                 .size(14)
                 .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT }),
         ]
         .spacing(8);
         if self.signatures.items.is_empty() {
-            list = list.push(text("No saved signatures yet.").size(13).style(muted));
+            list = list.push(text(tr("No saved signatures yet.")).size(13).style(muted));
         }
         for (i, signature) in self.signatures.items.iter().enumerate() {
             let preview = canvas_widget(Preview { signature }).width(PREVIEW.width).height(PREVIEW.height);
             let pick = button(preview).padding(4).style(style::thumb(false)).on_press(Message::Sign(SignMsg::Use(i)));
-            let remove =
-                icon_button(icons::delete(), "Forget this signature", Some(Message::Sign(SignMsg::Remove(i))), false);
+            let remove = icon_button(
+                icons::delete(),
+                tr("Forget this signature"),
+                Some(Message::Sign(SignMsg::Remove(i))),
+                false,
+            );
             list = list.push(row![pick, remove].spacing(4).align_y(Alignment::Center));
         }
         list = list.push(
-            button(text("Draw a New Signature…").size(13))
+            button(text(tr("Draw a New Signature…")).size(13))
                 .padding([7, 12])
                 .width(Length::Fill)
                 .style(style::secondary)
@@ -233,22 +238,22 @@ impl App {
         let has_ink = pad.strokes.iter().any(|s| s.len() > 1);
         let card = container(
             column![
-                text("Draw your signature")
+                text(tr("Draw your signature"))
                     .size(18)
                     .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT }),
-                text("It is kept for next time, on this computer only.").size(13).style(muted),
+                text(tr("It is kept for next time, on this computer only.")).size(13).style(muted),
                 drawing,
                 row![
-                    button(text("Clear").size(14))
+                    button(text(tr("Clear")).size(14))
                         .padding([8, 16])
                         .style(style::secondary)
                         .on_press(Message::Sign(SignMsg::PadClear)),
                     space().width(Length::Fill),
-                    button(text("Cancel").size(14))
+                    button(text(tr("Cancel")).size(14))
                         .padding([8, 16])
                         .style(style::secondary)
                         .on_press(Message::Sign(SignMsg::PadCancel)),
-                    button(text("Use Signature").size(14))
+                    button(text(tr("Use Signature")).size(14))
                         .padding([8, 16])
                         .style(style::primary)
                         .on_press_maybe(has_ink.then_some(Message::Sign(SignMsg::PadDone))),

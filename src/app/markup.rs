@@ -16,6 +16,7 @@ use super::{App, Doc, Message, blocking, err_string, file_name, icon_button, mut
 use crate::annotate::model::Style;
 use crate::annotate::pdf::ObjRef;
 use crate::annotate::{AnnotationLayer, Color, GeometryChange, History, Outcome, Point, Rect, Shape, Store, Tool};
+use crate::i18n::tr;
 use crate::{icons, pdf, style};
 
 pub type Layers = BTreeMap<usize, AnnotationLayer>;
@@ -627,8 +628,8 @@ impl App {
                         Task::batch([self.install_opened(path, opened), thumb])
                     }
                     Err(error) if matches!(&self.doc, Doc::Loading(p) if *p == path) => self.pdf_failed(path, error),
-                    Err(pdf::OpenError::Failed(e)) => self.toast(format!("Markup is not available for this PDF: {e}")),
-                    Err(pdf::OpenError::Password { .. }) => self.toast("Markup is not available for this PDF"),
+                    Err(pdf::OpenError::Failed(e)) => self.toast(trf!("Markup is not available for this PDF: {}", e)),
+                    Err(pdf::OpenError::Password { .. }) => self.toast(tr("Markup is not available for this PDF")),
                 }
             }
             MarkupMsg::Save => {
@@ -691,22 +692,22 @@ impl App {
                             marks.refs = imported.refs;
                             marks.saved = layers;
                         }
-                        Task::batch([shown, self.notice(format!("Saved “{}”", file_name(&target)))])
+                        Task::batch([shown, self.notice(trf!("Saved “{}”", file_name(&target)))])
                     }
-                    Ok(_) => self.notice(format!("Saved “{}”", file_name(&target))),
-                    Err(e) => self.toast(format!("Could not save: {e}")),
+                    Ok(_) => self.notice(trf!("Saved “{}”", file_name(&target))),
+                    Err(e) => self.toast(trf!("Could not save: {}", e)),
                 }
             }
             MarkupMsg::PictureSaved(generation, target, layers, result) => {
                 self.markup_busy = None;
                 if let Err(e) = result {
-                    return self.toast(format!("Could not save: {e}"));
+                    return self.toast(trf!("Could not save: {}", e));
                 }
                 let in_place = self.current_path() == Some(target.as_path());
                 let saved = self.notice(if in_place {
-                    format!("Saved “{}”", file_name(&target))
+                    trf!("Saved “{}”", file_name(&target))
                 } else {
-                    format!("Saved a copy as “{}”", file_name(&target))
+                    trf!("Saved a copy as “{}”", file_name(&target))
                 });
                 if generation != self.generation {
                     return saved;
@@ -1007,7 +1008,7 @@ impl App {
             let size = (a.style.font_size * zoom as f64) as f32;
             let editor = text_editor(&edit.content)
                 .id(text_box_id())
-                .placeholder("Type here")
+                .placeholder(tr("Type here"))
                 .on_action(|action| Message::Markup(MarkupMsg::TextAction(action)))
                 .size(size)
                 .line_height(iced::widget::text::LineHeight::Relative(crate::annotate::paint::LINE_HEIGHT as f32))
@@ -1021,20 +1022,20 @@ impl App {
     }
 
     pub(super) fn markup_bar(&self) -> Element<'_, Message> {
-        let tool = |t: Tool, icon: iced::widget::svg::Handle, label: &'static str| {
+        let tool = |t: Tool, icon: iced::widget::svg::Handle, label: String| {
             icon_button(icon, label, Some(Message::Markup(MarkupMsg::Tool(t))), self.editor.tool == t)
         };
         let is_pdf = matches!(self.doc, Doc::Pdf(_));
-        let highlight_label = if is_pdf { "Highlight text" } else { "Highlight" };
+        let highlight_label = tr(if is_pdf { "Highlight text" } else { "Highlight" });
         let tools = row![
-            tool(Tool::Select, icons::select(), "Select, move and resize"),
+            tool(Tool::Select, icons::select(), tr("Select, move and resize")),
             tool(Tool::Highlight, icons::highlighter(), highlight_label),
-            tool(Tool::Pen, icons::pen(), "Pen"),
-            tool(Tool::Rectangle, icons::rectangle(), "Rectangle"),
-            tool(Tool::Ellipse, icons::ellipse(), "Ellipse"),
-            tool(Tool::Line, icons::line(), "Line"),
-            tool(Tool::Arrow, icons::arrow(), "Arrow"),
-            tool(Tool::Text, icons::text_tool(), "Text"),
+            tool(Tool::Pen, icons::pen(), tr("Pen")),
+            tool(Tool::Rectangle, icons::rectangle(), tr("Rectangle")),
+            tool(Tool::Ellipse, icons::ellipse(), tr("Ellipse")),
+            tool(Tool::Line, icons::line(), tr("Line")),
+            tool(Tool::Arrow, icons::arrow(), tr("Arrow")),
+            tool(Tool::Text, icons::text_tool(), tr("Text")),
         ]
         .spacing(2)
         .align_y(Alignment::Center);
@@ -1044,40 +1045,50 @@ impl App {
         let selected = marks.is_some_and(|m| m.store.selection.is_some());
         let edit = row![
             separator(),
-            icon_button(icons::undo(), "Undo (Ctrl+Z)", can_undo.then_some(Message::Markup(MarkupMsg::Undo)), false),
+            icon_button(
+                icons::undo(),
+                tr("Undo (Ctrl+Z)"),
+                can_undo.then_some(Message::Markup(MarkupMsg::Undo)),
+                false
+            ),
             icon_button(
                 icons::redo(),
-                "Redo (Ctrl+Shift+Z)",
+                tr("Redo (Ctrl+Shift+Z)"),
                 can_redo.then_some(Message::Markup(MarkupMsg::Redo)),
                 false
             ),
-            icon_button(icons::delete(), "Delete (Del)", selected.then_some(Message::Markup(MarkupMsg::Delete)), false),
+            icon_button(
+                icons::delete(),
+                tr("Delete (Del)"),
+                selected.then_some(Message::Markup(MarkupMsg::Delete)),
+                false
+            ),
         ]
         .spacing(2)
         .align_y(Alignment::Center);
 
         let dirty = self.has_unsaved_changes();
-        let status = match self.markup_busy {
+        let status = tr(match self.markup_busy {
             Some(s) => s,
             None if dirty => "Unsaved",
             None => "",
-        };
+        });
         let ready = self.markup_busy.is_none() && marks.is_some();
         let picture_changed =
             matches!(&self.doc, Doc::Image(v) if !v.edit.edits.is_none()) || marks.is_some_and(DocMarkup::has_items);
         let (save_label, save_msg, save_tip) = if is_pdf {
-            ("Save", (ready && dirty).then_some(Message::Markup(MarkupMsg::Save)), "Save into the PDF (Ctrl+S)")
+            (tr("Save"), (ready && dirty).then_some(Message::Markup(MarkupMsg::Save)), tr("Save into the PDF (Ctrl+S)"))
         } else if self.picture_in_place().is_some() {
             (
-                "Save",
+                tr("Save"),
                 (ready && picture_changed).then_some(Message::Markup(MarkupMsg::Save)),
-                "Save the picture with its markup over the file (Ctrl+S)",
+                tr("Save the picture with its markup over the file (Ctrl+S)"),
             )
         } else {
             (
-                "Save a Copy…",
+                tr("Save a Copy…"),
                 (ready && picture_changed).then_some(Message::Markup(MarkupMsg::SaveAs)),
-                "Save the picture with its markup as a new file (Ctrl+S)",
+                tr("Save the picture with its markup as a new file (Ctrl+S)"),
             )
         };
         let save = button(text(save_label).size(13)).padding([6, 14]).style(style::primary).on_press_maybe(save_msg);
@@ -1087,7 +1098,7 @@ impl App {
         if is_pdf || self.picture_in_place().is_some() {
             end = end.push(icon_button(
                 icons::save_copy(),
-                "Save a copy… (Ctrl+Shift+S)",
+                tr("Save a copy… (Ctrl+Shift+S)"),
                 ready.then_some(Message::Markup(MarkupMsg::SaveAs)),
                 false,
             ));
@@ -1116,18 +1127,18 @@ impl App {
         let what = if n == 1 { "One file has".to_string() } else { format!("{n} files have") };
         let card = container(
             column![
-                text("Quit without saving?")
+                text(tr("Quit without saving?"))
                     .size(18)
                     .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT }),
                 text(format!("{what} markup that is not saved. It will be lost.")).size(14).style(muted),
                 space().height(6),
                 row![
                     space().width(Length::Fill),
-                    button(text("Cancel").size(14))
+                    button(text(tr("Cancel")).size(14))
                         .padding([8, 16])
                         .style(style::secondary)
                         .on_press(Message::Markup(MarkupMsg::StayOpen)),
-                    button(text("Quit Without Saving").size(14))
+                    button(text(tr("Quit Without Saving")).size(14))
                         .padding([8, 16])
                         .style(iced::widget::button::danger)
                         .on_press(Message::Markup(MarkupMsg::QuitAnyway)),

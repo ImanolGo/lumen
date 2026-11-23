@@ -48,6 +48,7 @@ use signature::{Pad, SignMsg};
 use slideshow::Slideshow;
 
 use crate::annotate::{self, Editor};
+use crate::i18n::tr;
 use crate::library::{self, Kind};
 use crate::pdf;
 use crate::print::{self, Outcome};
@@ -1002,7 +1003,7 @@ impl App {
                 Message::LinkOpened,
             ),
             Message::LinkOpened(Ok(())) => Task::none(),
-            Message::LinkOpened(Err(e)) => self.toast(format!("Could not open the link: {e}")),
+            Message::LinkOpened(Err(e)) => self.toast(trf!("Could not open the link: {}", e)),
 
             Message::PageText(generation, page, text) => {
                 if generation != self.generation {
@@ -1267,10 +1268,10 @@ impl App {
             Message::Printed(path, result) => {
                 self.printing = false;
                 match result {
-                    Ok(Outcome::Sent) => self.notice("Sent to the printer"),
+                    Ok(Outcome::Sent) => self.notice(tr("Sent to the printer")),
                     Ok(Outcome::Cancelled) => Task::none(),
                     Ok(Outcome::NoPortal) => self.open_print_dialog(path),
-                    Err(e) => self.toast(format!("Could not print: {e}")),
+                    Err(e) => self.toast(trf!("Could not print: {}", e)),
                 }
             }
             Message::ToggleFullscreen => self.set_fullscreen(!self.fullscreen),
@@ -1322,7 +1323,7 @@ impl App {
                     Message::Trashed(index, r.and_then(|r| r))
                 })
             }
-            Message::Trashed(_, Err(e)) => self.toast(format!("Could not move it to the trash: {e}")),
+            Message::Trashed(_, Err(e)) => self.toast(trf!("Could not move it to the trash: {}", e)),
             Message::Trashed(index, Ok(item)) => {
                 let path = item.original.clone();
                 // Only forget the file if it is still where it was in the list.
@@ -1332,7 +1333,7 @@ impl App {
                     .position(|p| *p == path)
                     .or((self.files.get(index) == Some(&path)).then_some(index))
                 else {
-                    return self.notice("Moved to the trash");
+                    return self.notice(tr("Moved to the trash"));
                 };
                 self.files.remove(at);
                 self.thumbs.remove(&path);
@@ -1356,7 +1357,7 @@ impl App {
                     self.current = usize::MAX; // force the next file to load
                     self.show(next)
                 };
-                let toast = self.show_toast_for(format!("Moved “{name}” to the trash"), false, 8);
+                let toast = self.show_toast_for(trf!("Moved “{}” to the trash", name), false, 8);
                 self.trash_undo = Some((self.toast_seq, at, item));
                 Task::batch([show, toast, self.request_thumbs()])
             }
@@ -1368,13 +1369,13 @@ impl App {
                     move |r| Message::Restored(index, r.and_then(|r| r)),
                 )
             }
-            Message::Restored(_, Err(e)) => self.toast(format!("Could not restore it: {e}")),
+            Message::Restored(_, Err(e)) => self.toast(trf!("Could not restore it: {}", e)),
             Message::Restored(index, Ok(path)) => {
                 let at = index.min(self.files.len());
                 self.files.insert(at, path.clone());
                 self.current = usize::MAX;
                 let shown = self.show(at);
-                Task::batch([shown, self.notice(format!("Restored “{}”", file_name(&path))), self.request_thumbs()])
+                Task::batch([shown, self.notice(trf!("Restored “{}”", file_name(&path))), self.request_thumbs()])
             }
             Message::Quit => {
                 if self.unsaved_files() > 0 && !self.confirm_quit {
@@ -1622,7 +1623,7 @@ impl App {
 
     fn set_files(&mut self, files: Vec<PathBuf>, start: usize, append: bool) -> Task<Message> {
         if files.is_empty() {
-            return if append { Task::none() } else { self.toast("Nothing to show: no pictures or PDFs there") };
+            return if append { Task::none() } else { self.toast(tr("Nothing to show: no pictures or PDFs there")) };
         }
         let index = if append && !self.files.is_empty() {
             let mut first = None;
@@ -2370,7 +2371,7 @@ impl App {
 
 fn icon_button<'a>(
     handle: svg::Handle,
-    label: &'a str,
+    label: impl text::IntoFragment<'a>,
     on_press: Option<Message>,
     active: bool,
 ) -> Element<'a, Message> {
@@ -2499,7 +2500,10 @@ impl App {
             let mut line = row![text(msg.as_str()).size(13)].spacing(12).align_y(Alignment::Center);
             if self.trash_undo.as_ref().is_some_and(|(t, ..)| t == id) {
                 line = line.push(
-                    button(text("Undo").size(13)).padding([3, 10]).style(style::secondary).on_press(Message::UndoTrash),
+                    button(text(tr("Undo")).size(13))
+                        .padding([3, 10])
+                        .style(style::secondary)
+                        .on_press(Message::UndoTrash),
                 );
             }
             layers = layers.push(
@@ -2525,7 +2529,7 @@ impl App {
         let mut left = row![].spacing(2).align_y(Alignment::Center);
         if self.sidebar_shows().is_some() {
             // Usually on, so it stays quiet rather than lit.
-            left = left.push(icon_button(icons::strip(), "Sidebar (T)", Some(Message::ToggleSidebar), false));
+            left = left.push(icon_button(icons::strip(), tr("Sidebar (T)"), Some(Message::ToggleSidebar), false));
         }
         let open = button(
             row![
@@ -2538,17 +2542,17 @@ impl App {
         .padding([8, 8])
         .style(if self.menu == Some(Menu::Open) { style::tool_active } else { style::tool })
         .on_press(Message::Menu(Some(Menu::Open)));
-        left = left.push(tip(open.into(), "Open"));
+        left = left.push(tip(open.into(), tr("Open")));
 
         let (title, subtitle) = match &self.doc {
             Doc::Empty => ("Lumen".to_string(), String::new()),
-            Doc::Loading(p) => (file_name(p), "Loading…".into()),
-            Doc::Failed { path, .. } => (file_name(path), "Could not open".into()),
-            Doc::Locked { path, .. } => (file_name(path), "Password-protected".into()),
+            Doc::Loading(p) => (file_name(p), tr("Loading…")),
+            Doc::Failed { path, .. } => (file_name(path), tr("Could not open")),
+            Doc::Locked { path, .. } => (file_name(path), tr("Password-protected")),
             Doc::Image(v) => (file_name(&v.path), String::new()),
-            Doc::Pdf(v) => (file_name(v.doc.path()), format!("Page {} of {}", v.current_page + 1, v.doc.page_count())),
+            Doc::Pdf(v) => (file_name(v.doc.path()), trf!("Page {} of {}", v.current_page + 1, v.doc.page_count())),
         };
-        let position = if multi { format!("{} of {}", self.current + 1, self.files.len()) } else { String::new() };
+        let position = if multi { trf!("{} of {}", self.current + 1, self.files.len()) } else { String::new() };
         let subtitle = match (subtitle.is_empty(), position.is_empty()) {
             (true, _) => position,
             (false, true) => subtitle,
@@ -2567,7 +2571,7 @@ impl App {
             titles = titles.push(if is_pdf {
                 tip(
                     button(label).padding([0, 6]).style(style::tool).on_press(Message::GoToOpen).into(),
-                    "Go to page (Ctrl+G)",
+                    tr("Go to page (Ctrl+G)"),
                 )
             } else {
                 label.into()
@@ -2576,30 +2580,30 @@ impl App {
 
         let mut right = row![].spacing(2).align_y(Alignment::Center);
         if is_pdf && self.has_unsaved_changes() && !self.markup_open {
-            let save = button(text("Save").size(13))
+            let save = button(text(tr("Save")).size(13))
                 .padding([6, 14])
                 .style(style::primary)
                 .on_press_maybe(self.markup_busy.is_none().then_some(Message::Markup(MarkupMsg::Save)));
-            right = right.push(tip(save.into(), "Save into the PDF (Ctrl+S)")).push(space().width(6));
+            right = right.push(tip(save.into(), tr("Save into the PDF (Ctrl+S)"))).push(space().width(6));
         }
         if is_pdf {
             right = right.push(icon_button(
                 icons::search(),
-                "Find (Ctrl+F)",
+                tr("Find (Ctrl+F)"),
                 Some(Message::SearchOpen),
                 self.search.is_some(),
             ));
         }
         right = right.push(icon_button(
             icons::markup(),
-            "Markup: draw, highlight, add text (M)",
+            tr("Markup: draw, highlight, add text (M)"),
             has_doc.then_some(Message::Markup(MarkupMsg::Toggle)),
             self.markup_open,
         ));
         if is_image {
             right = right.push(icon_button(
                 icons::adjust(),
-                "Edit: crop, turn, resize, light and colour (E)",
+                tr("Edit: crop, turn, resize, light and colour (E)"),
                 Some(Message::Edit(EditMsg::Toggle)),
                 self.edit_open,
             ));
@@ -2607,7 +2611,7 @@ impl App {
         if is_pdf {
             right = right.push(icon_button(
                 icons::pages(),
-                "Organise pages (G)",
+                tr("Organise pages (G)"),
                 self.markup_busy.is_none().then_some(Message::Pages(PagesMsg::Open)),
                 self.organizer.is_some(),
             ));
@@ -2615,11 +2619,11 @@ impl App {
         right = right
             .push(icon_button(
                 icons::menu(),
-                "Menu",
+                tr("Menu"),
                 Some(Message::Menu(Some(Menu::Main))),
                 self.menu == Some(Menu::Main),
             ))
-            .push(icon_button(icons::close(), "Close (Ctrl+Q)", Some(Message::Quit), false));
+            .push(icon_button(icons::close(), tr("Close (Ctrl+Q)"), Some(Message::Quit), false));
 
         // A picture's size shows when pointing at its name.
         let titles: Element<'_, Message> = match &self.doc {
@@ -2644,12 +2648,12 @@ impl App {
     fn content(&self) -> Element<'_, Message> {
         match &self.doc {
             Doc::Empty => self.empty_state(),
-            Doc::Loading(_) => center(text("Loading…").size(15).style(muted)).into(),
+            Doc::Loading(_) => center(text(tr("Loading…")).size(15).style(muted)).into(),
             Doc::Locked { path, wrong } => self.locked_view(path, *wrong),
             Doc::Failed { path, error } => center(
                 column![
                     svg(icons::broken()).width(56).height(56).style(style::icon_muted),
-                    text(format!("Could not open “{}”", file_name(path))).size(18),
+                    text(trf!("Could not open “{}”", file_name(path))).size(18),
                     text(error.as_str()).size(13).style(muted),
                 ]
                 .spacing(10)
@@ -2781,7 +2785,7 @@ impl App {
                     .into(),
                     Target::Page { page, .. } => tooltip(
                         area,
-                        container(text(format!("Go to page {}", page + 1)).size(12)).padding([4, 8]).style(style::pill),
+                        container(text(trf!("Go to page {}", page + 1)).size(12)).padding([4, 8]).style(style::pill),
                         tooltip::Position::FollowCursor,
                     )
                     .into(),
@@ -2846,7 +2850,7 @@ impl App {
         let mut col = column![];
         let tabs = self.sidebar_tabs();
         if tabs.len() > 1 {
-            let segment = |label: &'static str, this: SidebarTab| {
+            let segment = |label: String, this: SidebarTab| {
                 button(text(label).size(12).width(Length::Fill).align_x(Alignment::Center))
                     .padding([4, 8])
                     .width(Length::Fill)
@@ -2859,7 +2863,7 @@ impl App {
                     SidebarTab::Contents => "Contents",
                     SidebarTab::Pages => "Pages",
                 };
-                segment(label, t).into()
+                segment(tr(label), t).into()
             });
             col = col.push(container(row(segments).spacing(2)).padding([6, 10]));
         }
@@ -2923,10 +2927,11 @@ impl App {
     }
 
     fn search_bar<'a>(&'a self, search: &'a Search) -> Element<'a, Message> {
+        let find_hint = tr("Find in document");
         let status = if search.query.trim().is_empty() {
             String::new()
         } else if search.hits.is_empty() {
-            if search.done { "No matches".into() } else { "Searching…".into() }
+            if search.done { tr("No matches") } else { tr("Searching…") }
         } else {
             let n = search.hits.len();
             let more = if search.done { "" } else { "+" };
@@ -2939,7 +2944,7 @@ impl App {
         container(
             row![
                 svg(icons::search()).width(16).height(16).style(style::icon_muted),
-                text_input("Find in document", &search.query)
+                text_input(&find_hint, &search.query)
                     .id(search_input_id())
                     .on_input(Message::SearchInput)
                     .on_submit(Message::SearchSubmit)
@@ -2949,12 +2954,12 @@ impl App {
                 text(status).size(12).style(muted).width(78).align_x(Alignment::Center),
                 icon_button(
                     icons::up(),
-                    "Previous match (Shift+Enter)",
+                    tr("Previous match (Shift+Enter)"),
                     has_hits.then_some(Message::SearchPrev),
                     false
                 ),
-                icon_button(icons::down(), "Next match (Enter)", has_hits.then_some(Message::SearchNext), false),
-                icon_button(icons::close(), "Close (Esc)", Some(Message::SearchClose), false),
+                icon_button(icons::down(), tr("Next match (Enter)"), has_hits.then_some(Message::SearchNext), false),
+                icon_button(icons::close(), tr("Close (Esc)"), Some(Message::SearchClose), false),
             ]
             .spacing(6)
             .align_y(Alignment::Center),
@@ -3032,14 +3037,17 @@ impl App {
 
     fn empty_state(&self) -> Element<'_, Message> {
         let open = button(
-            row![svg(icons::open()).width(16).height(16).style(style::icon_on_primary), text("Open Files…").size(14)]
-                .spacing(8)
-                .align_y(Alignment::Center),
+            row![
+                svg(icons::open()).width(16).height(16).style(style::icon_on_primary),
+                text(tr("Open Files…")).size(14)
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
         )
         .padding([9, 16])
         .style(style::primary)
         .on_press(Message::Open { folder: false });
-        let folder = button(text("Open a Folder").size(14))
+        let folder = button(text(tr("Open a Folder")).size(14))
             .padding([9, 14])
             .style(style::tool)
             .on_press(Message::Open { folder: true });
@@ -3059,16 +3067,16 @@ impl App {
             column![
                 svg(icons::app()).width(84).height(84),
                 space().height(6),
-                text("Lumen").size(24).font(style::font(iced::font::Weight::Semibold)),
-                text("Pictures and PDFs, fast and simple").size(14).style(muted),
+                text(tr("Lumen")).size(24).font(style::font(iced::font::Weight::Semibold)),
+                text(tr("Pictures and PDFs, fast and simple")).size(14).style(muted),
                 space().height(14),
                 row![open, folder].spacing(8),
                 space().height(14),
                 row![
                     key("Ctrl O"),
-                    text("open").size(12).style(muted),
+                    text(tr("open")).size(12).style(muted),
                     space().width(8),
-                    text("or drop files and folders here").size(12).style(muted),
+                    text(tr("or drop files and folders here")).size(12).style(muted),
                 ]
                 .spacing(6)
                 .align_y(Alignment::Center),
@@ -3081,7 +3089,8 @@ impl App {
 
     /// Asks for the password of a protected PDF.
     fn locked_view<'a>(&'a self, path: &'a Path, wrong: bool) -> Element<'a, Message> {
-        let input = text_input("Password", &self.password_input)
+        let password_hint = tr("Password");
+        let input = text_input(&password_hint, &self.password_input)
             .id(password_input_id())
             .secure(true)
             .on_input(Message::PasswordInput)
@@ -3089,17 +3098,17 @@ impl App {
             .size(15)
             .padding([8, 10])
             .width(280);
-        let unlock = button(text("Unlock").size(15))
+        let unlock = button(text(tr("Unlock")).size(15))
             .padding([8, 18])
             .style(style::primary)
             .on_press_maybe((!self.password_input.is_empty()).then_some(Message::Unlock));
         let hint: Element<'_, Message> = if wrong {
-            text("That password is not right. Try again.")
+            text(tr("That password is not right. Try again."))
                 .size(13)
                 .style(|t: &Theme| text::Style { color: Some(t.extended_palette().danger.base.color) })
                 .into()
         } else {
-            text("Enter the password to open it.").size(13).style(muted).into()
+            text(tr("Enter the password to open it.")).size(13).style(muted).into()
         };
         center(
             column![
@@ -3120,7 +3129,7 @@ impl App {
             center(
                 column![
                     svg(icons::drop_files()).width(48).height(48).style(style::icon),
-                    text("Drop to open").size(20),
+                    text(tr("Drop to open")).size(20),
                 ]
                 .spacing(12)
                 .align_x(Alignment::Center),
