@@ -9,6 +9,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Format, lint and the tests (the sandbox tests run the real binary).
   check:
     runs-on: ubuntu-latest
     steps:
@@ -22,3 +23,123 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
+
+  # The oldest Rust the crate says it supports (rust-version in Cargo.toml).
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: System libraries
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev pkg-config
+      - name: Read rust-version
+        id: msrv
+        run: echo "version=$(sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml | head -1)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --locked --all-targets
+
+  # A release build that starts, kept as a downloadable artifact.
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: System libraries
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked
+      - name: Smoke test
+        run: |
+          ./target/release/lumen-rs --version
+          ./target/release/lumen-rs --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lumen-rs-x86_64-linux
+          path: target/release/lumen-rs
+          retention-days: 14
+
+  # The files that ship alongside the program: metadata, the .deb, the Flatpak sources.
+  packaging:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: sudo apt-get update && sudo apt-get install -y desktop-file-utils appstream libxkbcommon-dev libwayland-dev pkg-config
+      - name: Desktop entry and AppStream metadata
+        run: |
+          desktop-file-validate data/io.github.imanolgo.LumenRs.desktop
+          appstreamcli validate --no-net data/io.github.imanolgo.LumenRs.metainfo.xml
+      - name: Flatpak sources match Cargo.lock
+        run: python3 tools/check-flatpak-sources.py
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Debian package
+        run: |
+          cargo install cargo-deb --locked
+          cargo deb --locked
+          deb=$(ls target/debian/*.deb)
+          dpkg-deb --info "$deb"
+          contents=$(dpkg-deb --contents "$deb")
+          for path in usr/bin/lumen-rs usr/share/applications/io.github.imanolgo.LumenRs.desktop \
+                      usr/share/metainfo/io.github.imanolgo.LumenRs.metainfo.xml \
+                      usr/share/icons/hicolor/scalable/apps/io.github.imanolgo.LumenRs.svg; do
+            echo "$contents" | grep -q "$path" || { echo "missing from the .deb: $path"; exit 1; }
+          done
+
+  # The Arch packages: their .SRCINFO files must match their PKGBUILDs.
+  aur:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Tools
+        run: pacman -Syu --noconfirm git
+      - uses: actions/checkout@v4
+      - name: .SRCINFO is current
+        run: |
+          useradd -m builder
+          chown -R builder .
+          for dir in build-aux/aur/lumen-rs build-aux/aur/lumen-rs-git; do
+            su builder -c "cd $dir && bash -n PKGBUILD && makepkg --printsrcinfo" | diff - "$dir/.SRCINFO" \
+              || { echo "$dir/.SRCINFO is out of date: run makepkg --printsrcinfo > .SRCINFO"; exit 1; }
+          done
+
+  # Known security advisories for the dependencies.
+  audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # The app itself, driven over D-Bus in a headless Wayland session (software rendering).
+  # Not required to pass yet: it is new, and CI machines vary.
+  gui:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev pkg-config weston dbus \
+            libxkbcommon-x11-0 mesa-vulkan-drivers
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --locked
+      - name: Control tests
+        env:
+          LUMEN_CONTROL_TESTS: "1"
+          ICED_BACKEND: tiny-skia
+          WAYLAND_DISPLAY: wl-ci
+        run: |
+          export XDG_RUNTIME_DIR="$(mktemp -d)"
+          chmod 700 "$XDG_RUNTIME_DIR"
+          weston --backend=headless --renderer=pixman --socket=wl-ci --width=1280 --height=800 &
+          for _ in $(seq 50); do [ -S "$XDG_RUNTIME_DIR/wl-ci" ] && break; sleep 0.2; done
+          cargo test --locked --test control -- --test-threads=1
