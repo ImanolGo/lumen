@@ -7,8 +7,6 @@ use iced::{Subscription, Task};
 
 use super::{App, Doc, Message};
 
-/// How long each picture or page stays up (a preference, once there are preferences).
-pub const DEFAULT_SECONDS: u64 = 5;
 /// How often the clock is looked at.
 const TICK: Duration = Duration::from_millis(250);
 
@@ -54,8 +52,12 @@ impl App {
         if !self.can_slideshow() {
             return self.toast("A slideshow needs more than one picture or page, and no unsaved changes");
         }
-        self.slideshow =
-            Some(Slideshow { paused: false, was_fullscreen: self.fullscreen, shown: None, seconds: DEFAULT_SECONDS });
+        self.slideshow = Some(Slideshow {
+            paused: false,
+            was_fullscreen: self.fullscreen,
+            shown: None,
+            seconds: u64::from(self.prefs.slideshow_seconds),
+        });
         let fullscreen = if self.fullscreen { Task::none() } else { self.set_fullscreen(true) };
         let hint = self.notice("Slideshow: Space pauses, Esc leaves");
         Task::batch([fullscreen, hint])

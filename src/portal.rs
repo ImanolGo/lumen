@@ -10,6 +10,7 @@ use ashpd::desktop::file_chooser::{FileFilter, SelectedFiles};
 /// print dialogs are used then, as on desktops without a portal.
 pub fn disabled() -> bool {
     std::env::var_os("LUMEN_NO_PORTAL").is_some_and(|v| !v.is_empty() && v != "0")
+        || !crate::settings::portals_allowed()
 }
 
 /// No portal answered: Lumen shows its own dialog instead.

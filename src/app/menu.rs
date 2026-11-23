@@ -25,6 +25,7 @@ pub enum Dialog {
     About,
     Properties,
     Export,
+    Preferences,
 }
 
 /// One line of a menu: a label, its shortcut, and what it does (greyed out without).
@@ -185,6 +186,7 @@ impl App {
         items.push(Some(("Open With…", "", doc(Message::OpenWith))));
         items.push(Some(("Move to Trash", "", doc(Message::Trash))));
         items.push(None);
+        items.push(Some(("Preferences", "", Some(Message::Dialog(Some(Dialog::Preferences))))));
         items.push(Some(("Keyboard Shortcuts", "", Some(Message::Dialog(Some(Dialog::Shortcuts))))));
         items.push(Some(("About Lumen", "", Some(Message::Dialog(Some(Dialog::About))))));
         items
@@ -270,6 +272,7 @@ impl App {
                 .width(420)
                 .into()
             }
+            Dialog::Preferences => self.prefs_dialog(title("Preferences").into(), close.into()),
             Dialog::Export => self.export_dialog(title("Export").into(), close.into()),
             Dialog::Properties => {
                 let mut sections = column![].spacing(16);

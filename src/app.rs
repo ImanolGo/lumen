@@ -28,6 +28,7 @@ mod overlay;
 mod pagelist;
 mod pages;
 mod palette;
+mod prefs;
 mod printing;
 mod signature;
 mod slideshow;
@@ -72,12 +73,8 @@ const TOC_ROW_H: f32 = 30.0;
 const THUMB_PARALLEL: usize = 4;
 /// How far either side of the current file thumbnails are prepared.
 const THUMB_RADIUS: usize = 40;
-/// Decoded pictures kept around for instant back/forward (at most this many) ...
+/// Decoded pictures kept around for instant back/forward (at most this many, and within the cache size in the preferences).
 const PICTURE_CACHE: usize = 5;
-/// ... and at most this many bytes of pixels between them.
-const PICTURE_CACHE_BYTES: usize = 64 << 20;
-/// Neighbours with more pixels than this are not decoded ahead of time.
-const PRELOAD_MAX_PIXELS: u64 = 4_000_000;
 /// Threads for decoding and other blocking work.
 const BLOCKING_THREADS: usize = 3;
 const PAGE_GAP: f32 = 16.0;
@@ -135,6 +132,10 @@ struct Search {
 
 pub struct App {
     mode: Mode,
+    /// What the desktop says; `mode` is that unless the preferences or `LUMEN_THEME` say otherwise.
+    system_mode: Mode,
+    /// The preferences, kept in `~/.config/lumen-rs/settings.toml`.
+    prefs: crate::settings::Settings,
     theme: Theme,
     window: Option<window::Id>,
     scale_factor: f32,
@@ -423,6 +424,7 @@ impl PdfView {
 #[derive(Debug, Clone)]
 pub enum Message {
     SystemTheme(Mode),
+    Pref(prefs::PrefMsg),
     WindowEvent(window::Id, window::Event),
     ScaleFactor(f32),
     Key(keyboard::Event),
@@ -601,6 +603,8 @@ impl App {
     pub fn new(paths: Vec<PathBuf>) -> (Self, Task<Message>) {
         let app = Self {
             mode: Mode::Light,
+            system_mode: Mode::Light,
+            prefs: crate::settings::Settings::default(),
             theme: style::theme(Mode::Light),
             window: None,
             scale_factor: 1.0,
@@ -688,6 +692,12 @@ impl App {
             chooser: None,
             print_dialog: None,
         };
+        let mut app = app;
+        app.prefs = crate::settings::Settings::load();
+        crate::settings::set_portals(app.prefs.portals);
+        app.show_sidebar = app.prefs.sidebar_open;
+        app.night = app.prefs.night_mode;
+        app.apply_theme();
         let mut tasks = vec![system::theme().map(Message::SystemTheme)];
         if !paths.is_empty() {
             tracing::info!(ms = crate::since_start(), "open requested");
@@ -786,16 +796,11 @@ impl App {
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::SystemTheme(mode) => {
-                // LUMEN_THEME=light or dark overrides the system's choice.
-                let mode = match std::env::var("LUMEN_THEME").as_deref() {
-                    Ok("light") => Mode::Light,
-                    Ok("dark") => Mode::Dark,
-                    _ => mode,
-                };
-                self.mode = mode;
-                self.theme = style::theme(mode);
+                self.system_mode = mode;
+                self.apply_theme();
                 Task::none()
             }
+            Message::Pref(msg) => self.prefs_update(msg),
             Message::WindowEvent(id, event) => self.window_event(id, event),
             Message::ScaleFactor(f) => {
                 self.scale_factor = f.max(0.5);
@@ -900,6 +905,8 @@ impl App {
             }
             Message::ToggleNight => {
                 self.night = !self.night;
+                self.prefs.night_mode = self.night;
+                self.prefs.save();
                 if let Doc::Pdf(view) = &mut self.doc {
                     for slot in &mut view.slots {
                         slot.shown = None;
@@ -1746,8 +1753,12 @@ impl App {
     fn open_pdf_view(&mut self, path: PathBuf, doc: pdf::Document) -> Task<Message> {
         self.log_opened(&path, "pdf");
         let slots = (0..doc.page_count()).map(|_| Slot::default()).collect();
-        let mut view = PdfView { doc, zoom: 1.0, fit: PdfFit::Width, tops: Vec::new(), slots, current_page: 0 };
-        view.zoom = self.pdf_fit_zoom(&view, PdfFit::Width).min(1.5 * PT_TO_PX);
+        let fit = match self.prefs.pdf_fit {
+            crate::settings::PdfFit::Width => PdfFit::Width,
+            crate::settings::PdfFit::Page => PdfFit::Page,
+        };
+        let mut view = PdfView { doc, zoom: 1.0, fit, tops: Vec::new(), slots, current_page: 0 };
+        view.zoom = self.pdf_fit_zoom(&view, fit).min(1.5 * PT_TO_PX);
         view.layout();
         self.doc = Doc::Pdf(view);
         self.viewport.y = 0.0;
@@ -1796,9 +1807,8 @@ impl App {
         self.pictures.retain(|(p, _)| *p != path);
         self.pictures.push_back((path, loaded));
         let bytes = |pics: &VecDeque<(PathBuf, Loaded)>| pics.iter().map(|(_, l)| l.picture.rgba.len()).sum::<usize>();
-        while self.pictures.len() > PICTURE_CACHE
-            || (self.pictures.len() > 1 && bytes(&self.pictures) > PICTURE_CACHE_BYTES)
-        {
+        let budget = self.prefs.cache_bytes();
+        while self.pictures.len() > PICTURE_CACHE || (self.pictures.len() > 1 && bytes(&self.pictures) > budget) {
             self.pictures.pop_front();
         }
     }
@@ -1813,11 +1823,12 @@ impl App {
             {
                 continue;
             }
+            let max_pixels = self.prefs.preload_pixels();
             tasks.push(Task::perform(
                 {
                     let path = path.clone();
                     blocking(move || match raster::pixel_count(&path) {
-                        Some(n) if n > PRELOAD_MAX_PIXELS => Err("too big to preload".to_string()),
+                        Some(n) if n > max_pixels => Err("too big to preload".to_string()),
                         _ => raster::load(&path).map_err(err_string),
                     })
                 },
@@ -3118,7 +3129,11 @@ impl App {
 impl App {
     /// The zoom pill at the bottom and the previous/next arrows at the sides, while they are showing.
     fn floating_controls<'a>(&'a self) -> Option<Element<'a, Message>> {
-        if !matches!(self.doc, Doc::Image(_) | Doc::Pdf(_)) || self.organizer.is_some() || self.crop.is_some() {
+        if !self.prefs.floating_controls
+            || !matches!(self.doc, Doc::Image(_) | Doc::Pdf(_))
+            || self.organizer.is_some()
+            || self.crop.is_some()
+        {
             return None;
         }
         let alpha = self.controls.interpolate(0.0_f32, 1.0, self.now);

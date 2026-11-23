@@ -21,6 +21,7 @@ mod portal;
 mod print;
 mod properties;
 mod raster;
+mod settings;
 mod signatures;
 mod structure;
 mod style;

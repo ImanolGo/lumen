@@ -182,7 +182,7 @@ screenshots. Fix what is ours; report upstream to hayro what is not.
 | 4 | File actions | done: show in folder, open with, move to trash with Undo (spec trash in Rust; no portal trash, since it cannot undo); no Ctrl+Delete shortcut on purpose |
 | 5 | Slideshow | done: F5, 5 s fixed until package 7 makes it a preference; PDFs advance page by page |
 | 6 | Pictures (animation, formats, lossless JPEG) | done: JPEG XL, JPEG 2000, OpenEXR, GIF/APNG/WebP animation, AVIF/HEIC (optional `heif` feature, tested with libheif 1.23), lossless JPEG turning, Ctrl+S saves JPEG/PNG/WebP in place |
-| 7 | Preferences | todo |
+| 7 | Preferences | done: `~/.config/lumen-rs/settings.toml` + ☰ → Preferences…; night mode and the slideshow time are persistent now |
 | 8 | Sandboxed decoding | todo |
 | 9 | Product finish | todo |
 | 10 | PDF rendering fidelity | todo |
