@@ -183,7 +183,7 @@ screenshots. Fix what is ours; report upstream to hayro what is not.
 | 5 | Slideshow | done: F5, 5 s fixed until package 7 makes it a preference; PDFs advance page by page |
 | 6 | Pictures (animation, formats, lossless JPEG) | done: JPEG XL, JPEG 2000, OpenEXR, GIF/APNG/WebP animation, AVIF/HEIC (optional `heif` feature, tested with libheif 1.23), lossless JPEG turning, Ctrl+S saves JPEG/PNG/WebP in place |
 | 7 | Preferences | done: `~/.config/lumen-rs/settings.toml` + ☰ → Preferences…; night mode and the slideshow time are persistent now |
-| 8 | Sandboxed decoding | done except the on/off overhead comparison with `bench.py` (worker alone: 2.4 ms to start, shut in and exit; 4 ms for a small picture; ~95 ms for a 5K PNG, which includes decoding): Landlock + seccomp, all formats and the escape attempts tested through the real binary |
+| 8 | Sandboxed decoding | done, with one miss: Landlock + seccomp, every format and the escape attempts tested through the real binary. Measured overhead (load time, sandbox on vs off, one picture per folder, interleaved runs): the sandbox itself costs ~0–1 ms; a small picture 4 ms in all; but the 11 MP pictures cost +17…30 ms because their 44 MB of pixels are copied through a pipe (~16–20 ms; shared memory would need unsafe code). So the < 15 ms target holds up to about 4–5 MP and is missed by the largest pictures. Parent RSS is lower with the sandbox (133 vs 199 MB for the 5K PNG) |
 | 9 | Product finish | todo |
 | 10 | PDF rendering fidelity | todo |
 

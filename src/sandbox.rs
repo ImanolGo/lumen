@@ -16,7 +16,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow};
 
 use crate::raster::{self, Picture};
 
@@ -122,9 +122,19 @@ fn run_worker(mode: Mode, path: &Path) -> Result<Picture, Failure> {
         })
     };
 
-    let mut reply = Vec::new();
-    let read = stdout.read_to_end(&mut reply);
+    let reply = read_reply(&mut stdout);
     finished.store(true, Ordering::Relaxed);
+    // A complete picture is all that is needed: the worker only has to exit now, and the
+    // kernel takes a while to take its memory back, so it is collected in the background.
+    if let Ok(picture) = reply {
+        std::thread::spawn(move || {
+            let _ = watchdog.join();
+            if let Ok(mut c) = child.lock() {
+                let _ = c.wait();
+            }
+        });
+        return Ok(picture);
+    }
     let status = child.lock().map_err(|_| Failure::Unavailable("poisoned".into()))?.wait();
     let _ = watchdog.join();
     let status = status.map_err(|e| unavailable("cannot wait for the decoder process", &e))?;
@@ -144,48 +154,79 @@ fn run_worker(mode: Mode, path: &Path) -> Result<Picture, Failure> {
     if status.code() == Some(EXIT_NO_SANDBOX) {
         return Err(Failure::Unavailable("the kernel refused the sandbox".into()));
     }
-    if read.is_err() || status.code() != Some(0) {
+    if status.code() != Some(0) {
         // Not our worker at all (a test binary, say): no sandbox to speak of.
         return Err(Failure::Unavailable(format!("the decoder process gave no usable answer ({status})")));
     }
-    parse_reply(&reply).map_err(Failure::Failed)
+    match reply {
+        Ok(picture) => Ok(picture),
+        // The worker died without finishing its answer: not a sandbox to speak of.
+        Err(ReplyError::Cut(why)) => {
+            Err(Failure::Unavailable(format!("the decoder process gave no usable answer ({why})")))
+        }
+        Err(ReplyError::Said(e)) => Err(Failure::Failed(e)),
+    }
 }
 
-/// The worker's answer: a status byte, then either the picture or a message.
-fn parse_reply(reply: &[u8]) -> Result<Picture> {
-    match reply.split_first() {
-        Some((0, rest)) => {
-            let header = rest.get(..16).context("the decoder's answer was cut short")?;
+enum ReplyError {
+    /// The answer stopped short or never came.
+    Cut(String),
+    /// The worker said the picture cannot be decoded.
+    Said(anyhow::Error),
+}
+
+/// Reads the worker's answer without growing buffers or copying the pixels more than needed:
+/// the status byte and the four sizes first, then the pixels into a buffer of exactly their size.
+fn read_reply(from: &mut impl Read) -> Result<Picture, ReplyError> {
+    let cut = |e: std::io::Error| ReplyError::Cut(e.to_string());
+    let mut status = [0u8; 1];
+    from.read_exact(&mut status).map_err(cut)?;
+    match status[0] {
+        0 => {
+            let mut header = [0u8; 16];
+            from.read_exact(&mut header).map_err(cut)?;
             let n = |i: usize| u32::from_le_bytes([header[i], header[i + 1], header[i + 2], header[i + 3]]);
             let (width, height, original) = (n(0), n(4), (n(8), n(12)));
-            let pixels = &rest[16..];
-            if u64::from(width) * u64::from(height) * 4 != pixels.len() as u64 {
-                bail!("the decoder's answer was damaged");
+            let size = u64::from(width) * u64::from(height) * 4;
+            // Nothing a decoder under this limit can make is bigger.
+            if size == 0 || size > raster::MAX_BYTES {
+                return Err(ReplyError::Said(anyhow!("the decoder's answer was damaged")));
             }
-            Ok(Picture { width, height, original, rgba: bytes::Bytes::copy_from_slice(pixels) })
+            let mut pixels = vec![0u8; size as usize];
+            from.read_exact(&mut pixels).map_err(cut)?;
+            // Nothing more may follow.
+            if from.read(&mut [0u8; 1]).map_err(cut)? != 0 {
+                return Err(ReplyError::Said(anyhow!("the decoder's answer was damaged")));
+            }
+            Ok(Picture { width, height, original, rgba: bytes::Bytes::from(pixels) })
         }
-        Some((1, message)) => bail!("{}", String::from_utf8_lossy(message)),
-        _ => bail!("the decoder gave no answer"),
+        1 => {
+            let mut message = Vec::new();
+            from.take(1 << 16).read_to_end(&mut message).map_err(cut)?;
+            Err(ReplyError::Said(anyhow!("{}", String::from_utf8_lossy(&message))))
+        }
+        _ => Err(ReplyError::Said(anyhow!("the decoder gave no answer"))),
     }
 }
 
-fn encode_reply(result: Result<Picture>) -> Vec<u8> {
+/// Writes the worker's answer: a status byte, then the picture (sizes, then pixels, written
+/// straight from where they are) or a message.
+fn write_reply(out: &mut impl Write, result: Result<Picture>) -> std::io::Result<()> {
     match result {
         Ok(p) => {
-            let mut out = Vec::with_capacity(17 + p.rgba.len());
-            out.push(0);
-            for v in [p.width, p.height, p.original.0, p.original.1] {
-                out.extend_from_slice(&v.to_le_bytes());
+            let mut head = [0u8; 17];
+            for (i, v) in [p.width, p.height, p.original.0, p.original.1].into_iter().enumerate() {
+                head[1 + i * 4..5 + i * 4].copy_from_slice(&v.to_le_bytes());
             }
-            out.extend_from_slice(&p.rgba);
-            out
+            out.write_all(&head)?;
+            out.write_all(&p.rgba)?;
         }
         Err(e) => {
-            let mut out = vec![1];
-            out.extend_from_slice(format!("{e:#}").as_bytes());
-            out
+            out.write_all(&[1])?;
+            out.write_all(format!("{e:#}").as_bytes())?;
         }
     }
+    out.flush()
 }
 
 // ------------------------------------------------------------------ worker
@@ -218,10 +259,7 @@ pub fn worker_main(args: &[String]) -> ! {
         Mode::Thumbnail => raster::thumbnail_bytes(&data, &ext),
         Mode::Print => raster::print_bytes(&data, &ext),
     });
-    // A decoder that panics is an error like any other (the parent sees a crash otherwise).
-    let reply = encode_reply(result);
-    let mut out = std::io::stdout().lock();
-    let written = out.write_all(&reply).and_then(|()| out.flush());
+    let written = write_reply(&mut std::io::stdout().lock(), result);
     std::process::exit(if written.is_ok() { 0 } else { 1 });
 }
 
@@ -335,9 +373,19 @@ mod tests {
         Picture { width: w, height: h, original: (w * 2, h * 2), rgba: vec![7; (w * h * 4) as usize].into() }
     }
 
+    fn wire(result: Result<Picture>) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_reply(&mut out, result).unwrap();
+        out
+    }
+
+    fn read(bytes: &[u8]) -> Result<Picture, ReplyError> {
+        read_reply(&mut &bytes[..])
+    }
+
     #[test]
     fn the_answer_round_trips() {
-        let back = parse_reply(&encode_reply(Ok(picture(3, 2)))).unwrap();
+        let back = read(&wire(Ok(picture(3, 2)))).ok().unwrap();
         assert_eq!((back.width, back.height, back.original), (3, 2, (6, 4)));
         assert_eq!(back.rgba.len(), 24);
         assert!(back.rgba.iter().all(|&b| b == 7));
@@ -345,21 +393,27 @@ mod tests {
 
     #[test]
     fn errors_travel_as_text() {
-        let e = parse_reply(&encode_reply(Err(anyhow!("the picture is damaged")))).unwrap_err();
-        assert_eq!(e.to_string(), "the picture is damaged");
+        match read(&wire(Err(anyhow!("the picture is damaged")))) {
+            Err(ReplyError::Said(e)) => assert_eq!(e.to_string(), "the picture is damaged"),
+            _ => panic!("expected the worker's message"),
+        }
     }
 
     #[test]
     fn a_cut_short_or_wrong_answer_is_refused() {
-        assert!(parse_reply(&[]).is_err());
-        assert!(parse_reply(&[0, 1, 2]).is_err());
-        let mut cut = encode_reply(Ok(picture(4, 4)));
+        assert!(matches!(read(&[]), Err(ReplyError::Cut(_))));
+        assert!(matches!(read(&[0, 1, 2]), Err(ReplyError::Cut(_))));
+        let mut cut = wire(Ok(picture(4, 4)));
         cut.truncate(cut.len() - 5);
-        assert!(parse_reply(&cut).is_err());
-        let mut long = encode_reply(Ok(picture(2, 2)));
+        assert!(matches!(read(&cut), Err(ReplyError::Cut(_))));
+        // More bytes than the sizes promise, and sizes no decoder could make.
+        let mut long = wire(Ok(picture(2, 2)));
         long.push(0);
-        assert!(parse_reply(&long).is_err());
-        assert!(parse_reply(&[9, 1]).is_err());
+        assert!(matches!(read(&long), Err(ReplyError::Said(_))));
+        let mut huge = wire(Ok(picture(2, 2)));
+        huge[1..5].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(matches!(read(&huge), Err(ReplyError::Said(_))));
+        assert!(matches!(read(&[9, 1]), Err(ReplyError::Said(_))));
     }
 
     #[test]

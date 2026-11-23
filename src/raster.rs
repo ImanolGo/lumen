@@ -20,6 +20,8 @@ use crate::library::Kind;
 const MAX_SIDE: u32 = 16_384;
 /// Hard cap for a single decode allocation (1 GiB).
 const MAX_ALLOC: u64 = 1 << 30;
+/// No decoded picture is bigger than this many bytes of RGBA (a resize step can follow the decode limit).
+pub const MAX_BYTES: u64 = MAX_ALLOC + (1 << 28);
 /// Thumbnails are this many pixels on their longest side.
 pub const THUMB_SIDE: u32 = 256;
 
