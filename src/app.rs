@@ -17,13 +17,17 @@ use iced::{
     system, window,
 };
 
+mod edit;
 mod forms;
 mod markup;
 mod overlay;
+mod pages;
 mod signature;
 
+use edit::{CropState, EditMsg, PicEdit};
 use forms::{FormMsg, FormState};
 use markup::{DocMarkup, MarkupMsg, TextEdit};
+use pages::{Organizer, PagesMsg};
 use signature::{Pad, SignMsg};
 
 use crate::annotate::{self, Editor};
@@ -180,6 +184,14 @@ pub struct App {
     sign_target: Option<(usize, annotate::Rect)>,
     /// A signature to place once the PDF is ready for markup.
     pending_sign: Option<(crate::signatures::Signature, usize, annotate::Rect)>,
+    /// The picture editing bar is showing.
+    edit_open: bool,
+    crop: Option<CropState>,
+    adjust_open: bool,
+    /// Unsaved edits of other pictures.
+    stash_edits: HashMap<PathBuf, PicEdit>,
+    /// The page organiser of the open PDF.
+    organizer: Option<Organizer>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -218,18 +230,18 @@ enum Doc {
         path: PathBuf,
         wrong: bool,
     },
-    Image(ImageView),
+    Image(Box<ImageView>),
     Pdf(PdfView),
 }
 
 struct ImageView {
     path: PathBuf,
+    /// The picture as opened; `shown` is it with `edit` applied.
+    original: Picture,
     shown: Loaded,
     /// `None` fits the picture to the window (never enlarging it).
     zoom: Option<f32>,
-    /// Quarter turns clockwise, view only.
-    turns: u8,
-    rotating: bool,
+    edit: PicEdit,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -378,7 +390,6 @@ pub enum Message {
     ZoomFitWidth,
     ZoomActual,
     Rotate(i8),
-    Rotated(u64, u8, Option<Picture>),
     PageNext,
     PagePrev,
 
@@ -395,6 +406,8 @@ pub enum Message {
     Markup(MarkupMsg),
     Form(FormMsg),
     Sign(SignMsg),
+    Edit(EditMsg),
+    Pages(PagesMsg),
 }
 
 fn err_string(e: anyhow::Error) -> String {
@@ -470,6 +483,11 @@ impl App {
             pad: None,
             sign_target: None,
             pending_sign: None,
+            edit_open: false,
+            crop: None,
+            adjust_open: false,
+            stash_edits: HashMap::new(),
+            organizer: None,
         };
         let mut tasks = vec![system::theme().map(Message::SystemTheme)];
         if !paths.is_empty() {
@@ -622,8 +640,8 @@ impl App {
                         self.log_opened(&path, "picture");
                         let loaded: Loaded = p.into();
                         self.remember(path.clone(), loaded.clone());
-                        self.doc = Doc::Image(ImageView { path, shown: loaded, zoom: None, turns: 0, rotating: false });
-                        Task::batch([self.attach_markup(), self.preload_neighbours()])
+                        let shown = self.show_picture(path, loaded);
+                        Task::batch([shown, self.attach_markup(), self.preload_neighbours()])
                     }
                     Err(error) => {
                         self.doc = Doc::Failed { path, error };
@@ -764,6 +782,9 @@ impl App {
                 if self.pan.is_some() {
                     self.pan = None;
                 }
+                if self.pages_mouse_up() {
+                    return Task::none();
+                }
                 if let Some(task) = self.markup_mouse_up() {
                     return task;
                 }
@@ -803,7 +824,7 @@ impl App {
                 Task::none()
             }
             Message::Escape => {
-                if self.sign_escape() {
+                if self.sign_escape() || self.pages_escape() || self.edit_escape() {
                     Task::none()
                 } else if let Some(task) = self.markup_escape() {
                     task
@@ -881,41 +902,7 @@ impl App {
                 Doc::Pdf(_) => self.set_pdf_zoom(PT_TO_PX, PdfFit::Manual),
                 _ => Task::none(),
             },
-            Message::Rotate(dir) => {
-                let Doc::Image(view) = &mut self.doc else { return Task::none() };
-                if view.rotating {
-                    return Task::none();
-                }
-                view.rotating = true;
-                let turns = ((view.turns as i8 + dir).rem_euclid(4)) as u8;
-                let pic = view.shown.picture.clone();
-                let generation = self.generation;
-                let clockwise = dir > 0;
-                Task::perform(blocking(move || rotate(pic, clockwise)), move |p| {
-                    Message::Rotated(generation, turns, p.ok())
-                })
-            }
-            Message::Rotated(generation, turns, picture) => {
-                if generation == self.generation
-                    && let Doc::Image(view) = &mut self.doc
-                {
-                    view.rotating = false;
-                    if let Some(picture) = picture.filter(|p| p.width > 0) {
-                        let (w, h) = (view.shown.width as f64, view.shown.height as f64);
-                        let clockwise = (turns + 4 - view.turns) % 4 == 1;
-                        view.shown = picture.into();
-                        view.turns = turns;
-                        if let Some(marks) = &mut self.marks {
-                            marks.apply(if clockwise {
-                                annotate::GeometryChange::RotateCw { height: h }
-                            } else {
-                                annotate::GeometryChange::RotateCcw { width: w }
-                            });
-                        }
-                    }
-                }
-                Task::none()
-            }
+            Message::Rotate(dir) => self.edit_update(if dir > 0 { EditMsg::RotateCw } else { EditMsg::RotateCcw }),
             Message::PageNext | Message::PagePrev => {
                 let Doc::Pdf(view) = &self.doc else { return Task::none() };
                 let last = view.doc.page_count() - 1;
@@ -1011,6 +998,8 @@ impl App {
             Message::Markup(msg) => self.markup_update(msg),
             Message::Form(msg) => self.form_update(msg),
             Message::Sign(msg) => self.sign_update(msg),
+            Message::Edit(msg) => self.edit_update(msg),
+            Message::Pages(msg) => self.pages_update(msg),
         }
     }
 
@@ -1062,6 +1051,12 @@ impl App {
         if self.confirm_quit || self.pad.is_some() {
             return Task::none();
         }
+        if let Some(task) = self.pages_key(&key, modifiers) {
+            return task;
+        }
+        if let Some(task) = self.edit_key(&key, modifiers) {
+            return task;
+        }
         if let Some(task) = self.markup_key(&key, modifiers) {
             return task;
         }
@@ -1087,6 +1082,7 @@ impl App {
                 ("r", false, true) => Message::Rotate(-1),
                 ("f", false, _) => Message::ToggleFullscreen,
                 ("t", false, _) => Message::ToggleSidebar,
+                ("g", false, _) if is_pdf => Message::Pages(PagesMsg::Open),
                 _ => return Task::none(),
             },
             Key::Named(named) => match named {
@@ -1167,8 +1163,16 @@ impl App {
         if index >= self.files.len() || index == self.current {
             return Task::none();
         }
+        self.organizer = None;
         self.detach_form();
         self.detach_markup();
+        if let Doc::Image(view) = &mut self.doc
+            && view.edit.is_dirty()
+        {
+            let edit = std::mem::take(&mut view.edit);
+            self.stash_edits.insert(view.path.clone(), edit);
+        }
+        self.crop = None;
         self.pending_sign = None;
         self.sign_target = None;
         self.current = index;
@@ -1194,8 +1198,8 @@ impl App {
             _ => {
                 if let Some(loaded) = self.cached(&path) {
                     self.log_opened(&path, "cached");
-                    self.doc = Doc::Image(ImageView { path, shown: loaded, zoom: None, turns: 0, rotating: false });
-                    Task::batch([self.attach_markup(), self.preload_neighbours()])
+                    let shown = self.show_picture(path, loaded);
+                    Task::batch([shown, self.attach_markup(), self.preload_neighbours()])
                 } else {
                     // Keep showing the previous picture until the next one is ready, unless
                     // it takes a while; avoids a flash of the spinner when flipping quickly.
@@ -1277,6 +1281,15 @@ impl App {
             self.request_pages(),
             self.start_search(),
         ])
+    }
+
+    /// Shows a decoded picture, with any edits it had when it was left.
+    fn show_picture(&mut self, path: PathBuf, loaded: Loaded) -> Task<Message> {
+        let edit = self.stash_edits.remove(&path).unwrap_or_default();
+        let edited = !edit.edits.is_none();
+        let original = loaded.picture.clone();
+        self.doc = Doc::Image(Box::new(ImageView { path, original, shown: loaded, zoom: None, edit }));
+        if edited { self.render_edits() } else { Task::none() }
     }
 
     /// Logs how long the current file took to open, like the GTK Lumen's `opened load_ms`.
@@ -1696,16 +1709,6 @@ impl App {
     }
 }
 
-fn rotate(p: Picture, clockwise: bool) -> Picture {
-    let rgba = Vec::from(p.rgba);
-    let Some(img) = ::image::RgbaImage::from_raw(p.width, p.height, rgba) else {
-        return Picture { width: 0, height: 0, original: p.original, rgba: Default::default() };
-    };
-    let out = if clockwise { ::image::imageops::rotate90(&img) } else { ::image::imageops::rotate270(&img) };
-    let (width, height) = out.dimensions();
-    Picture { width, height, original: (p.original.1, p.original.0), rgba: out.into_raw().into() }
-}
-
 // ---------------------------------------------------------------- view
 
 fn icon_button<'a>(
@@ -1766,8 +1769,13 @@ impl App {
         let mut layout = column![];
         if !self.fullscreen {
             layout = layout.push(self.toolbar());
-            if self.markup_open && matches!(self.doc, Doc::Image(_) | Doc::Pdf(_)) {
+            if self.organizer.is_some() {
+                layout = layout.push(self.pages_bar());
+            } else if self.markup_open && matches!(self.doc, Doc::Image(_) | Doc::Pdf(_)) {
                 layout = layout.push(self.markup_bar());
+            }
+            if self.edit_open && matches!(self.doc, Doc::Image(_)) {
+                layout = layout.push(self.edit_bar());
             }
         }
         layout = layout.push(body.height(Length::Fill));
@@ -1775,6 +1783,9 @@ impl App {
         let mut layers = stack![layout.width(Length::Fill).height(Length::Fill)];
         if self.drop_hover {
             layers = layers.push(self.drop_overlay());
+        }
+        if self.adjust_open && self.edit_open && matches!(self.doc, Doc::Image(_)) && !self.fullscreen {
+            layers = layers.push(self.adjust_panel());
         }
         if self.sign_menu {
             layers = layers.push(self.sign_menu_view());
@@ -1890,7 +1901,13 @@ impl App {
         if is_image {
             right = right
                 .push(icon_button(icons::rotate_left(), "Rotate left (Shift+R)", Some(Message::Rotate(-1)), false))
-                .push(icon_button(icons::rotate_right(), "Rotate right (R)", Some(Message::Rotate(1)), false));
+                .push(icon_button(icons::rotate_right(), "Rotate right (R)", Some(Message::Rotate(1)), false))
+                .push(icon_button(
+                    icons::adjust(),
+                    "Edit: crop, turn, light and colour (E)",
+                    Some(Message::Edit(EditMsg::Toggle)),
+                    self.edit_open,
+                ));
         }
         right = right.push(separator());
         if is_pdf && self.has_unsaved_changes() && !self.markup_open {
@@ -1899,6 +1916,14 @@ impl App {
                 .style(style::primary)
                 .on_press_maybe(self.markup_busy.is_none().then_some(Message::Markup(MarkupMsg::Save)));
             right = right.push(tip(save.into(), "Save into the PDF (Ctrl+S)"));
+        }
+        if is_pdf {
+            right = right.push(icon_button(
+                icons::pages(),
+                "Organise pages: reorder, turn, delete, insert (G)",
+                (self.markup_busy.is_none()).then_some(Message::Pages(PagesMsg::Open)),
+                self.organizer.is_some(),
+            ));
         }
         right = right.push(icon_button(
             icons::signature(),
@@ -1952,6 +1977,7 @@ impl App {
             )
             .into(),
             Doc::Image(view) => self.image_view(view),
+            Doc::Pdf(_) if self.organizer.is_some() => self.pages_view(),
             Doc::Pdf(view) => self.pdf_view(view),
         }
     }
@@ -1982,8 +2008,12 @@ impl App {
         let picture =
             image(view.shown.handle.clone()).filter_method(filter).content_fit(ContentFit::Fill).width(w).height(h);
         let mut layers = stack![picture].width(w).height(h);
-        for layer in self.markup_layers(0, zoom, w, h) {
-            layers = layers.push(layer);
+        if let Some(crop) = self.crop_layer(zoom, w, h) {
+            layers = layers.push(crop);
+        } else {
+            for layer in self.markup_layers(0, zoom, w, h) {
+                layers = layers.push(layer);
+            }
         }
         if fit {
             return container(layers).padding(12).center(Length::Fill).into();

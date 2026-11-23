@@ -4,9 +4,11 @@
 
 mod annotate;
 mod app;
+mod edit;
 mod forms;
 mod icons;
 mod library;
+mod pages;
 mod pdf;
 mod portal;
 mod print;

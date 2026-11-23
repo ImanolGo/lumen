@@ -442,7 +442,7 @@ pub fn thumbnail(path: &Path, side: u32) -> Result<Picture> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn fixture() -> PathBuf {
@@ -475,8 +475,14 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// Two pages: text, a link to page 2, a web link, and a two-entry outline.
     fn structured_pdf() -> PathBuf {
+        let path = std::env::temp_dir().join(format!("lumen-rs-structured-{}.pdf", std::process::id()));
+        std::fs::write(&path, structured_bytes()).unwrap();
+        path
+    }
+
+    /// Two pages: text, a link to page 2, a web link, and a two-entry outline.
+    pub fn structured_bytes() -> Vec<u8> {
         use pdf_writer::types::{ActionType, AnnotationType};
         use pdf_writer::{Content, Finish, Name, Rect, Ref, Str, TextStr};
         let (catalog, tree, p1, p2, c1, c2, font, outline, o1, o2, a1, a2) = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12);
@@ -516,9 +522,7 @@ mod tests {
             .dest()
             .page(r(p2))
             .xyz(0.0, 500.0, None);
-        let path = std::env::temp_dir().join(format!("lumen-rs-structured-{}.pdf", std::process::id()));
-        std::fs::write(&path, w.finish()).unwrap();
-        path
+        w.finish()
     }
 
     #[tokio::test]

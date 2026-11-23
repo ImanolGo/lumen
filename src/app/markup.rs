@@ -97,7 +97,7 @@ impl DocMarkup {
 }
 
 /// An owned copy of what to write into a PDF, to hand to a worker thread.
-struct Pending {
+pub(super) struct Pending {
     layers: Layers,
     refs: Vec<Vec<ObjRef>>,
     pages: Vec<usize>,
@@ -107,7 +107,7 @@ struct Pending {
 }
 
 impl Pending {
-    fn changes(&self) -> pdf::Changes<'_> {
+    pub(super) fn changes(&self) -> pdf::Changes<'_> {
         pdf::Changes {
             layers: &self.layers,
             refs: &self.refs,
@@ -176,14 +176,22 @@ impl App {
 
     /// Files with markup that is not saved yet.
     pub(super) fn unsaved_files(&self) -> usize {
-        let elsewhere: std::collections::HashSet<&PathBuf> =
-            self.stash.iter().filter(|(_, m)| m.is_dirty()).map(|(p, _)| p).chain(self.stash_forms.keys()).collect();
+        let elsewhere: std::collections::HashSet<&PathBuf> = self
+            .stash
+            .iter()
+            .filter(|(_, m)| m.is_dirty())
+            .map(|(p, _)| p)
+            .chain(self.stash_forms.keys())
+            .chain(self.stash_edits.iter().filter(|(_, e)| e.is_dirty()).map(|(p, _)| p))
+            .collect();
         usize::from(self.has_unsaved_changes()) + elsewhere.len()
     }
 
     /// Markup or form values on screen that the file does not have yet.
     pub(super) fn has_unsaved_changes(&self) -> bool {
-        self.marks.as_ref().is_some_and(DocMarkup::is_dirty) || self.form.as_ref().is_some_and(|f| f.is_dirty())
+        self.marks.as_ref().is_some_and(DocMarkup::is_dirty)
+            || self.form.as_ref().is_some_and(|f| f.is_dirty())
+            || matches!(&self.doc, Doc::Image(v) if v.edit.is_dirty())
     }
 
     fn capture(&self, is_pdf: bool) -> Capture {
@@ -251,15 +259,8 @@ impl App {
             return;
         }
         let path = match &self.doc {
-            Doc::Image(view) => {
-                // Pictures open unrotated: measure the markup that way too.
-                let (mut w, mut h) = (view.shown.width as f64, view.shown.height as f64);
-                for _ in 0..view.turns {
-                    marks.apply(GeometryChange::RotateCcw { width: w });
-                    std::mem::swap(&mut w, &mut h);
-                }
-                view.path.clone()
-            }
+            // The picture's edits are put aside with it, so the markup stays measured on the edited picture.
+            Doc::Image(view) => view.path.clone(),
             Doc::Pdf(view) => view.doc.path().to_owned(),
             _ => return,
         };
@@ -398,6 +399,12 @@ impl App {
             MarkupMsg::Toggle => {
                 let done = self.finish_text();
                 self.markup_open = !self.markup_open;
+                if self.markup_open {
+                    // One bar at a time.
+                    self.edit_open = false;
+                    self.crop = None;
+                    self.adjust_open = false;
+                }
                 if !self.markup_open {
                     if let Some(marks) = &mut self.marks {
                         self.editor.cancel(&mut marks.store);
@@ -559,7 +566,8 @@ impl App {
                             "jpg" | "jpeg" | "png" | "webp" | "tif" | "tiff" | "bmp" => ext,
                             _ => "png".into(),
                         };
-                        p.with_file_name(format!("{stem} (marked up).{ext}"))
+                        let what = if view.edit.edits.is_none() { "marked up" } else { "edited" };
+                        p.with_file_name(format!("{stem} ({what}).{ext}"))
                     }
                     _ => return done,
                 };
@@ -617,6 +625,9 @@ impl App {
                 if let Some(marks) = &mut self.marks {
                     marks.saved = layers;
                 }
+                if let Doc::Image(view) = &mut self.doc {
+                    view.edit.saved = view.edit.edits;
+                }
                 saved
             }
             MarkupMsg::QuitAnyway => iced::exit(),
@@ -628,7 +639,7 @@ impl App {
     }
 
     /// What to write into the PDF on screen: unsaved markup and form values.
-    fn pdf_changes(&self) -> Pending {
+    pub(super) fn pdf_changes(&self) -> Pending {
         let (layers, refs, pages) = match &self.marks {
             Some(m) => (m.store.pages.layers.clone(), m.refs.clone(), m.dirty_pages()),
             None => Default::default(),
@@ -666,11 +677,16 @@ impl App {
         )
     }
 
+    /// The edited picture and its markup, unless the edits are still being worked out.
     fn picture_with_markup(&self) -> Option<(image::RgbaImage, AnnotationLayer)> {
-        let (Doc::Image(view), Some(marks)) = (&self.doc, &self.marks) else { return None };
+        let Doc::Image(view) = &self.doc else { return None };
+        if view.edit.is_busy() {
+            return None;
+        }
         let pic = &view.shown.picture;
         let rgba = image::RgbaImage::from_raw(pic.width, pic.height, Vec::from(pic.rgba.clone()))?;
-        Some((rgba, marks.store.layer(0).cloned().unwrap_or_default()))
+        let layer = self.marks.as_ref().and_then(|m| m.store.layer(0).cloned()).unwrap_or_default();
+        Some((rgba, layer))
     }
 
     fn save_picture(&mut self, target: PathBuf) -> Task<Message> {
@@ -717,7 +733,7 @@ impl App {
                     |r| r.and_then(|r| r),
                 ))
             }
-            Doc::Image(view) if self.marks.as_ref().is_some_and(DocMarkup::has_items) => {
+            Doc::Image(view) if self.marks.as_ref().is_some_and(DocMarkup::has_items) || !view.edit.edits.is_none() => {
                 let (rgba, layer) = self.picture_with_markup()?;
                 let stem = view.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
                 Some(Task::perform(
@@ -956,7 +972,10 @@ impl App {
         } else {
             (
                 "Save a Copy…",
-                (ready && marks.is_some_and(DocMarkup::has_items)).then_some(Message::Markup(MarkupMsg::SaveAs)),
+                (ready
+                    && (matches!(&self.doc, Doc::Image(v) if !v.edit.edits.is_none())
+                        || marks.is_some_and(DocMarkup::has_items)))
+                .then_some(Message::Markup(MarkupMsg::SaveAs)),
                 "Save the picture with its markup as a new file (Ctrl+S)",
             )
         };

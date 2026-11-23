@@ -347,3 +347,31 @@ pub fn form_choice(ink: Color) -> impl Fn(&Theme, iced::widget::pick_list::Statu
         }
     }
 }
+
+/// A page in the page organiser: ringed when selected, dashed when pages would be dropped in front of it.
+pub fn page_cell(theme: &Theme, selected: bool, target: bool) -> container::Style {
+    let p = theme.extended_palette();
+    let (fill, ring, width) = if target {
+        (p.primary.weak.color.scale_alpha(0.15), p.primary.base.color, 3.0)
+    } else if selected {
+        (p.primary.weak.color.scale_alpha(0.25), p.primary.base.color, 2.0)
+    } else {
+        (Color::TRANSPARENT, Color::TRANSPARENT, 2.0)
+    };
+    container::Style {
+        background: Some(fill.into()),
+        text_color: Some(p.background.base.text),
+        border: Border { radius: 10.0.into(), width, color: ring },
+        ..Default::default()
+    }
+}
+
+/// Where dragged pages can be dropped at the end of the document.
+pub fn drop_slot(theme: &Theme, target: bool) -> container::Style {
+    let p = theme.extended_palette();
+    container::Style {
+        background: Some(if target { p.primary.weak.color.scale_alpha(0.2) } else { Color::TRANSPARENT }.into()),
+        border: Border { radius: 10.0.into(), width: 2.0, color: p.background.strong.color },
+        ..Default::default()
+    }
+}

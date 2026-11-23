@@ -31,6 +31,8 @@ The original Lumen is built on GTK 4, libadwaita and poppler. This edition:
 - **Forms:** fill in PDF forms: text fields (single and multi-line, passwords, length limits), check boxes, radio buttons and drop-downs. Ctrl+S saves the values into the PDF, each with a matching appearance, so other viewers and printers show the filled-in form. Read-only fields and script buttons are left alone.
 - **Signatures:** draw your signature once and Lumen keeps it (in `~/.local/share/lumen/signatures.toml`, shared with the GTK Lumen). Sign from the toolbar, or click a signature field, and the signature is placed as ink you can move and resize; it is saved like other markup. This is a handwritten signature, as on paper, not a cryptographic (certificate) one.
 - **Pictures with markup** are saved as a copy (PNG, JPEG, WebP, TIFF or BMP), never over the original unless you choose it. Printing prints what you see, unsaved markup included. Markup you have not saved yet is kept while you look at other files, and quitting asks first.
+- **Picture editing:** press E (or the sliders button) to turn, mirror and crop (free, the picture's own shape, square, 4:3, 3:2, 16:9), and to change exposure, contrast and saturation, with undo and redo. Editing is non-destructive: the picture as opened is kept, the result is worked out in the background, and markup follows every turn, mirror and crop. Save a copy (Ctrl+S) as PNG, JPEG, WebP, TIFF or BMP; unsaved edits are kept while you look at other files.
+- **Page organiser:** press G (or the grid button) on a PDF to see every page as a thumbnail. Drag pages to reorder them (Ctrl/Shift+click picks several), turn them, delete them, or insert the pages of other PDFs, with undo. Saving rewrites the PDF with the new order; outline and links follow their pages, unsaved markup and form values are written too, and a password-protected PDF stays protected.
 - **Folders:** open a folder, or open one file and flip through its neighbours. You can also drop files and folders onto the window. A sidebar on the left lists the files with lazily loaded thumbnails (only the rows on screen are built, so huge folders stay fast); camera JPEGs use their embedded EXIF thumbnail.
 - **Printing:** uses the desktop's native print dialog through the XDG print portal. PDFs are sent as they are. Pictures are fitted to the paper and margins you choose and sent as a one-page PDF at up to 300 dpi.
 - **Light and dark mode:** follows the system colour scheme and switches live when you change it.
@@ -38,7 +40,7 @@ The original Lumen is built on GTK 4, libadwaita and poppler. This edition:
 - **Fast flipping:** the next and previous pictures are preloaded, and recently viewed ones are kept decoded.
 - **Robust:** decoding runs under allocation limits, and a panic while decoding or rendering a hostile file becomes an error message instead of a crash.
 
-Picture editing (crop, adjust) and page reordering from the original Lumen are not ported yet.
+Everything from the original Lumen is ported. Not yet there: resizing pictures, and keeping a photo's EXIF data in edited copies.
 
 ## Keyboard
 
@@ -58,7 +60,9 @@ Picture editing (crop, adjust) and page reordering from the original Lumen are n
 | ↑ ↓ | Scroll |
 | + − 0 1 | Zoom in, zoom out, best fit, actual size |
 | W | Fit width (PDF) |
-| R / Shift+R | Rotate right / left (pictures) |
+| R / Shift+R | Turn right / left (pictures; selected pages in the organiser) |
+| E | Edit the picture (Enter applies a crop, Esc cancels it) |
+| G | Organise the PDF's pages (Del deletes, Ctrl+← / → moves, Ctrl+A selects all) |
 | T | Show or hide the sidebar (files, and the PDF's contents) |
 | F / F11, Esc | Fullscreen, leave fullscreen |
 | Ctrl+Q / Ctrl+W | Quit |
@@ -96,6 +100,9 @@ xdg-mime default io.github.imanolgo.LumenRs.desktop application/pdf
 | `src/pdf.rs` | PDF documents and their render-thread pool (hayro) |
 | `src/structure.rs` | Outline, links and page text (for search) |
 | `src/annotate/` | Markup: the annotation model and editor, the shared drawing description, PDF annotations in and out (lopdf), pictures with markup |
+| `src/edit/` | Picture edits: turns, mirrors, crop geometry, colour adjustments, and how each moves markup |
+| `src/pages.rs` | Page plans (reorder, turn, delete, insert) and writing them (lopdf) |
+| `src/app/edit.rs`, `src/app/pages.rs` | The picture editing bar, crop overlay and colour panel; the page organiser |
 | `src/forms.rs` | PDF forms: reading the fields, writing values and their appearances |
 | `src/signatures.rs` | Saved signatures |
 | `src/app/forms.rs`, `src/app/signature.rs` | Inputs over form fields; the signature menu, drawing pad and placing |
