@@ -2,8 +2,8 @@
 
 `io.github.imanolgo.LumenRs.yml` builds Lumen against the freedesktop 24.08 runtime with
 the Rust SDK extension, entirely offline. Flatpak builds cannot download crates, so the
-manifest lists them in `cargo-sources.json`, which is generated from `Cargo.lock` and is
-**not committed**: regenerate it whenever `Cargo.lock` changes.
+manifest lists them in `cargo-sources.json`, which is generated from `Cargo.lock`
+and committed: **regenerate it whenever `Cargo.lock` changes**, or the build will fail.
 
 ```sh
 # flatpak-builder-tools' generator (needs python3, aiohttp and tomlkit)
@@ -20,7 +20,9 @@ Notes:
 
 - Files are opened and saved through the desktop portals; the manifest only gives read access
   to Pictures and Documents (for flipping through a folder next to the file you opened).
-- The decoder sandbox (Landlock and seccomp) works inside Flatpak: it only restricts the
-  worker process further.
-- This manifest has been checked for syntax with `flatpak-builder --show-manifest`, but it
-  has not been built yet: that needs the runtime and SDK (about a gigabyte).
+- The decoder sandbox (Landlock and seccomp) only restricts the worker process further, so it
+  should work inside Flatpak's own sandbox; that has not been tested. If it cannot start,
+  Lumen decodes in-process and says so in the log.
+- This manifest, with its generated sources, has been checked with `flatpak-builder
+  --show-manifest`, but it has not been built yet: that needs the runtime and SDK (about a
+  gigabyte).
