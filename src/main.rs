@@ -21,6 +21,7 @@ mod portal;
 mod print;
 mod properties;
 mod raster;
+mod sandbox;
 mod settings;
 mod signatures;
 mod structure;
@@ -52,6 +53,11 @@ Options:
 
 fn main() -> iced::Result {
     STARTED.get_or_init(Instant::now);
+    // The sandboxed decoder: a separate, tiny job that must not start the app.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("--decode-worker") {
+        sandbox::worker_main(&args[1..]);
+    }
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()

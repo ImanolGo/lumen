@@ -16,6 +16,7 @@ pub enum PrefMsg {
     SidebarOpen(bool),
     FloatingControls(bool),
     Portals(bool),
+    Sandbox(bool),
     NightMode(bool),
     CacheMb(u32),
     PreloadMegapixels(u32),
@@ -55,6 +56,10 @@ impl App {
                 self.prefs.portals = on;
                 settings::set_portals(on);
             }
+            PrefMsg::Sandbox(on) => {
+                self.prefs.sandbox = on;
+                crate::sandbox::set_enabled(on);
+            }
             PrefMsg::NightMode(on) => {
                 if on != self.night {
                     follow_up = self.update(Message::ToggleNight);
@@ -67,6 +72,7 @@ impl App {
                 let night = self.prefs.night_mode;
                 self.prefs = Settings { night_mode: night, ..Settings::default() };
                 settings::set_portals(true);
+                crate::sandbox::set_enabled(true);
                 self.apply_theme();
             }
         }
@@ -138,6 +144,11 @@ impl App {
             toggle("Night mode", self.night, PrefMsg::NightMode),
             heading("SLIDESHOW"),
             line("Time for each picture", seconds.into()),
+            heading("SECURITY"),
+            toggle("Decode pictures in a sandbox", p.sandbox, PrefMsg::Sandbox),
+            text("Each picture is opened by a separate process that can do nothing but decode it. Costs a few milliseconds a picture. LUMEN_NO_SANDBOX=1 turns it off.")
+                .size(11)
+                .style(muted),
             heading("MEMORY AND SPEED"),
             line("Pictures kept decoded", cache.into()),
             line("Decode neighbours up to", preload.into()),

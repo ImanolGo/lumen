@@ -4,7 +4,7 @@
 //! All decoders are pure, memory-safe Rust (`image`, `resvg`), and decoding
 //! runs under allocation limits so a hostile file cannot exhaust memory.
 
-use std::io::{BufReader, Cursor};
+use std::io::Cursor;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
@@ -41,12 +41,83 @@ impl Picture {
     }
 }
 
-/// Decodes `path` for display, honouring EXIF orientation.
+/// Decodes `path` for display, honouring EXIF orientation. Raster pictures are decoded in a
+/// sandboxed child process when that is on (see `sandbox`).
 pub fn load(path: &Path) -> Result<Picture> {
     match Kind::of(path) {
         Some(Kind::Svg) => load_svg(path, 2048),
-        Some(Kind::Image) => load_raster(path),
+        Some(Kind::Image) => crate::sandbox::run(crate::sandbox::Mode::Load, path),
         _ => bail!("not a picture"),
+    }
+}
+
+/// The extension of `path`, lowercase, which tells the formats apart that `image` cannot sniff.
+pub fn extension(path: &Path) -> String {
+    path.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase()
+}
+
+/// `data` (a file with extension `ext`) decoded for display, honouring EXIF orientation.
+/// This is what the sandboxed worker runs.
+pub fn load_bytes(data: &[u8], ext: &str) -> Result<Picture> {
+    let img = decode(data, ext)?;
+    let original = (img.width(), img.height());
+    let img = if img.width().max(img.height()) > MAX_SIDE {
+        img.resize(MAX_SIDE, MAX_SIDE, image::imageops::FilterType::Triangle)
+    } else {
+        img
+    };
+    Ok(Picture::from_rgba(to_rgba8(img), original))
+}
+
+/// Full-resolution pixels of `data`, oriented, for printing (the worker's third job).
+pub fn print_bytes(data: &[u8], ext: &str) -> Result<Picture> {
+    let img = to_rgba8(decode(data, ext)?);
+    let size = img.dimensions();
+    Ok(Picture::from_rgba(img, size))
+}
+
+/// A small preview of `data`: the worker's second job.
+pub fn thumbnail_bytes(data: &[u8], ext: &str) -> Result<Picture> {
+    if let Some(t) = exif_thumbnail(data).or_else(|| jpeg_thumbnail(data)).or_else(|| png_thumbnail(data)) {
+        return Ok(t);
+    }
+    // Full decodes for thumbnails run one at a time, so a folder of big pictures
+    // does not hold several decoded copies in memory at once.
+    static FULL_DECODE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _turn = FULL_DECODE.lock().unwrap_or_else(|e| e.into_inner());
+    let img = decode(data, ext)?;
+    let original = (img.width(), img.height());
+    Ok(Picture::from_rgba(to_rgba8(img.thumbnail(THUMB_SIDE, THUMB_SIDE)), original))
+}
+
+/// AVIF and HEIC go through the system's libheif, which needs a path and is not sandboxed.
+fn needs_path(ext: &str) -> bool {
+    cfg!(feature = "heif") && matches!(ext, "heic" | "heif" | "hif" | "avif")
+}
+
+/// Whether the sandbox can take this file.
+pub fn sandboxable(path: &Path) -> bool {
+    !needs_path(&extension(path))
+}
+
+/// The same jobs without the sandbox: read the file and do them here.
+pub fn run_in_process(mode: crate::sandbox::Mode, path: &Path) -> Result<Picture> {
+    use crate::sandbox::Mode;
+    let ext = extension(path);
+    #[cfg(feature = "heif")]
+    if needs_path(&ext) {
+        let img = crate::heif::decode(path, MAX_ALLOC)?;
+        let original = (img.width(), img.height());
+        return Ok(match mode {
+            Mode::Thumbnail => Picture::from_rgba(to_rgba8(img.thumbnail(THUMB_SIDE, THUMB_SIDE)), original),
+            _ => Picture::from_rgba(to_rgba8(img), original),
+        });
+    }
+    let data = std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
+    match mode {
+        Mode::Load => load_bytes(&data, &ext),
+        Mode::Thumbnail => thumbnail_bytes(&data, &ext),
+        Mode::Print => print_bytes(&data, &ext),
     }
 }
 
@@ -58,7 +129,10 @@ pub fn load_for_print(path: &Path) -> Result<image::RgbImage> {
             let rgba = Vec::from(pic.rgba);
             RgbaImage::from_raw(pic.width, pic.height, rgba).context("bad SVG raster")?
         }
-        Some(Kind::Image) => to_rgba8(decode(path)?),
+        Some(Kind::Image) => {
+            let pic = crate::sandbox::run(crate::sandbox::Mode::Print, path)?;
+            RgbaImage::from_raw(pic.width, pic.height, Vec::from(pic.rgba)).context("bad picture raster")?
+        }
         _ => bail!("not a picture"),
     };
     let (w, h) = rgba.dimensions();
@@ -95,8 +169,8 @@ enum Special {
     Heif,
 }
 
-fn special(path: &Path) -> Option<Special> {
-    match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
+fn special(ext: &str) -> Option<Special> {
+    match ext {
         "jxl" => Some(Special::JpegXl),
         "jp2" | "j2k" | "j2c" | "jpx" => Some(Special::Jpeg2000),
         #[cfg(feature = "heif")]
@@ -106,11 +180,10 @@ fn special(path: &Path) -> Option<Special> {
 }
 
 /// JPEG XL, rendered in sRGB (jxl-oxide, pure Rust).
-fn decode_jxl(path: &Path) -> Result<DynamicImage> {
+fn decode_jxl(data: &[u8]) -> Result<DynamicImage> {
     use jxl_oxide::{EnumColourEncoding, JxlImage, PixelFormat, RenderingIntent};
-    let file = std::fs::File::open(path).with_context(|| format!("cannot open {}", path.display()))?;
     let mut image = JxlImage::builder()
-        .read(BufReader::new(file))
+        .read(Cursor::new(data))
         .map_err(|e| anyhow::anyhow!("unsupported or damaged JPEG XL picture ({e})"))?;
     let (w, h) = (image.width(), image.height());
     if u64::from(w) * u64::from(h) * 4 > MAX_ALLOC {
@@ -142,10 +215,9 @@ fn decode_jxl(path: &Path) -> Result<DynamicImage> {
 }
 
 /// JPEG 2000 (hayro-jpeg2000, pure Rust).
-fn decode_jpeg2000(path: &Path) -> Result<DynamicImage> {
+fn decode_jpeg2000(data: &[u8]) -> Result<DynamicImage> {
     use hayro_jpeg2000::{ColorSpace, DecodeSettings, DecoderContext, Image};
-    let data = std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
-    let image = Image::new(&data, &DecodeSettings::default())
+    let image = Image::new(data, &DecodeSettings::default())
         .map_err(|e| anyhow::anyhow!("unsupported or damaged JPEG 2000 picture ({e})"))?;
     let (w, h) = (image.width(), image.height());
     if u64::from(w) * u64::from(h) * 4 > MAX_ALLOC {
@@ -200,34 +272,26 @@ pub fn to_rgba8(img: DynamicImage) -> RgbaImage {
     RgbaImage::from_raw(w, h, out).expect("the buffer has the right size")
 }
 
-fn decode(path: &Path) -> Result<DynamicImage> {
-    match special(path) {
-        Some(Special::JpegXl) => return decode_jxl(path),
-        Some(Special::Jpeg2000) => return decode_jpeg2000(path),
+fn decode(data: &[u8], ext: &str) -> Result<DynamicImage> {
+    match special(ext) {
+        Some(Special::JpegXl) => return decode_jxl(data),
+        Some(Special::Jpeg2000) => return decode_jpeg2000(data),
         #[cfg(feature = "heif")]
-        Some(Special::Heif) => return crate::heif::decode(path, MAX_ALLOC),
+        Some(Special::Heif) => bail!("this format is only read from a file"),
         None => {}
     }
-    let reader =
-        ImageReader::open(path).with_context(|| format!("cannot open {}", path.display()))?.with_guessed_format()?;
-    let mut reader = reader;
+    // The extension is the hint for formats with no signature (TGA); what the bytes say wins.
+    let mut reader = ImageReader::new(Cursor::new(data));
+    if let Some(format) = image::ImageFormat::from_extension(ext) {
+        reader.set_format(format);
+    }
+    let mut reader = reader.with_guessed_format()?;
     reader.limits(limits());
     let mut decoder = reader.into_decoder().context("unsupported picture format")?;
     let orientation = decoder.orientation().unwrap_or(Orientation::NoTransforms);
     let mut img = DynamicImage::from_decoder(decoder).context("the picture is damaged")?;
     img.apply_orientation(orientation);
     Ok(img)
-}
-
-fn load_raster(path: &Path) -> Result<Picture> {
-    let img = decode(path)?;
-    let original = (img.width(), img.height());
-    let img = if img.width().max(img.height()) > MAX_SIDE {
-        img.resize(MAX_SIDE, MAX_SIDE, image::imageops::FilterType::Triangle)
-    } else {
-        img
-    };
-    Ok(Picture::from_rgba(to_rgba8(img), original))
 }
 
 pub(crate) fn svg_options() -> usvg::Options<'static> {
@@ -266,28 +330,16 @@ fn load_svg(path: &Path, target_side: u32) -> Result<Picture> {
 pub fn thumbnail(path: &Path) -> Result<Picture> {
     match Kind::of(path) {
         Some(Kind::Svg) => load_svg(path, THUMB_SIDE),
-        Some(Kind::Image) => {
-            if let Some(t) = exif_thumbnail(path).or_else(|| jpeg_thumbnail(path)).or_else(|| png_thumbnail(path)) {
-                return Ok(t);
-            }
-            // Full decodes for thumbnails run one at a time, so a folder of big pictures
-            // does not hold several decoded copies in memory at once.
-            static FULL_DECODE: std::sync::Mutex<()> = std::sync::Mutex::new(());
-            let _turn = FULL_DECODE.lock().unwrap_or_else(|e| e.into_inner());
-            let img = decode(path)?;
-            let original = (img.width(), img.height());
-            Ok(Picture::from_rgba(to_rgba8(img.thumbnail(THUMB_SIDE, THUMB_SIDE)), original))
-        }
+        Some(Kind::Image) => crate::sandbox::run(crate::sandbox::Mode::Thumbnail, path),
         _ => bail!("not a picture"),
     }
 }
 
 /// Thumbnail of a JPEG without an embedded preview, decoded at 1/2, 1/4 or 1/8 size
 /// straight from the DCT coefficients, so the full picture is never built.
-fn jpeg_thumbnail(path: &Path) -> Option<Picture> {
+fn jpeg_thumbnail(data: &[u8]) -> Option<Picture> {
     use jpeg_decoder::PixelFormat;
-    let file = std::fs::File::open(path).ok()?;
-    let mut decoder = jpeg_decoder::Decoder::new(BufReader::new(file));
+    let mut decoder = jpeg_decoder::Decoder::new(Cursor::new(data));
     decoder.read_info().ok()?;
     let full = decoder.info()?;
     let original = (full.width as u32, full.height as u32);
@@ -313,9 +365,8 @@ fn jpeg_thumbnail(path: &Path) -> Option<Picture> {
 
 /// Thumbnail of a plain (non-interlaced) PNG made while its rows are read, by
 /// averaging blocks of pixels, so a big picture is never held whole in memory.
-fn png_thumbnail(path: &Path) -> Option<Picture> {
-    let file = std::fs::File::open(path).ok()?;
-    let mut decoder = png::Decoder::new(BufReader::new(file));
+fn png_thumbnail(data: &[u8]) -> Option<Picture> {
+    let mut decoder = png::Decoder::new(Cursor::new(data));
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     let mut reader = decoder.read_info().ok()?;
     let info = reader.info();
@@ -369,10 +420,9 @@ fn png_thumbnail(path: &Path) -> Option<Picture> {
     Some(Picture::from_rgba(img, (w as u32, h as u32)))
 }
 
-fn exif_thumbnail(path: &Path) -> Option<Picture> {
+fn exif_thumbnail(data: &[u8]) -> Option<Picture> {
     use exif::{In, Tag};
-    let file = std::fs::File::open(path).ok()?;
-    let exif = exif::Reader::new().read_from_container(&mut BufReader::new(file)).ok()?;
+    let exif = exif::Reader::new().read_from_container(&mut Cursor::new(data)).ok()?;
     let offset = exif.get_field(Tag::JPEGInterchangeFormat, In::THUMBNAIL)?.value.get_uint(0)? as usize;
     let len = exif.get_field(Tag::JPEGInterchangeFormatLength, In::THUMBNAIL)?.value.get_uint(0)? as usize;
     let bytes = exif.buf().get(offset..offset.checked_add(len)?)?;
@@ -431,7 +481,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("big.png");
         image::RgbImage::from_pixel(1024, 512, image::Rgb([200, 100, 50])).save(&path).unwrap();
-        let t = png_thumbnail(&path).unwrap();
+        let t = png_thumbnail(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!((t.width, t.height), (THUMB_SIDE, THUMB_SIDE / 2));
         assert_eq!(t.original, (1024, 512));
         assert_eq!(&t.rgba[..4], &[200, 100, 50, 255]);
@@ -444,7 +494,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("big.jpg");
         image::RgbImage::from_pixel(2048, 1024, image::Rgb([200, 100, 50])).save(&path).unwrap();
-        let t = jpeg_thumbnail(&path).unwrap();
+        let t = jpeg_thumbnail(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!((t.width, t.height), (THUMB_SIDE, THUMB_SIDE / 2));
         assert_eq!(t.original, (2048, 1024));
         for (got, want) in t.rgba[..3].iter().zip([200u8, 100, 50]) {

@@ -43,6 +43,8 @@ pub struct Settings {
     pub portals: bool,
     /// PDF night mode.
     pub night_mode: bool,
+    /// Decode pictures in a sandboxed child process.
+    pub sandbox: bool,
     /// Megabytes of decoded pictures kept for flipping back and forth.
     pub cache_mb: u32,
     /// Neighbouring pictures up to this many megapixels are decoded ahead (0 turns it off).
@@ -59,6 +61,7 @@ impl Default for Settings {
             floating_controls: true,
             portals: true,
             night_mode: false,
+            sandbox: true,
             cache_mb: 64,
             preload_megapixels: 4,
         }
@@ -110,6 +113,7 @@ impl Settings {
         get(&table, "floating_controls", &mut out.floating_controls);
         get(&table, "portals", &mut out.portals);
         get(&table, "night_mode", &mut out.night_mode);
+        get(&table, "sandbox", &mut out.sandbox);
         get(&table, "cache_mb", &mut out.cache_mb);
         get(&table, "preload_megapixels", &mut out.preload_megapixels);
         out.clamp();
@@ -187,6 +191,7 @@ mod tests {
             floating_controls: false,
             portals: false,
             night_mode: true,
+            sandbox: false,
             cache_mb: 128,
             preload_megapixels: 0,
         };

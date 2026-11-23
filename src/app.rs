@@ -695,6 +695,7 @@ impl App {
         let mut app = app;
         app.prefs = crate::settings::Settings::load();
         crate::settings::set_portals(app.prefs.portals);
+        crate::sandbox::set_enabled(app.prefs.sandbox);
         app.show_sidebar = app.prefs.sidebar_open;
         app.night = app.prefs.night_mode;
         app.apply_theme();
