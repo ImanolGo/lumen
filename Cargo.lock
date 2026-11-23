@@ -2392,6 +2392,7 @@ dependencies = [
  "lopdf",
  "natord",
  "pdf-writer",
+ "png 0.18.1",
  "resvg 0.50.0",
  "serde",
  "tokio",

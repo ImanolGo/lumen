@@ -146,7 +146,7 @@ pub fn thumbnail(path: &Path) -> Result<Picture> {
     match Kind::of(path) {
         Some(Kind::Svg) => load_svg(path, THUMB_SIDE),
         Some(Kind::Image) => {
-            if let Some(t) = exif_thumbnail(path) {
+            if let Some(t) = exif_thumbnail(path).or_else(|| png_thumbnail(path)) {
                 return Ok(t);
             }
             // Full decodes for thumbnails run one at a time, so a folder of big pictures
@@ -159,6 +159,64 @@ pub fn thumbnail(path: &Path) -> Result<Picture> {
         }
         _ => bail!("not a picture"),
     }
+}
+
+/// Thumbnail of a plain (non-interlaced) PNG made while its rows are read, by
+/// averaging blocks of pixels, so a big picture is never held whole in memory.
+fn png_thumbnail(path: &Path) -> Option<Picture> {
+    let file = std::fs::File::open(path).ok()?;
+    let mut decoder = png::Decoder::new(BufReader::new(file));
+    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+    let mut reader = decoder.read_info().ok()?;
+    let info = reader.info();
+    if info.interlaced {
+        return None;
+    }
+    let (w, h) = (info.width as usize, info.height as usize);
+    let (color, depth) = reader.output_color_type();
+    if depth != png::BitDepth::Eight || w == 0 || h == 0 {
+        return None;
+    }
+    let channels = match color {
+        png::ColorType::Grayscale => 1,
+        png::ColorType::GrayscaleAlpha => 2,
+        png::ColorType::Rgb => 3,
+        png::ColorType::Rgba => 4,
+        png::ColorType::Indexed => return None,
+    };
+    let side = THUMB_SIDE as usize;
+    let (tw, th) =
+        if w >= h { (side.min(w), (h * side / w).clamp(1, h)) } else { ((w * side / h).clamp(1, w), side.min(h)) };
+    let mut sums = vec![0u32; tw * th * 4];
+    let mut counts = vec![0u32; tw * th];
+    let mut y = 0;
+    while let Some(row) = reader.next_row().ok()? {
+        let oy = y * th / h;
+        for (x, px) in row.data().chunks_exact(channels).enumerate().take(w) {
+            let cell = oy * tw + x * tw / w;
+            let rgba = match channels {
+                1 => [px[0], px[0], px[0], 255],
+                2 => [px[0], px[0], px[0], px[1]],
+                3 => [px[0], px[1], px[2], 255],
+                _ => [px[0], px[1], px[2], px[3]],
+            };
+            for (sum, v) in sums[cell * 4..cell * 4 + 4].iter_mut().zip(rgba) {
+                *sum += v as u32;
+            }
+            counts[cell] += 1;
+        }
+        y += 1;
+    }
+    if y != h {
+        return None;
+    }
+    let mut out = Vec::with_capacity(tw * th * 4);
+    for (cell, &n) in counts.iter().enumerate() {
+        let n = n.max(1);
+        out.extend(sums[cell * 4..cell * 4 + 4].iter().map(|&v| ((v + n / 2) / n) as u8));
+    }
+    let img = RgbaImage::from_raw(tw as u32, th as u32, out)?;
+    Some(Picture::from_rgba(img, (w as u32, h as u32)))
 }
 
 fn exif_thumbnail(path: &Path) -> Option<Picture> {
@@ -214,6 +272,19 @@ mod tests {
         RgbaImage::from_pixel(300, 200, image::Rgba([1, 2, 3, 255])).save(&path).unwrap();
         assert_eq!(pixel_count(&path), Some(60_000));
         assert_eq!(pixel_count(&dir.join("missing.png")), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn streamed_png_thumbnail_matches_shape_and_colour() {
+        let dir = std::env::temp_dir().join(format!("lumen-rs-pngthumb-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("big.png");
+        image::RgbImage::from_pixel(1024, 512, image::Rgb([200, 100, 50])).save(&path).unwrap();
+        let t = png_thumbnail(&path).unwrap();
+        assert_eq!((t.width, t.height), (THUMB_SIDE, THUMB_SIDE / 2));
+        assert_eq!(t.original, (1024, 512));
+        assert_eq!(&t.rgba[..4], &[200, 100, 50, 255]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

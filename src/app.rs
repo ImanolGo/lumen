@@ -69,7 +69,7 @@ const PICTURE_CACHE: usize = 5;
 /// ... and at most this many bytes of pixels between them.
 const PICTURE_CACHE_BYTES: usize = 64 << 20;
 /// Neighbours with more pixels than this are not decoded ahead of time.
-const PRELOAD_MAX_PIXELS: u64 = 24_000_000;
+const PRELOAD_MAX_PIXELS: u64 = 4_000_000;
 /// Threads for decoding and other blocking work.
 const BLOCKING_THREADS: usize = 3;
 const PAGE_GAP: f32 = 16.0;

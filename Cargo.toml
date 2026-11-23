@@ -14,6 +14,7 @@ hayro = "0.9"
 pdf-writer = "0.15"
 lopdf = { version = "0.45", default-features = false }
 ashpd = { version = "0.14", default-features = false, features = ["tokio", "file_chooser", "open_uri", "print", "settings"] }
+png = "0.18"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp", "tiff", "ico", "qoi", "tga", "pnm", "rayon"] }
 resvg = "0.50"
 kamadak-exif = "0.6"
