@@ -20,6 +20,7 @@ The original Lumen is built on GTK 4, libadwaita and poppler. This edition:
 ## Features (0.1)
 
 - **Pictures:** PNG, JPEG, GIF, WebP, BMP, TIFF, ICO, QOI, TGA, the PNM family, JPEG XL, JPEG 2000, OpenEXR (linear light, clamped and given the sRGB curve) and SVG, all decoded in pure Rust. EXIF orientation is honoured.
+- **AVIF and HEIC (optional):** `cargo build --release --features heif` adds them through the system's libheif (needs `libheif` and its AVIF/HEIC codecs installed). That is the only C code Lumen can reach, so it is off by default: the default build is pure Rust. Add `image/heic;image/heif;image/avif;` to the `.desktop` file's `MimeType` when you build it that way.
 - **Animation:** animated GIF, APNG and WebP play, each frame for its own delay (a delay of 10 ms or less shows for 100 ms, as browsers do). Frames are decoded on a thread of their own and the first pass is kept while it fits in 96 MB; longer animations keep streaming from the file. The first frame is what editing and markup work on, so the animation pauses (and shows it) while they are open.
 - **PDFs:** continuous scrolling, a table of contents, search, and clickable links. Only the pages near the view are rendered, and that happens on a pool of background threads that does the newest request first. Pages re-render sharply at every zoom level and on HiDPI screens.
 - **Search:** Ctrl+F finds text across the whole document (case-insensitive), highlights every match and jumps between them. It starts from the page you are on, results appear while it scans, and each page's text is read only once. The 477-page Ghostscript manual is fully indexed in about 0.7 s.
@@ -39,7 +40,7 @@ The original Lumen is built on GTK 4, libadwaita and poppler. This edition:
 - **Password-protected PDFs:** Lumen asks for the password and opens the file; the password stays in memory for the session only, so flipping back does not ask again. Markup and form values can be saved into it and it stays protected (what is added is encrypted the same way). Printing sends an unlocked copy, since the print system could not open the file otherwise. In the file list a protected PDF shows a lock until it is unlocked, then its real thumbnail.
 - **Forms:** fill in PDF forms: text fields (single and multi-line, passwords, length limits), check boxes, radio buttons and drop-downs. Ctrl+S saves the values into the PDF, each with a matching appearance, so other viewers and printers show the filled-in form. Read-only fields and script buttons are left alone.
 - **Signatures:** draw your signature once and Lumen keeps it (in `~/.local/share/lumen/signatures.toml`, shared with the GTK Lumen). Sign from the toolbar, or click a signature field, and the signature is placed as ink you can move and resize; it is saved like other markup. This is a handwritten signature, as on paper, not a cryptographic (certificate) one.
-- **Pictures with markup** are saved as a copy (PNG, JPEG, WebP, TIFF or BMP), never over the original unless you choose it. Printing prints what you see, unsaved markup included. Markup you have not saved yet is kept while you look at other files, and quitting asks first.
+- **Saving pictures:** Ctrl+S saves an edited or marked-up JPEG, PNG or WebP over its own file (atomically, keeping its permissions); Ctrl+Shift+S, or any other format (GIF, animations, JPEG XL, …), saves a copy (PNG, JPEG, WebP, TIFF or BMP). A JPEG that was only turned or mirrored is saved **losslessly**: its pixel data is kept byte for byte and only the EXIF orientation tag changes (files without EXIF get a small block; files whose EXIF has no orientation tag are re-encoded instead). Printing prints what you see, unsaved markup included. Markup you have not saved yet is kept while you look at other files, and quitting asks first.
 - **Picture editing:** press E (or the sliders button) to turn, mirror, crop (free, the picture's own shape, square, 4:3, 3:2, 16:9) and resize (in pixels or by percentage, keeping the proportions if you like), and to change exposure, contrast and saturation, with undo and redo. Editing is non-destructive: the picture as opened is kept, the result is worked out in the background, and markup follows every turn, mirror, crop and resize. Save a copy (Ctrl+S) as PNG, JPEG, WebP, TIFF or BMP; unsaved edits are kept while you look at other files.
 - **Metadata is kept:** copies saved as JPEG, PNG or WebP keep the original's EXIF data (camera, lens, exposure, date, GPS location) and its colour profile. The orientation is reset (the pixels are upright already), the size is updated, and the old embedded preview and maker notes are left out. TIFF keeps the colour profile only; BMP keeps neither.
 - **Page organiser:** press G (or the grid button) on a PDF to see every page as a thumbnail. Drag pages to reorder them (Ctrl/Shift+click picks several), turn them, delete them, or insert the pages of other PDFs, with undo. Saving rewrites the PDF with the new order; outline and links follow their pages, unsaved markup and form values are written too, and a password-protected PDF stays protected.
@@ -63,7 +64,7 @@ Everything from the original Lumen is ported.
 | M | Markup on or off |
 | Ctrl+Z / Ctrl+Shift+Z | Undo / redo markup |
 | Delete, arrow keys | Delete / nudge the selected annotation (Shift moves further) |
-| Ctrl+S / Ctrl+Shift+S | Save markup and form values into the PDF / save a copy (a picture always saves a copy) |
+| Ctrl+S / Ctrl+Shift+S | Save markup and form values into the PDF, or an edited JPEG/PNG/WebP over its file / save a copy |
 | Ctrl+C / Ctrl+A | Copy the selected text / select all text (PDF) |
 | Ctrl+F | Find in the PDF (Enter / Shift+Enter or F3 / Shift+F3 for next / previous, Esc to close) |
 | Ctrl+G | Go to page (PDF) |
@@ -122,6 +123,8 @@ xdg-mime default io.github.imanolgo.LumenRs.desktop application/pdf
 | `src/pages.rs` | Page plans (reorder, turn, delete, insert) and writing them (lopdf) |
 | `src/app/pagelist.rs` | The Pages sidebar tab and the go-to-page box |
 | `src/app/slideshow.rs` | The slideshow |
+| `src/lossless.rs` | Lossless JPEG turning (EXIF orientation) |
+| `src/heif.rs` | AVIF and HEIC through libheif (only with `--features heif`) |
 | `src/animation.rs`, `src/app/anim.rs` | Animated pictures: the decoder thread, and playing the frames |
 | `src/export.rs`, `src/app/export.rs` | Exporting pages as PNG or PDF and pictures as PDF; the Export dialog |
 | `src/trash.rs` | Moving files to the trash and back (freedesktop Trash spec) |

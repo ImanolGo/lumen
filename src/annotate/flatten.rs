@@ -146,6 +146,10 @@ pub fn save(picture: RgbaImage, layer: &AnnotationLayer, path: &Path, meta: &cra
         let _ = std::fs::remove_file(&temp);
         return Err(e);
     }
+    // Saving over a file keeps its permissions.
+    if let Ok(meta) = std::fs::metadata(path) {
+        let _ = std::fs::set_permissions(&temp, meta.permissions());
+    }
     if let Err(e) = std::fs::rename(&temp, path) {
         let _ = std::fs::remove_file(&temp);
         bail!("cannot save {}: {e}", path.display());

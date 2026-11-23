@@ -9,8 +9,11 @@ mod cups;
 mod edit;
 mod export;
 mod forms;
+#[cfg(feature = "heif")]
+mod heif;
 mod icons;
 mod library;
+mod lossless;
 mod metadata;
 mod pages;
 mod pdf;

@@ -23,6 +23,8 @@ impl Kind {
             "pdf" => Some(Self::Pdf),
             "svg" | "svgz" => Some(Self::Svg),
             e if RASTER.contains(&e) => Some(Self::Image),
+            #[cfg(feature = "heif")]
+            "heic" | "heif" | "hif" | "avif" => Some(Self::Image),
             _ => None,
         }
     }

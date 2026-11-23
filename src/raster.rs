@@ -91,12 +91,16 @@ fn limits() -> Limits {
 enum Special {
     JpegXl,
     Jpeg2000,
+    #[cfg(feature = "heif")]
+    Heif,
 }
 
 fn special(path: &Path) -> Option<Special> {
     match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
         "jxl" => Some(Special::JpegXl),
         "jp2" | "j2k" | "j2c" | "jpx" => Some(Special::Jpeg2000),
+        #[cfg(feature = "heif")]
+        "heic" | "heif" | "hif" | "avif" => Some(Special::Heif),
         _ => None,
     }
 }
@@ -200,6 +204,8 @@ fn decode(path: &Path) -> Result<DynamicImage> {
     match special(path) {
         Some(Special::JpegXl) => return decode_jxl(path),
         Some(Special::Jpeg2000) => return decode_jpeg2000(path),
+        #[cfg(feature = "heif")]
+        Some(Special::Heif) => return crate::heif::decode(path, MAX_ALLOC),
         None => {}
     }
     let reader =
@@ -467,6 +473,21 @@ mod tests {
             // Thumbnails and the file list know them too.
             assert_eq!(Kind::of(&fixture(name)), Some(Kind::Image));
             assert!(thumbnail(&fixture(name)).is_ok());
+        }
+    }
+
+    /// Only with `--features heif`: the same gradient as AVIF and as HEIC (lossy, so a wider tolerance).
+    #[cfg(feature = "heif")]
+    #[test]
+    fn decodes_avif_and_heic_with_the_heif_feature() {
+        for name in ["gradient.avif", "gradient.heic"] {
+            let pic = load(&fixture(name)).unwrap_or_else(|e| panic!("{name}: {e:#}"));
+            assert_eq!((pic.width, pic.height), (64, 32), "{name}");
+            let px = |x: usize, y: usize| &pic.rgba[(y * 64 + x) * 4..][..4];
+            let (a, b) = (px(0, 0), px(63, 31));
+            assert!(a[0] < 40 && a[1] < 40, "{name}: {a:?}");
+            assert!(b[0] > 180 && b[1] > 180, "{name}: {b:?}");
+            assert_eq!(Kind::of(&fixture(name)), Some(Kind::Image));
         }
     }
 

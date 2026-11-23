@@ -639,7 +639,10 @@ impl App {
                         Task::batch([done, self.save_pdf(path)])
                     }
                     Doc::Pdf(_) => done,
-                    Doc::Image(_) => Task::batch([done, self.markup_update(MarkupMsg::SaveAs)]),
+                    Doc::Image(_) => match self.picture_in_place() {
+                        Some(path) => Task::batch([done, self.save_picture(path)]),
+                        None => Task::batch([done, self.markup_update(MarkupMsg::SaveAs)]),
+                    },
                     _ => done,
                 }
             }
@@ -699,12 +702,20 @@ impl App {
                 if let Err(e) = result {
                     return self.toast(format!("Could not save: {e}"));
                 }
-                let saved = self.notice(format!("Saved a copy as “{}”", file_name(&target)));
+                let in_place = self.current_path() == Some(target.as_path());
+                let saved = self.notice(if in_place {
+                    format!("Saved “{}”", file_name(&target))
+                } else {
+                    format!("Saved a copy as “{}”", file_name(&target))
+                });
                 if generation != self.generation {
                     return saved;
                 }
-                if self.current_path() == Some(target.as_path()) {
-                    // The markup is part of the picture now; show the new file as it is.
+                if in_place {
+                    // The edits and markup are part of the picture now; show the new file as it is.
+                    if let Doc::Image(view) = &mut self.doc {
+                        view.edit.saved = view.edit.edits;
+                    }
                     self.marks = None;
                     self.pictures.retain(|(p, _)| *p != target);
                     self.thumbs.remove(&target);
@@ -779,6 +790,16 @@ impl App {
         Some((rgba, layer))
     }
 
+    /// The picture on screen, when Ctrl+S may write it back over its own file: formats Lumen can
+    /// write without losing more than a re-encode does, and not an animation (which a single
+    /// frame would replace).
+    pub(super) fn picture_in_place(&self) -> Option<PathBuf> {
+        let Doc::Image(view) = &self.doc else { return None };
+        let ext = view.path.extension()?.to_str()?.to_ascii_lowercase();
+        (matches!(ext.as_str(), "jpg" | "jpeg" | "jpe" | "jfif" | "png" | "webp") && view.anim.is_none())
+            .then(|| view.path.clone())
+    }
+
     fn save_picture(&mut self, target: PathBuf) -> Task<Message> {
         if self.markup_busy.is_some() {
             return Task::none();
@@ -791,10 +812,25 @@ impl App {
             Doc::Image(view) => view.path.clone(),
             _ => return Task::none(),
         };
+        // Only turned and mirrored, and still a JPEG: keep the pixels, change the orientation tag.
+        let lossless = match &self.doc {
+            Doc::Image(view)
+                if crate::lossless::only_turns(&view.edit.edits)
+                    && !self.marks.as_ref().is_some_and(DocMarkup::has_items) =>
+            {
+                Some(view.edit.edits)
+            }
+            _ => None,
+        };
         Task::perform(
             {
                 let target = target.clone();
                 blocking(move || {
+                    if let Some(edits) = lossless
+                        && let Some(done) = save_lossless(&source, &target, &edits)
+                    {
+                        return done.map_err(err_string);
+                    }
                     // The copy keeps the original's EXIF data and colour profile.
                     let meta = crate::metadata::Metadata::for_copy(&source, rgba.width(), rgba.height());
                     crate::annotate::flatten::save(rgba, &layer, &target, &meta).map_err(err_string)
@@ -866,7 +902,9 @@ impl App {
                 ("z", true, false) if has_marks => MarkupMsg::Undo,
                 ("z", true, true) | ("y", true, false) if has_marks => MarkupMsg::Redo,
                 ("s", true, false) if has_marks || self.has_unsaved_changes() => MarkupMsg::Save,
-                ("s", true, true) if has_marks || self.form.is_some() => MarkupMsg::SaveAs,
+                ("s", true, true) if has_marks || self.form.is_some() || self.has_unsaved_changes() => {
+                    MarkupMsg::SaveAs
+                }
                 ("m", false, false) => MarkupMsg::Toggle,
                 _ => return None,
             },
@@ -1025,15 +1063,20 @@ impl App {
             None => "",
         };
         let ready = self.markup_busy.is_none() && marks.is_some();
+        let picture_changed =
+            matches!(&self.doc, Doc::Image(v) if !v.edit.edits.is_none()) || marks.is_some_and(DocMarkup::has_items);
         let (save_label, save_msg, save_tip) = if is_pdf {
             ("Save", (ready && dirty).then_some(Message::Markup(MarkupMsg::Save)), "Save into the PDF (Ctrl+S)")
+        } else if self.picture_in_place().is_some() {
+            (
+                "Save",
+                (ready && picture_changed).then_some(Message::Markup(MarkupMsg::Save)),
+                "Save the picture with its markup over the file (Ctrl+S)",
+            )
         } else {
             (
                 "Save a Copy…",
-                (ready
-                    && (matches!(&self.doc, Doc::Image(v) if !v.edit.edits.is_none())
-                        || marks.is_some_and(DocMarkup::has_items)))
-                .then_some(Message::Markup(MarkupMsg::SaveAs)),
+                (ready && picture_changed).then_some(Message::Markup(MarkupMsg::SaveAs)),
                 "Save the picture with its markup as a new file (Ctrl+S)",
             )
         };
@@ -1041,7 +1084,7 @@ impl App {
         let mut end = row![text(status).size(12).style(muted), super::tip(save.into(), save_tip)]
             .spacing(6)
             .align_y(Alignment::Center);
-        if is_pdf {
+        if is_pdf || self.picture_in_place().is_some() {
             end = end.push(icon_button(
                 icons::save_copy(),
                 "Save a copy… (Ctrl+Shift+S)",
@@ -1098,4 +1141,23 @@ impl App {
         .style(style::panel);
         center(card).style(style::scrim).into()
     }
+}
+
+/// Saves `source` as `target` with only its EXIF orientation changed to what `edits` (turns and
+/// mirrors) make of it. `None` when that is not possible (not a JPEG, or EXIF it cannot edit),
+/// and the caller saves the usual way.
+fn save_lossless(source: &Path, target: &Path, edits: &crate::edit::Edits) -> Option<anyhow::Result<()>> {
+    let is_jpeg_name = |p: &Path| {
+        matches!(
+            p.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref(),
+            Some("jpg" | "jpeg" | "jpe" | "jfif")
+        )
+    };
+    if !is_jpeg_name(target) {
+        return None;
+    }
+    let bytes = std::fs::read(source).ok()?;
+    let new = crate::lossless::combine(crate::lossless::orientation(&bytes), edits);
+    let out = crate::lossless::with_orientation(&bytes, new)?;
+    Some(pdf::write_atomic(target, &out))
 }

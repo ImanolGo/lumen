@@ -443,10 +443,15 @@ impl App {
             let edit = &view.edit;
             let busy = edit.is_busy();
             let can_save = !busy && (edit.is_dirty() || self.marks.as_ref().is_some_and(|m| m.has_items()));
-            let save = button(text("Save a Copy…").size(13))
+            let in_place = self.picture_in_place().is_some();
+            let save = button(text(if in_place { "Save" } else { "Save a Copy…" }).size(13))
                 .padding([6, 14])
                 .style(style::primary)
-                .on_press_maybe(can_save.then_some(Message::Markup(MarkupMsg::SaveAs)));
+                .on_press_maybe(can_save.then_some(Message::Markup(if in_place {
+                    MarkupMsg::Save
+                } else {
+                    MarkupMsg::SaveAs
+                })));
             let status = if busy {
                 "Working…"
             } else if edit.is_dirty() {
@@ -484,7 +489,20 @@ impl App {
                 ),
                 super::separator(),
                 text(status).size(12).style(muted),
-                tip(save.into(), "Save the edited picture as a new file (Ctrl+S)"),
+                tip(
+                    save.into(),
+                    if in_place {
+                        "Save the edited picture over the file (Ctrl+S)"
+                    } else {
+                        "Save the edited picture as a new file (Ctrl+S)"
+                    },
+                ),
+                icon_button(
+                    icons::save_copy(),
+                    "Save a copy… (Ctrl+Shift+S)",
+                    can_save.then_some(Message::Markup(MarkupMsg::SaveAs)),
+                    false,
+                ),
             ]
             .spacing(4)
             .align_y(Alignment::Center)

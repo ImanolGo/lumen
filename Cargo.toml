@@ -8,6 +8,10 @@ license = "GPL-3.0-or-later"
 authors = ["Imanol Gomez"]
 repository = "https://github.com/ImanolGo/lumen-rs"
 
+[features]
+# AVIF and HEIC through the system's libheif (C). Off by default: the default build has no C code in the document path.
+heif = ["dep:libheif-rs"]
+
 [dependencies]
 iced = { version = "0.14", default-features = false, features = ["wgpu", "tiny-skia", "crisp", "thread-pool", "linux-theme-detection", "x11", "wayland", "image-without-codecs", "svg", "tokio", "canvas"] }
 hayro = "0.9"
@@ -15,6 +19,7 @@ pdf-writer = "0.15"
 lopdf = { version = "0.45", default-features = false }
 ashpd = { version = "0.14", default-features = false, features = ["tokio", "file_chooser", "open_uri", "print", "settings"] }
 png = "0.18"
+libheif-rs = { version = "3", optional = true, default-features = false, features = ["v1_17"] }
 jxl-oxide = { version = "0.12", default-features = false }
 hayro-jpeg2000 = "0.5"
 jpeg-decoder = { version = "0.3", default-features = false }

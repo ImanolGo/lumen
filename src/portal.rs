@@ -55,6 +55,8 @@ pub async fn choose(folder: bool) -> Result<Vec<PathBuf>> {
             .mimetype("image/jp2")
             .mimetype("image/jpx")
             .mimetype("image/x-exr");
+        #[cfg(feature = "heif")]
+        let supported = supported.mimetype("image/heic").mimetype("image/heif").mimetype("image/avif");
         request =
             request.filter(supported.clone()).filter(FileFilter::new("All files").glob("*")).current_filter(supported);
     }

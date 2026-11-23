@@ -157,6 +157,15 @@ impl App {
             let save = self.has_unsaved_changes() && self.markup_busy.is_none();
             items.push(Some(("Save", "Ctrl+S", save.then_some(Message::Markup(MarkupMsg::Save)))));
         }
+        if self.picture_in_place().is_some() {
+            let changed = matches!(&self.doc, Doc::Image(v) if v.edit.is_dirty())
+                || self.marks.as_ref().is_some_and(|m| m.has_items());
+            items.push(Some((
+                "Save",
+                "Ctrl+S",
+                (changed && self.markup_busy.is_none()).then_some(Message::Markup(MarkupMsg::Save)),
+            )));
+        }
         items.push(Some(("Save a Copy…", "Ctrl+Shift+S", doc(Message::Markup(MarkupMsg::SaveAs)))));
         if is_pdf {
             items.push(Some(("Export Pages…", "", Some(Message::Export(ExportMsg::Open)))));
