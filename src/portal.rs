@@ -88,15 +88,35 @@ pub async fn save_as(suggested: PathBuf) -> Result<Option<PathBuf>> {
     }
 }
 
-/// Opens a web or mail address in the user's browser or mail app, through the portal.
+/// Opens a web or mail address in the user's browser or mail app, through the portal, or
+/// with `xdg-open` when there is none. Callers only pass addresses already checked to be
+/// web or mail links.
 pub async fn open_uri(uri: String) -> Result<()> {
     let parsed = ashpd::Uri::parse(&uri).context("not a valid address")?;
-    ashpd::desktop::open_uri::OpenFileRequest::default()
-        .ask(false)
-        .send_uri(&parsed)
+    if !disabled() {
+        let sent = ashpd::desktop::open_uri::OpenFileRequest::default()
+            .ask(false)
+            .send_uri(&parsed)
+            .await
+            .and_then(|r| r.response());
+        match sent {
+            Ok(()) => return Ok(()),
+            Err(ashpd::Error::Response(ResponseError::Cancelled)) => return Ok(()),
+            Err(e) => tracing::info!("the open-uri portal failed ({e}); using xdg-open"),
+        }
+    }
+    let status = tokio::process::Command::new("xdg-open")
+        .arg(parsed.as_str())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
         .await
-        .and_then(|r| r.response())
-        .context("no desktop portal could open the link")
+        .context("no program to open links with (xdg-open) was found")?;
+    if !status.success() {
+        anyhow::bail!("xdg-open could not open the link");
+    }
+    Ok(())
 }
 
 /// `file:///a%20b` → `/a b`. Non-file URIs are ignored.
