@@ -146,7 +146,7 @@ pub fn thumbnail(path: &Path) -> Result<Picture> {
     match Kind::of(path) {
         Some(Kind::Svg) => load_svg(path, THUMB_SIDE),
         Some(Kind::Image) => {
-            if let Some(t) = exif_thumbnail(path).or_else(|| png_thumbnail(path)) {
+            if let Some(t) = exif_thumbnail(path).or_else(|| jpeg_thumbnail(path)).or_else(|| png_thumbnail(path)) {
                 return Ok(t);
             }
             // Full decodes for thumbnails run one at a time, so a folder of big pictures
@@ -159,6 +159,35 @@ pub fn thumbnail(path: &Path) -> Result<Picture> {
         }
         _ => bail!("not a picture"),
     }
+}
+
+/// Thumbnail of a JPEG without an embedded preview, decoded at 1/2, 1/4 or 1/8 size
+/// straight from the DCT coefficients, so the full picture is never built.
+fn jpeg_thumbnail(path: &Path) -> Option<Picture> {
+    use jpeg_decoder::PixelFormat;
+    let file = std::fs::File::open(path).ok()?;
+    let mut decoder = jpeg_decoder::Decoder::new(BufReader::new(file));
+    decoder.read_info().ok()?;
+    let full = decoder.info()?;
+    let original = (full.width as u32, full.height as u32);
+    let side = THUMB_SIDE as u16;
+    let (w, h) = decoder.scale(side, side).ok()?;
+    let pixels = decoder.decode().ok()?;
+    let rgba: Vec<u8> = match decoder.info()?.pixel_format {
+        PixelFormat::L8 => pixels.iter().flat_map(|&g| [g, g, g, 255]).collect(),
+        PixelFormat::RGB24 => pixels.as_chunks::<3>().0.iter().flat_map(|p| [p[0], p[1], p[2], 255]).collect(),
+        _ => return None,
+    };
+    let mut img = DynamicImage::ImageRgba8(RgbaImage::from_raw(w as u32, h as u32, rgba)?);
+    let orientation = decoder
+        .exif_data()
+        .and_then(|raw| exif::Reader::new().read_raw(raw.to_vec()).ok())
+        .and_then(|e| e.get_field(exif::Tag::Orientation, exif::In::PRIMARY).and_then(|f| f.value.get_uint(0)))
+        .and_then(|v| Orientation::from_exif(v as u8))
+        .unwrap_or(Orientation::NoTransforms);
+    img.apply_orientation(orientation);
+    let original = if orientation.to_exif() > 4 { (original.1, original.0) } else { original };
+    Some(Picture::from_rgba(img.thumbnail(THUMB_SIDE, THUMB_SIDE).into_rgba8(), original))
 }
 
 /// Thumbnail of a plain (non-interlaced) PNG made while its rows are read, by
@@ -285,6 +314,23 @@ mod tests {
         assert_eq!((t.width, t.height), (THUMB_SIDE, THUMB_SIDE / 2));
         assert_eq!(t.original, (1024, 512));
         assert_eq!(&t.rgba[..4], &[200, 100, 50, 255]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn scaled_jpeg_thumbnail_matches_shape_and_colour() {
+        let dir = std::env::temp_dir().join(format!("lumen-rs-jpgthumb-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("big.jpg");
+        image::RgbImage::from_pixel(2048, 1024, image::Rgb([200, 100, 50])).save(&path).unwrap();
+        let t = jpeg_thumbnail(&path).unwrap();
+        assert_eq!((t.width, t.height), (THUMB_SIDE, THUMB_SIDE / 2));
+        assert_eq!(t.original, (2048, 1024));
+        for (got, want) in t.rgba[..3].iter().zip([200u8, 100, 50]) {
+            assert!(got.abs_diff(want) <= 3, "{got} vs {want}");
+        }
+        // The dispatcher reaches the same result for a picture without an embedded preview.
+        assert_eq!(thumbnail(&path).unwrap().width, THUMB_SIDE);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

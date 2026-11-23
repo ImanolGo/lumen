@@ -176,7 +176,7 @@ screenshots. Fix what is ours; report upstream to hayro what is not.
 
 | # | Package | Status |
 |---|---|---|
-| 1 | Open bugs and memory budget | partly: cache byte budget, preload limit 4 MP, fixed worker pool, streamed PNG thumbnails (5K folder 458 → 226 MB, goal < 200 MB; remaining: JPEG thumbnails still decode whole); scroll bug skipped, `bench.py` not re-run |
+| 1 | Open bugs and memory budget | done except `bench.py` re-run: scroll bug confirmed fixed by the user; cache byte budget, preload limit 4 MP, fixed worker pool, streamed PNG and DCT-scaled JPEG thumbnails (5K folder 458 → 149 MB) |
 | 2 | PDF reading parity | todo |
 | 3 | Export | todo |
 | 4 | File actions | todo |

@@ -2163,6 +2163,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "jpeg-decoder"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f5d4a7da358eff58addd2877a45865158f0d78c911d43a5784ceb7bbf52833b0"
+
+[[package]]
 name = "js-sys"
 version = "0.3.107"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2388,6 +2394,7 @@ dependencies = [
  "hayro",
  "iced",
  "image",
+ "jpeg-decoder",
  "kamadak-exif",
  "lopdf",
  "natord",
