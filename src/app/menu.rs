@@ -198,8 +198,9 @@ impl App {
 
     pub(super) fn dialog_view(&self) -> Option<Element<'_, Message>> {
         let dialog = self.dialog?;
-        let title =
-            |t: &'static str| text(t).size(18).font(Font { weight: iced::font::Weight::Semibold, ..Font::DEFAULT });
+        let title = |t: &'static str| {
+            text(t).size(18).font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
+        };
         let close =
             button(text("Close").size(14)).padding([8, 16]).style(style::secondary).on_press(Message::Dialog(None));
         let body: Element<'_, Message> = match dialog {
@@ -207,7 +208,7 @@ impl App {
                 let mut groups = column![].spacing(16);
                 for (name, keys) in SHORTCUTS {
                     let mut group = column![
-                        text(*name).size(13).font(Font { weight: iced::font::Weight::Semibold, ..Font::DEFAULT })
+                        text(*name).size(13).font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
                     ]
                     .spacing(6);
                     for (key, what) in *keys {

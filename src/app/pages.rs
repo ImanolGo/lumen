@@ -542,7 +542,7 @@ impl App {
                 (!o.future.is_empty()).then_some(Message::Pages(PagesMsg::Redo)),
                 false
             ),
-            space().width(Length::Fill),
+            separator(),
             text(status).size(12).style(muted),
             button(text("Cancel").size(13))
                 .padding([6, 14])
@@ -558,7 +558,7 @@ impl App {
         ]
         .spacing(4)
         .align_y(Alignment::Center);
-        container(container(content).padding([0, 8])).height(46).align_y(Alignment::Center).style(style::bar).into()
+        container(content).padding([4, 6]).style(style::panel).into()
     }
 
     pub(super) fn pages_view(&self) -> Element<'_, Message> {
@@ -626,7 +626,7 @@ impl App {
             container(paper).width(Length::Fill).height(THUMB + 8.0).center_x(Length::Fill).center_y(THUMB + 8.0),
             text(label)
                 .size(12)
-                .font(Font { weight: iced::font::Weight::Medium, ..Font::DEFAULT })
+                .font(Font { weight: iced::font::Weight::Medium, ..crate::style::FONT })
                 .wrapping(text::Wrapping::None),
         ]
         .spacing(6)

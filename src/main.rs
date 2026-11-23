@@ -81,6 +81,10 @@ fn main() -> iced::Result {
             },
             ..Default::default()
         })
+        .font(include_bytes!("../assets/fonts/Inter-Regular.ttf").as_slice())
+        .font(include_bytes!("../assets/fonts/Inter-Medium.ttf").as_slice())
+        .font(include_bytes!("../assets/fonts/Inter-SemiBold.ttf").as_slice())
+        .default_font(style::FONT)
         .antialiasing(true)
         .run()
 }

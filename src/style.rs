@@ -1,31 +1,54 @@
-//! Look and feel: light and dark palettes that follow the system, and widget styles.
+//! Look and feel: one set of design tokens for a calm, modern interface.
+//!
+//! The window is one surface: the header, the sidebar and the area behind pictures
+//! and pages share a background, and what floats on it (menus, tool islands, the
+//! zoom pill, dialogs) is a slightly raised panel with a hairline edge and a soft
+//! shadow. Colour is neutral; Lumen's amber marks only what is active or chosen.
+//! Light and dark follow the system.
 
+use iced::font::Weight;
 use iced::theme::{Mode, Palette};
 use iced::widget::{button, container, svg};
-use iced::{Background, Border, Color, Shadow, Theme, Vector, color};
+use iced::{Background, Border, Color, Font, Shadow, Theme, Vector, color};
+
+/// The interface typeface, bundled (see `assets/fonts`).
+pub const FONT: Font = Font::with_name("Inter");
+
+/// The interface font at `weight`.
+pub fn font(weight: Weight) -> Font {
+    Font { weight, ..FONT }
+}
+
+/// Corner radii: controls, panels.
+pub const RADIUS: f32 = 8.0;
+pub const PANEL_RADIUS: f32 = 12.0;
+
+/// Lumen's amber, from its icon.
+const AMBER_DARK: Color = color!(0xf5b041);
+const AMBER_LIGHT: Color = color!(0xb45309);
 
 pub fn theme(mode: Mode) -> Theme {
     match mode {
         Mode::Dark => Theme::custom(
             "Lumen Dark",
             Palette {
-                background: color!(0x1c1b22),
-                text: color!(0xecebf2),
-                primary: color!(0xa99bff),
-                success: color!(0x6fcf97),
-                warning: color!(0xf2c94c),
-                danger: color!(0xff7b72),
+                background: color!(0x141416),
+                text: color!(0xededf0),
+                primary: AMBER_DARK,
+                success: color!(0x5fd08a),
+                warning: color!(0xf5b041),
+                danger: color!(0xff6b61),
             },
         ),
         Mode::Light | Mode::None => Theme::custom(
             "Lumen Light",
             Palette {
-                background: color!(0xfbfafd),
-                text: color!(0x1f1d2b),
-                primary: color!(0x5b4bc4),
-                success: color!(0x1e8e3e),
+                background: color!(0xf6f6f7),
+                text: color!(0x18181b),
+                primary: AMBER_LIGHT,
+                success: color!(0x1f8a4c),
                 warning: color!(0xb26a00),
-                danger: color!(0xc5221f),
+                danger: color!(0xd13b30),
             },
         ),
     }
@@ -35,162 +58,206 @@ fn is_dark(theme: &Theme) -> bool {
     theme.extended_palette().is_dark
 }
 
-/// The area behind pictures and pages: a touch darker than the chrome.
-pub fn canvas(theme: &Theme) -> container::Style {
-    let bg = if is_dark(theme) { color!(0x131218) } else { color!(0xecebf1) };
-    container::Style { background: Some(bg.into()), ..Default::default() }
+fn text_color(theme: &Theme) -> Color {
+    theme.extended_palette().background.base.text
 }
 
-/// The toolbar and file strip.
+/// Something floating on the window: a little lighter in the dark, white in the light.
+pub fn surface(theme: &Theme) -> Color {
+    if is_dark(theme) { color!(0x1f1f23) } else { Color::WHITE }
+}
+
+/// A faint wash for hovered and selected things.
+fn wash(theme: &Theme, amount: f32) -> Color {
+    let base = if is_dark(theme) { Color::WHITE } else { Color::BLACK };
+    Color { a: amount, ..base }
+}
+
+/// The edge of floating things.
+fn hairline(theme: &Theme) -> Color {
+    wash(theme, if is_dark(theme) { 0.09 } else { 0.08 })
+}
+
+fn float_shadow(theme: &Theme) -> Shadow {
+    Shadow {
+        color: Color::from_rgba(0.0, 0.0, 0.0, if is_dark(theme) { 0.45 } else { 0.10 }),
+        offset: Vector::new(0.0, 6.0),
+        blur_radius: 24.0,
+    }
+}
+
+/// The accent, for marking what is active.
+pub fn accent(theme: &Theme) -> Color {
+    theme.extended_palette().primary.base.color
+}
+
+/// The window's single surface, behind pictures and pages as well.
+pub fn canvas(theme: &Theme) -> container::Style {
+    container::Style { background: Some(theme.palette().background.into()), ..Default::default() }
+}
+
+/// The header and the sidebar: the same surface as the canvas, no edges.
 pub fn bar(theme: &Theme) -> container::Style {
-    let p = theme.extended_palette();
     container::Style {
-        background: Some(p.background.base.color.into()),
-        text_color: Some(p.background.base.text),
-        border: Border { width: 0.0, ..Default::default() },
-        shadow: Shadow {
-            color: Color::from_rgba(0.0, 0.0, 0.0, if p.is_dark { 0.5 } else { 0.08 }),
-            offset: Vector::new(0.0, 1.0),
-            blur_radius: 6.0,
-        },
+        background: Some(theme.palette().background.into()),
+        text_color: Some(text_color(theme)),
         ..Default::default()
     }
 }
 
-/// A page of a PDF: white paper with a soft shadow.
+/// A page of a PDF: white paper, lifted a little.
 pub fn page(theme: &Theme) -> container::Style {
     container::Style {
         background: Some(Color::WHITE.into()),
+        border: Border { radius: 2.0.into(), ..Default::default() },
         shadow: Shadow {
-            color: Color::from_rgba(0.0, 0.0, 0.0, if is_dark(theme) { 0.6 } else { 0.18 }),
+            color: Color::from_rgba(0.0, 0.0, 0.0, if is_dark(theme) { 0.5 } else { 0.12 }),
             offset: Vector::new(0.0, 2.0),
-            blur_radius: 10.0,
+            blur_radius: 12.0,
         },
         ..Default::default()
     }
 }
 
-/// Floating pill (zoom level, page counter, toasts).
+/// A tooltip.
 pub fn pill(theme: &Theme) -> container::Style {
-    let p = theme.extended_palette();
     container::Style {
-        background: Some(p.background.weak.color.scale_alpha(0.96).into()),
-        text_color: Some(p.background.weak.text),
-        border: Border { radius: 999.0.into(), width: 1.0, color: p.background.strong.color.scale_alpha(0.5) },
-        shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.2), offset: Vector::new(0.0, 2.0), blur_radius: 8.0 },
+        background: Some(surface(theme).into()),
+        text_color: Some(text_color(theme)),
+        border: Border { radius: 6.0.into(), width: 1.0, color: hairline(theme) },
+        shadow: float_shadow(theme),
         ..Default::default()
     }
 }
 
+/// A message about a problem: a floating panel with the danger colour as its accent.
 pub fn toast_error(theme: &Theme) -> container::Style {
     let p = theme.extended_palette();
     container::Style {
-        background: Some(p.danger.weak.color.into()),
-        text_color: Some(p.danger.weak.text),
-        border: Border { radius: 10.0.into(), ..Default::default() },
-        shadow: Shadow {
-            color: Color::from_rgba(0.0, 0.0, 0.0, 0.25),
-            offset: Vector::new(0.0, 2.0),
-            blur_radius: 10.0,
-        },
+        background: Some(surface(theme).into()),
+        text_color: Some(p.danger.base.color),
+        border: Border { radius: PANEL_RADIUS.into(), width: 1.0, color: p.danger.base.color.scale_alpha(0.35) },
+        shadow: float_shadow(theme),
         ..Default::default()
     }
 }
 
-/// Flat icon button that lights up on hover, like a GNOME/macOS toolbar.
+/// A quiet icon button: nothing until hovered.
 pub fn tool(theme: &Theme, status: button::Status) -> button::Style {
-    let p = theme.extended_palette();
     let bg = match status {
-        button::Status::Hovered => Some(p.background.weak.color),
-        button::Status::Pressed => Some(p.background.strong.color),
+        button::Status::Hovered => Some(wash(theme, 0.07)),
+        button::Status::Pressed => Some(wash(theme, 0.12)),
         _ => None,
     };
     button::Style {
         background: bg.map(Background::Color),
         text_color: if status == button::Status::Disabled {
-            p.background.base.text.scale_alpha(0.35)
+            text_color(theme).scale_alpha(0.35)
         } else {
-            p.background.base.text
+            text_color(theme)
         },
-        border: Border { radius: 8.0.into(), ..Default::default() },
+        border: Border { radius: RADIUS.into(), ..Default::default() },
         ..Default::default()
     }
 }
 
-/// Toggled-on variant of [`tool`].
+/// An icon button that is switched on: a soft accent wash.
 pub fn tool_active(theme: &Theme, status: button::Status) -> button::Style {
-    let p = theme.extended_palette();
+    let a = accent(theme);
     button::Style {
-        background: Some(
-            p.primary.weak.color.scale_alpha(if status == button::Status::Hovered { 0.45 } else { 0.3 }).into(),
-        ),
-        text_color: p.background.base.text,
-        border: Border { radius: 8.0.into(), ..Default::default() },
+        background: Some(a.scale_alpha(if status == button::Status::Hovered { 0.24 } else { 0.16 }).into()),
+        text_color: text_color(theme),
+        border: Border { radius: RADIUS.into(), ..Default::default() },
         ..Default::default()
     }
 }
 
-/// Large, filled call-to-action button (empty state).
+/// The one button that does the main thing.
 pub fn primary(theme: &Theme, status: button::Status) -> button::Style {
-    let mut s = button::primary(theme, status);
-    s.border.radius = 10.0.into();
-    s
-}
-
-pub fn secondary(theme: &Theme, status: button::Status) -> button::Style {
     let p = theme.extended_palette();
     let bg = match status {
-        button::Status::Hovered => p.background.strong.color,
-        button::Status::Pressed => p.background.stronger.color,
-        _ => p.background.weak.color,
+        button::Status::Hovered => p.primary.strong.color,
+        button::Status::Disabled => p.primary.base.color.scale_alpha(0.35),
+        _ => p.primary.base.color,
     };
     button::Style {
         background: Some(bg.into()),
-        text_color: p.background.base.text,
-        border: Border { radius: 10.0.into(), ..Default::default() },
+        text_color: if status == button::Status::Disabled {
+            p.primary.base.text.scale_alpha(0.6)
+        } else {
+            p.primary.base.text
+        },
+        border: Border { radius: RADIUS.into(), ..Default::default() },
         ..Default::default()
     }
 }
 
-/// A thumbnail in the file strip; the current one gets an accent ring.
+pub fn secondary(theme: &Theme, status: button::Status) -> button::Style {
+    let bg = match status {
+        button::Status::Hovered => wash(theme, 0.10),
+        button::Status::Pressed => wash(theme, 0.14),
+        _ => wash(theme, 0.06),
+    };
+    button::Style {
+        background: Some(bg.into()),
+        text_color: if status == button::Status::Disabled {
+            text_color(theme).scale_alpha(0.4)
+        } else {
+            text_color(theme)
+        },
+        border: Border { radius: RADIUS.into(), ..Default::default() },
+        ..Default::default()
+    }
+}
+
+/// A row of the file list or the contents: a faint wash when hovered or chosen.
 pub fn thumb(selected: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     move |theme, status| {
-        let p = theme.extended_palette();
-        let ring = if selected {
-            p.primary.base.color
-        } else if status == button::Status::Hovered {
-            p.background.strong.color
-        } else {
-            Color::TRANSPARENT
+        let bg = match (selected, status) {
+            (true, _) => Some(wash(theme, 0.06)),
+            (false, button::Status::Hovered) => Some(wash(theme, 0.04)),
+            _ => None,
         };
         button::Style {
-            background: Some(if selected { p.primary.weak.color.scale_alpha(0.25) } else { Color::TRANSPARENT }.into()),
-            text_color: p.background.base.text,
-            border: Border { radius: 8.0.into(), width: 2.0, color: ring },
+            background: bg.map(Background::Color),
+            text_color: text_color(theme),
+            border: Border { radius: 10.0.into(), ..Default::default() },
             ..Default::default()
         }
     }
 }
 
-pub fn thumb_placeholder(theme: &Theme) -> container::Style {
-    let p = theme.extended_palette();
-    container::Style {
-        background: Some(p.background.weak.color.into()),
-        border: Border { radius: 4.0.into(), ..Default::default() },
+/// The frame of a thumbnail: an accent ring around the file on screen.
+pub fn thumb_frame(selected: bool) -> impl Fn(&Theme) -> container::Style {
+    move |theme| container::Style {
+        border: Border {
+            radius: 7.0.into(),
+            width: if selected { 2.0 } else { 0.0 },
+            color: if selected { accent(theme) } else { Color::TRANSPARENT },
+        },
         ..Default::default()
     }
 }
 
-/// Symbolic icons take the text colour, like GTK's symbolic icons.
-pub fn icon(theme: &Theme, status: svg::Status) -> svg::Style {
-    let p = theme.extended_palette();
-    let _ = status;
-    svg::Style { color: Some(p.background.base.text) }
+pub fn thumb_placeholder(theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(wash(theme, 0.05).into()),
+        border: Border { radius: 5.0.into(), ..Default::default() },
+        ..Default::default()
+    }
+}
+
+/// Symbolic icons take the text colour.
+pub fn icon(theme: &Theme, _status: svg::Status) -> svg::Style {
+    svg::Style { color: Some(text_color(theme).scale_alpha(0.85)) }
 }
 
 pub fn icon_muted(theme: &Theme, _status: svg::Status) -> svg::Style {
-    let p = theme.extended_palette();
-    svg::Style { color: Some(p.background.base.text.scale_alpha(0.45)) }
+    svg::Style { color: Some(text_color(theme).scale_alpha(0.45)) }
+}
+
+pub fn icon_accent(theme: &Theme, _status: svg::Status) -> svg::Style {
+    svg::Style { color: Some(accent(theme)) }
 }
 
 pub fn icon_on_primary(theme: &Theme, _status: svg::Status) -> svg::Style {
@@ -213,32 +280,38 @@ pub fn highlight(current: bool) -> impl Fn(&Theme) -> container::Style {
     }
 }
 
-/// Floating panel, such as the search bar.
+/// Something floating: menus, dialogs, the search bar, tool islands.
 pub fn panel(theme: &Theme) -> container::Style {
-    let p = theme.extended_palette();
     container::Style {
-        background: Some(p.background.base.color.into()),
-        text_color: Some(p.background.base.text),
-        border: Border { radius: 12.0.into(), width: 1.0, color: p.background.strong.color.scale_alpha(0.6) },
-        shadow: Shadow {
-            color: Color::from_rgba(0.0, 0.0, 0.0, if p.is_dark { 0.5 } else { 0.15 }),
-            offset: Vector::new(0.0, 3.0),
-            blur_radius: 14.0,
-        },
+        background: Some(surface(theme).into()),
+        text_color: Some(text_color(theme)),
+        border: Border { radius: PANEL_RADIUS.into(), width: 1.0, color: hairline(theme) },
+        shadow: float_shadow(theme),
         ..Default::default()
     }
 }
 
-/// Segmented switch button (sidebar tabs).
+/// A small tab or chip: the chosen one has a faint wash, the others are quiet.
 pub fn segment(selected: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
-    move |theme, status| if selected { tool_active(theme, status) } else { tool(theme, status) }
+    move |theme, status| {
+        let bg = match (selected, status) {
+            (true, _) => Some(wash(theme, 0.09)),
+            (false, button::Status::Hovered) => Some(wash(theme, 0.05)),
+            _ => None,
+        };
+        button::Style {
+            background: bg.map(Background::Color),
+            text_color: if selected { text_color(theme) } else { text_color(theme).scale_alpha(0.6) },
+            border: Border { radius: RADIUS.into(), ..Default::default() },
+            ..Default::default()
+        }
+    }
 }
 
 /// Selected text on a PDF page.
 pub fn selection(theme: &Theme) -> container::Style {
-    let p = theme.extended_palette();
     container::Style {
-        background: Some(Color { a: 0.32, ..p.primary.base.color }.into()),
+        background: Some(Color::from_rgba(0.26, 0.52, 0.96, if is_dark(theme) { 0.38 } else { 0.30 }).into()),
         border: Border { radius: 1.5.into(), ..Default::default() },
         ..Default::default()
     }
@@ -280,8 +353,9 @@ pub fn text_box(
 }
 
 /// The dimmed backdrop and card of a confirmation dialog.
-pub fn scrim(_theme: &Theme) -> container::Style {
-    container::Style { background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.35).into()), ..Default::default() }
+pub fn scrim(theme: &Theme) -> container::Style {
+    let a = if is_dark(theme) { 0.5 } else { 0.25 };
+    container::Style { background: Some(Color::from_rgba(0.0, 0.0, 0.0, a).into()), ..Default::default() }
 }
 
 /// The tint of a form field waiting to be filled in, as most PDF viewers show it.
@@ -378,15 +452,14 @@ pub fn drop_slot(theme: &Theme, target: bool) -> container::Style {
 
 /// A floating control over the picture, faded by `alpha` while it appears and disappears.
 pub fn floating(theme: &Theme, status: button::Status, alpha: f32, radius: f32) -> button::Style {
-    let p = theme.extended_palette();
     let bg = match status {
-        button::Status::Hovered => p.background.strong.color,
-        button::Status::Pressed => p.background.stronger.color,
-        _ => Color { a: 0.0, ..p.background.base.color },
+        button::Status::Hovered => wash(theme, 0.08),
+        button::Status::Pressed => wash(theme, 0.13),
+        _ => Color::TRANSPARENT,
     };
     button::Style {
         background: Some(Color { a: bg.a * alpha, ..bg }.into()),
-        text_color: p.background.base.text.scale_alpha(alpha),
+        text_color: text_color(theme).scale_alpha(alpha),
         border: Border { radius: radius.into(), ..Default::default() },
         ..Default::default()
     }
@@ -394,47 +467,66 @@ pub fn floating(theme: &Theme, status: button::Status, alpha: f32, radius: f32) 
 
 /// The rounded panel behind floating controls.
 pub fn floating_panel(theme: &Theme, alpha: f32) -> container::Style {
-    let p = theme.extended_palette();
+    let shadow = float_shadow(theme);
     container::Style {
-        background: Some(p.background.base.color.scale_alpha(0.92 * alpha).into()),
-        border: Border { radius: 14.0.into(), width: 1.0, color: p.background.strong.color.scale_alpha(0.5 * alpha) },
-        shadow: Shadow {
-            color: Color::from_rgba(0.0, 0.0, 0.0, if p.is_dark { 0.45 } else { 0.15 } * alpha),
-            offset: Vector::new(0.0, 3.0),
-            blur_radius: 14.0,
-        },
+        background: Some(surface(theme).scale_alpha(0.96 * alpha).into()),
+        border: Border { radius: PANEL_RADIUS.into(), width: 1.0, color: hairline(theme).scale_alpha(alpha) },
+        shadow: Shadow { color: shadow.color.scale_alpha(alpha), ..shadow },
         ..Default::default()
     }
 }
 
 /// A round floating button with its own backdrop (the previous/next arrows).
 pub fn floating_disc(theme: &Theme, status: button::Status, alpha: f32) -> button::Style {
-    let p = theme.extended_palette();
-    let bg = match status {
-        button::Status::Hovered | button::Status::Pressed => p.background.weak.color,
-        _ => p.background.base.color,
-    };
+    let shadow = float_shadow(theme);
+    let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+    let bg = if hovered { color_mix(surface(theme), text_color(theme), 0.08) } else { surface(theme) };
     button::Style {
-        background: Some(bg.scale_alpha(0.92 * alpha).into()),
-        text_color: p.background.base.text.scale_alpha(alpha),
-        border: Border { radius: 22.0.into(), width: 1.0, color: p.background.strong.color.scale_alpha(0.5 * alpha) },
-        shadow: Shadow {
-            color: Color::from_rgba(0.0, 0.0, 0.0, if p.is_dark { 0.45 } else { 0.15 } * alpha),
-            offset: Vector::new(0.0, 2.0),
-            blur_radius: 10.0,
-        },
+        background: Some(bg.scale_alpha(0.96 * alpha).into()),
+        text_color: text_color(theme).scale_alpha(alpha),
+        border: Border { radius: 22.0.into(), width: 1.0, color: hairline(theme).scale_alpha(alpha) },
+        shadow: Shadow { color: shadow.color.scale_alpha(alpha), ..shadow },
         ..Default::default()
     }
 }
 
+fn color_mix(a: Color, b: Color, t: f32) -> Color {
+    Color::from_rgba(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, a.a)
+}
+
 /// A line of a drop-down menu.
 pub fn menu_item(theme: &Theme, status: button::Status) -> button::Style {
-    let p = theme.extended_palette();
     button::Style {
         background: matches!(status, button::Status::Hovered | button::Status::Pressed)
-            .then(|| p.background.weak.color.into()),
-        text_color: p.background.base.text,
+            .then(|| wash(theme, 0.07).into()),
+        text_color: text_color(theme),
         border: Border { radius: 6.0.into(), ..Default::default() },
         ..Default::default()
+    }
+}
+
+/// A thin, quiet scrollbar that shows itself more when used.
+pub fn scrollbar(theme: &Theme, status: iced::widget::scrollable::Status) -> iced::widget::scrollable::Style {
+    use iced::widget::scrollable::{AutoScroll, Rail, Scroller, Status, Style};
+    let active = !matches!(status, Status::Active { .. });
+    let rail = Rail {
+        background: None,
+        border: Border::default(),
+        scroller: Scroller {
+            background: wash(theme, if active { 0.35 } else { 0.18 }).into(),
+            border: Border { radius: 4.0.into(), ..Default::default() },
+        },
+    };
+    Style {
+        container: container::Style::default(),
+        vertical_rail: rail,
+        horizontal_rail: rail,
+        gap: None,
+        auto_scroll: AutoScroll {
+            background: surface(theme).into(),
+            border: Border { radius: 999.0.into(), width: 1.0, color: hairline(theme) },
+            shadow: float_shadow(theme),
+            icon: text_color(theme),
+        },
     }
 }

@@ -8,9 +8,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use iced::widget::{
-    Id, button, canvas, center, column, container, operation, row, scrollable, space, text, text_editor,
-};
+use iced::widget::{Id, button, canvas, center, column, container, operation, row, space, text, text_editor};
 use iced::{Alignment, Element, Font, Length, Task};
 
 use super::overlay::{Capture, Overlay};
@@ -884,7 +882,7 @@ impl App {
         };
         let is_pdf = matches!(self.doc, Doc::Pdf(_));
         let highlight_label = if is_pdf { "Highlight text" } else { "Highlight" };
-        let mut tools = row![
+        let tools = row![
             tool(Tool::Select, icons::select(), "Select, move and resize"),
             tool(Tool::Highlight, icons::highlighter(), highlight_label),
             tool(Tool::Pen, icons::pen(), "Pen"),
@@ -893,10 +891,11 @@ impl App {
             tool(Tool::Line, icons::line(), "Line"),
             tool(Tool::Arrow, icons::arrow(), "Arrow"),
             tool(Tool::Text, icons::text_tool(), "Text"),
-            separator(),
         ]
         .spacing(2)
         .align_y(Alignment::Center);
+        // Colour and size, shown only while they mean something: drawing, or something selected.
+        let mut looks = row![].spacing(4).align_y(Alignment::Center);
 
         let current = match self.selected_shape() {
             Some(Shape::Highlight(_)) => self.editor.highlight_color,
@@ -917,20 +916,21 @@ impl App {
                 .height(22)
                 .style(style::swatch(iced::Color::from_rgb(c.r, c.g, c.b), chosen))
                 .on_press(Message::Markup(MarkupMsg::Swatch(i)));
-            tools = tools.push(super::tip(dot.into(), *name));
+            looks = looks.push(super::tip(dot.into(), *name));
         }
-        tools = tools.push(separator());
+        looks = looks.push(separator());
         let text_mode = self.editor.tool == Tool::Text || matches!(self.selected_shape(), Some(Shape::Text { .. }));
         if text_mode {
             for (i, (label, size)) in
                 [("Small text", 12), ("Medium text", 15), ("Large text", 19)].into_iter().enumerate()
             {
-                let glyph = text("A").size(size).font(Font { weight: iced::font::Weight::Semibold, ..Font::DEFAULT });
+                let glyph =
+                    text("A").size(size).font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT });
                 let b = button(center(glyph).width(30).height(36))
                     .padding(0)
                     .style(if self.size_level == i { style::tool_active } else { style::tool })
                     .on_press(Message::Markup(MarkupMsg::Size(i)));
-                tools = tools.push(super::tip(b.into(), label));
+                looks = looks.push(super::tip(b.into(), label));
             }
         } else {
             for (i, (icon, label)) in [
@@ -941,7 +941,7 @@ impl App {
             .into_iter()
             .enumerate()
             {
-                tools = tools.push(icon_button(
+                looks = looks.push(icon_button(
                     icon,
                     label,
                     Some(Message::Markup(MarkupMsg::Width(i))),
@@ -989,7 +989,7 @@ impl App {
         };
         let save = button(text(save_label).size(13)).padding([6, 14]).style(style::primary).on_press_maybe(save_msg);
         let mut end = row![text(status).size(12).style(muted), super::tip(save.into(), save_tip)]
-            .spacing(8)
+            .spacing(6)
             .align_y(Alignment::Center);
         if is_pdf {
             end = end.push(icon_button(
@@ -1000,15 +1000,17 @@ impl App {
             ));
         }
 
-        // On a narrow window the tools scroll sideways; saving always stays in reach.
-        let start = scrollable(row![tools, edit].spacing(4).align_y(Alignment::Center))
-            .direction(scrollable::Direction::Horizontal(scrollable::Scrollbar::new().width(0).scroller_width(0)))
-            .width(Length::Fill);
-        container(row![start, end].spacing(8).align_y(Alignment::Center).padding([0, 8]))
-            .height(46)
-            .align_y(Alignment::Center)
-            .style(style::bar)
-            .into()
+        // A floating island at the top of the view, and under it, while drawing or with
+        // something selected, a second one for colour and size.
+        let main = container(row![tools, edit, separator(), end].spacing(4).align_y(Alignment::Center))
+            .padding([4, 6])
+            .style(style::panel);
+        let drawing = self.editor.tool != Tool::Select || selected;
+        let mut islands = column![main].spacing(8).align_x(Alignment::Center);
+        if drawing {
+            islands = islands.push(container(looks).padding([4, 8]).style(style::panel));
+        }
+        islands.into()
     }
 
     pub(super) fn quit_dialog(&self) -> Element<'_, Message> {
@@ -1018,7 +1020,7 @@ impl App {
             column![
                 text("Quit without saving?")
                     .size(18)
-                    .font(Font { weight: iced::font::Weight::Semibold, ..Font::DEFAULT }),
+                    .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT }),
                 text(format!("{what} markup that is not saved. It will be lost.")).size(14).style(muted),
                 space().height(6),
                 row![

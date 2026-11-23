@@ -411,7 +411,7 @@ impl App {
         let e = |m: EditMsg| Some(Message::Edit(m));
         let content: Element<'_, Message> = if let Some(state) = &self.crop {
             let mut chips =
-                row![text("Crop").size(13).font(Font { weight: iced::font::Weight::Semibold, ..Font::DEFAULT })]
+                row![text("Crop").size(13).font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })]
                     .spacing(4)
                     .align_y(Alignment::Center);
             for (i, (label, _)) in ASPECTS.iter().enumerate() {
@@ -425,7 +425,7 @@ impl App {
             let px = format!("{} × {}", state.rect.w.round(), state.rect.h.round());
             row![
                 chips,
-                space().width(Length::Fill),
+                space().width(12),
                 text(px).size(12).style(muted),
                 button(text("Cancel").size(13))
                     .padding([6, 14])
@@ -482,7 +482,7 @@ impl App {
                     (!edit.edits.is_none()).then_some(Message::Edit(EditMsg::Reset)),
                     false
                 ),
-                space().width(Length::Fill),
+                super::separator(),
                 text(status).size(12).style(muted),
                 tip(save.into(), "Save the edited picture as a new file (Ctrl+S)"),
             ]
@@ -490,7 +490,7 @@ impl App {
             .align_y(Alignment::Center)
             .into()
         };
-        container(container(content).padding([0, 8])).height(46).align_y(Alignment::Center).style(style::bar).into()
+        container(content).padding([4, 6]).style(style::panel).into()
     }
 
     pub(super) fn adjust_panel(&self) -> Element<'_, Message> {
@@ -514,7 +514,9 @@ impl App {
         };
         let panel = container(
             column![
-                text("Light and colour").size(14).font(Font { weight: iced::font::Weight::Semibold, ..Font::DEFAULT }),
+                text("Light and colour")
+                    .size(14)
+                    .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT }),
                 line("Exposure", a.exposure, -2.0..=2.0, |a, v| Adjustments { exposure: v, ..a }),
                 line("Contrast", a.contrast, -1.0..=1.0, |a, v| Adjustments { contrast: v, ..a }),
                 line("Saturation", a.saturation, -1.0..=1.0, |a, v| Adjustments { saturation: v, ..a }),
@@ -530,7 +532,7 @@ impl App {
         container(panel)
             .width(Length::Fill)
             .align_x(Alignment::End)
-            .padding(Padding { top: TOOLBAR_H + 54.0, right: 16.0, ..Padding::ZERO })
+            .padding(Padding { top: TOOLBAR_H + 64.0, right: 16.0, ..Padding::ZERO })
             .into()
     }
 }
@@ -559,7 +561,7 @@ impl App {
         let ok = form.width.parse::<u32>().is_ok_and(|w| w > 0) && form.height.parse::<u32>().is_ok_and(|h| h > 0);
         let panel = container(
             column![
-                text("Resize").size(14).font(Font { weight: iced::font::Weight::Semibold, ..Font::DEFAULT }),
+                text("Resize").size(14).font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT }),
                 row![
                     field(&form.width, EditMsg::ResizeWidth),
                     text("×").size(14),
@@ -591,7 +593,7 @@ impl App {
         container(panel)
             .width(Length::Fill)
             .align_x(Alignment::End)
-            .padding(Padding { top: TOOLBAR_H + 54.0, right: 16.0, ..Padding::ZERO })
+            .padding(Padding { top: TOOLBAR_H + 64.0, right: 16.0, ..Padding::ZERO })
             .into()
     }
 }

@@ -38,7 +38,8 @@ The original Lumen is built on GTK 4, libadwaita and poppler. This edition:
 - **Folders:** open a folder, or open one file and flip through its neighbours. You can also drop files and folders onto the window. A sidebar on the left shows the files as big thumbnails with their names underneath, loaded lazily (only the rows on screen are built, so huge folders stay fast); camera JPEGs use their embedded EXIF thumbnail.
 - **Printing:** uses the desktop's native print dialog through the XDG print portal. PDFs are sent as they are. Pictures are fitted to the paper and margins you choose and sent as a one-page PDF at up to 300 dpi.
 - **A tidy header:** as in the GTK Lumen, the header has the sidebar and open buttons, the file's name, the markup and edit buttons, and a ☰ menu with everything else (print, fit, turn, fullscreen, sign, save, keyboard shortcuts, about), each with its shortcut.
-- **Light and dark mode:** follows the system colour scheme and switches live when you change it.
+- **A calm interface:** one surface for the header, sidebar and canvas; tools float as islands over the view (the markup island shows colours and sizes only while you draw); Lumen's amber marks only what is active. Set in Inter, bundled.
+- **Light and dark mode:** follows the system colour scheme and switches live when you change it (`LUMEN_THEME=light` or `dark` overrides it).
 - **Zoom and pan:** best fit, fit width (PDF), actual size, Ctrl + scroll wheel (around the pointer), pinch on a touchpad (Wayland; see `vendor/README.md`), and drag to pan. Zoom changes ease in. Moving the pointer over the picture fades in a zoom control at the bottom and previous/next arrows at the sides, as in the GTK Lumen; they fade out again when the pointer rests.
 - **Fast flipping:** the next and previous pictures are preloaded, and recently viewed ones are kept decoded.
 - **Robust:** decoding runs under allocation limits, and a panic while decoding or rendering a hostile file becomes an error message instead of a crash.
@@ -121,7 +122,8 @@ xdg-mime default io.github.imanolgo.LumenRs.desktop application/pdf
 | `src/portal.rs` | Native file and folder choosers (XDG portal) |
 | `src/cups.rs` | Printing straight to CUPS without a portal: a small IPP client |
 | `src/app/chooser.rs`, `src/app/printing.rs` | Lumen's own file chooser and print dialog, for desktops without a portal |
-| `src/style.rs`, `src/icons.rs` | Light and dark palettes, widget styles, symbolic icons |
+| `src/style.rs`, `src/icons.rs` | Design tokens (surfaces, accent, radii, type), widget styles, symbolic icons |
+| `assets/fonts` | Inter (Latin), under the SIL Open Font License (`OFL.txt`) |
 
 Run `make test` and `make lint` before sending changes.
 

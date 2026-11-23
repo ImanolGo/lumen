@@ -47,12 +47,12 @@ use hayro::kurbo::{Point as PagePoint, Rect};
 
 // ---------------------------------------------------------------- constants
 
-const TOOLBAR_H: f32 = 52.0;
-const SIDEBAR_W: f32 = 220.0;
+const TOOLBAR_H: f32 = 48.0;
+const SIDEBAR_W: f32 = 196.0;
 /// Height of one sidebar row; rows are fixed-height so the list can be virtualised.
-const ROW_H: f32 = 150.0;
+const ROW_H: f32 = 140.0;
 /// Height of the picture in a sidebar row; the file name goes underneath.
-const ROW_THUMB: f32 = 112.0;
+const ROW_THUMB: f32 = 102.0;
 /// How long a zoom change takes to ease in.
 const ZOOM_EASE: Duration = Duration::from_millis(170);
 /// How long the floating controls stay after the pointer stops moving.
@@ -656,6 +656,12 @@ impl App {
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::SystemTheme(mode) => {
+                // LUMEN_THEME=light or dark overrides the system's choice.
+                let mode = match std::env::var("LUMEN_THEME").as_deref() {
+                    Ok("light") => Mode::Light,
+                    Ok("dark") => Mode::Dark,
+                    _ => mode,
+                };
                 self.mode = mode;
                 self.theme = style::theme(mode);
                 Task::none()
@@ -2022,8 +2028,13 @@ fn icon_button<'a>(
     active: bool,
 ) -> Element<'a, Message> {
     let enabled = on_press.is_some();
-    let glyph = svg(handle).width(20).height(20).style(if enabled { style::icon } else { style::icon_muted });
-    let b = button(center(glyph).width(36).height(36))
+    let look = match (enabled, active) {
+        (true, true) => style::icon_accent,
+        (true, false) => style::icon,
+        _ => style::icon_muted,
+    };
+    let glyph = svg(handle).width(18).height(18).style(look);
+    let b = button(center(glyph).width(32).height(32))
         .padding(0)
         .style(if active { style::tool_active } else { style::tool })
         .on_press_maybe(on_press);
@@ -2057,6 +2068,20 @@ impl App {
         if let Some(controls) = self.floating_controls() {
             view_area = view_area.push(controls);
         }
+        // Tools float on the view as islands at its top, not as bars across the window.
+        let island: Option<Element<'_, Message>> = if self.organizer.is_some() {
+            Some(self.pages_bar())
+        } else if self.edit_open && matches!(self.doc, Doc::Image(_)) {
+            Some(self.edit_bar())
+        } else if self.markup_open && matches!(self.doc, Doc::Image(_) | Doc::Pdf(_)) {
+            Some(self.markup_bar())
+        } else {
+            None
+        };
+        if let Some(island) = island.filter(|_| !self.fullscreen) {
+            view_area =
+                view_area.push(container(island).width(Length::Fill).align_x(Alignment::Center).padding([10, 16]));
+        }
         let content = mouse_area(view_area).on_move(Message::Pointer).on_exit(Message::PointerLeft);
 
         let mut body = row![];
@@ -2078,14 +2103,6 @@ impl App {
         let mut layout = column![];
         if !self.fullscreen {
             layout = layout.push(self.toolbar());
-            if self.organizer.is_some() {
-                layout = layout.push(self.pages_bar());
-            } else if self.markup_open && matches!(self.doc, Doc::Image(_) | Doc::Pdf(_)) {
-                layout = layout.push(self.markup_bar());
-            }
-            if self.edit_open && matches!(self.doc, Doc::Image(_)) {
-                layout = layout.push(self.edit_bar());
-            }
         }
         layout = layout.push(body.height(Length::Fill));
 
@@ -2125,7 +2142,7 @@ impl App {
         if let Some((_, msg, error)) = &self.toast {
             let look = if *error { style::toast_error } else { style::panel };
             layers = layers.push(
-                container(container(text(msg.as_str()).size(14)).padding([10, 16]).style(look))
+                container(container(text(msg.as_str()).size(13)).padding([9, 14]).style(look))
                     .width(Length::Fill)
                     .height(Length::Fill)
                     .align_x(Alignment::Center)
@@ -2146,8 +2163,8 @@ impl App {
 
         let mut left = row![].spacing(2).align_y(Alignment::Center);
         if self.sidebar_shows().is_some() {
-            left =
-                left.push(icon_button(icons::strip(), "Sidebar (T)", Some(Message::ToggleSidebar), self.show_sidebar));
+            // Usually on, so it stays quiet rather than lit.
+            left = left.push(icon_button(icons::strip(), "Sidebar (T)", Some(Message::ToggleSidebar), false));
         }
         let open = button(
             row![
@@ -2179,7 +2196,7 @@ impl App {
         let mut titles = column![
             text(title)
                 .size(15)
-                .font(Font { weight: iced::font::Weight::Semibold, ..Font::DEFAULT })
+                .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
                 .wrapping(text::Wrapping::None),
         ]
         .align_x(Alignment::Center)
@@ -2320,10 +2337,11 @@ impl App {
         let scroller = scrollable(canvas)
             .id(scroll_id())
             .direction(scrollable::Direction::Both {
-                vertical: scrollable::Scrollbar::new(),
-                horizontal: scrollable::Scrollbar::new(),
+                vertical: scrollable::Scrollbar::new().width(8).scroller_width(6),
+                horizontal: scrollable::Scrollbar::new().width(8).scroller_width(6),
             })
             .on_scroll(on_scroll)
+            .style(style::scrollbar)
             .width(Length::Fill)
             .height(Length::Fill);
         let can_pan = w > self.area.width || h > self.area.height;
@@ -2432,16 +2450,17 @@ impl App {
         let wide = view.content_width() > self.area.width + 1.0;
         let direction = if wide {
             scrollable::Direction::Both {
-                vertical: scrollable::Scrollbar::new(),
-                horizontal: scrollable::Scrollbar::new(),
+                vertical: scrollable::Scrollbar::new().width(8).scroller_width(6),
+                horizontal: scrollable::Scrollbar::new().width(8).scroller_width(6),
             }
         } else {
-            scrollable::Direction::Vertical(scrollable::Scrollbar::new())
+            scrollable::Direction::Vertical(scrollable::Scrollbar::new().width(8).scroller_width(6))
         };
         let scroller = scrollable(pages)
             .id(scroll_id())
             .direction(direction)
             .on_scroll(on_scroll)
+            .style(style::scrollbar)
             .width(Length::Fill)
             .height(Length::Fill);
         self.pannable(scroller.into(), true)
@@ -2457,17 +2476,17 @@ impl App {
         let mut col = column![];
         if self.files.len() > 1 && self.has_contents() {
             let segment = |label: &'static str, this: SidebarTab| {
-                button(text(label).size(13).width(Length::Fill).align_x(Alignment::Center))
-                    .padding([5, 8])
+                button(text(label).size(12).width(Length::Fill).align_x(Alignment::Center))
+                    .padding([4, 8])
                     .width(Length::Fill)
                     .style(style::segment(tab == this))
                     .on_press(Message::SidebarTab(this))
             };
             col = col.push(
                 container(
-                    row![segment("Files", SidebarTab::Files), segment("Contents", SidebarTab::Contents)].spacing(4),
+                    row![segment("Files", SidebarTab::Files), segment("Contents", SidebarTab::Contents)].spacing(2),
                 )
-                .padding([8, 8]),
+                .padding([6, 10]),
             );
         }
         container(col.push(list)).width(SIDEBAR_W).height(Length::Fill).style(style::bar).into()
@@ -2493,7 +2512,7 @@ impl App {
                 space().width(item.depth.min(6) as f32 * 14.0),
                 container(text(item.title.as_str()).size(13).wrapping(text::Wrapping::None).font(Font {
                     weight: if strong { iced::font::Weight::Semibold } else { iced::font::Weight::Normal },
-                    ..Font::DEFAULT
+                    ..crate::style::FONT
                 }))
                 .width(Length::Fill)
                 .clip(true),
@@ -2523,6 +2542,7 @@ impl App {
         scrollable(list.width(Length::Fill))
             .id(contents_id())
             .direction(scrollable::Direction::Vertical(scrollable::Scrollbar::new().width(4).scroller_width(4)))
+            .style(style::scrollbar)
             .on_scroll(|vp| Message::ContentsScrolled(vp.absolute_offset().y, vp.bounds().height))
             .height(Length::Fill)
             .into()
@@ -2591,27 +2611,38 @@ impl App {
                 }
                 _ => container(space()).width(Length::Fill).height(Length::Fill).style(style::thumb_placeholder).into(),
             };
-            // A big picture with the file name underneath, as in the GTK Lumen.
+            // A big picture with the file name underneath, as in the GTK Lumen. The file on
+            // screen gets an accent ring and a stronger name; nothing is filled in.
+            let current = i == self.current;
             let name = text(file_name(path))
-                .size(12)
+                .size(11)
+                .font(style::font(if current { iced::font::Weight::Medium } else { iced::font::Weight::Normal }))
                 .wrapping(text::Wrapping::None)
                 .align_x(Alignment::Center)
-                .width(Length::Fill);
-            let content = column![
-                container(thumb).width(Length::Fill).height(ROW_THUMB),
-                container(name).width(Length::Fill).clip(true),
-            ]
-            .spacing(6);
+                .width(Length::Fill)
+                .style(move |t: &Theme| text::Style {
+                    color: Some(t.extended_palette().background.base.text.scale_alpha(if current {
+                        1.0
+                    } else {
+                        0.55
+                    })),
+                });
+            let framed = container(container(thumb).width(Length::Fill).height(Length::Fill))
+                .padding(3)
+                .width(Length::Fill)
+                .height(ROW_THUMB)
+                .style(style::thumb_frame(current));
+            let content = column![framed, container(name).width(Length::Fill).clip(true)].spacing(5);
             list = list.push(
                 container(
                     button(content)
-                        .padding(6)
+                        .padding(4)
                         .width(Length::Fill)
                         .height(Length::Fill)
-                        .style(style::thumb(i == self.current))
+                        .style(style::thumb(false))
                         .on_press(Message::Select(i)),
                 )
-                .padding([3, 8])
+                .padding([2, 8])
                 .height(ROW_H),
             );
         }
@@ -2619,6 +2650,7 @@ impl App {
         scrollable(list.width(Length::Fill))
             .id(sidebar_id())
             .direction(scrollable::Direction::Vertical(scrollable::Scrollbar::new().width(4).scroller_width(4)))
+            .style(style::scrollbar)
             .on_scroll(|vp| Message::SidebarScrolled(vp.absolute_offset().y, vp.bounds().height))
             .height(Length::Fill)
             .into()
@@ -2626,33 +2658,48 @@ impl App {
 
     fn empty_state(&self) -> Element<'_, Message> {
         let open = button(
-            row![svg(icons::open()).width(18).height(18).style(style::icon_on_primary), text("Open Files…").size(15)]
+            row![svg(icons::open()).width(16).height(16).style(style::icon_on_primary), text("Open Files…").size(14)]
                 .spacing(8)
                 .align_y(Alignment::Center),
         )
-        .padding([10, 18])
+        .padding([9, 16])
         .style(style::primary)
         .on_press(Message::Open { folder: false });
-        let folder = button(
-            row![svg(icons::folder()).width(18).height(18).style(style::icon), text("Open Folder…").size(15)]
-                .spacing(8)
-                .align_y(Alignment::Center),
-        )
-        .padding([10, 18])
-        .style(style::secondary)
-        .on_press(Message::Open { folder: true });
-
+        let folder = button(text("Open a Folder").size(14))
+            .padding([9, 14])
+            .style(style::tool)
+            .on_press(Message::Open { folder: true });
+        let key = |k: &'static str| {
+            container(text(k).size(11).font(style::font(iced::font::Weight::Medium))).padding([2, 6]).style(
+                |t: &Theme| container::Style {
+                    border: iced::Border {
+                        radius: 4.0.into(),
+                        width: 1.0,
+                        color: t.extended_palette().background.base.text.scale_alpha(0.18),
+                    },
+                    ..Default::default()
+                },
+            )
+        };
         center(
             column![
-                svg(icons::app()).width(112).height(112),
-                text("Lumen").size(30).font(Font { weight: iced::font::Weight::Bold, ..Font::DEFAULT }),
-                text("A fast, safe viewer for pictures and PDFs").size(15).style(muted),
-                space().height(8),
-                row![open, folder].spacing(12),
-                space().height(4),
-                text("or drop files and folders anywhere").size(13).style(muted),
+                svg(icons::app()).width(84).height(84),
+                space().height(6),
+                text("Lumen").size(24).font(style::font(iced::font::Weight::Semibold)),
+                text("Pictures and PDFs, fast and simple").size(14).style(muted),
+                space().height(14),
+                row![open, folder].spacing(8),
+                space().height(14),
+                row![
+                    key("Ctrl O"),
+                    text("open").size(12).style(muted),
+                    space().width(8),
+                    text("or drop files and folders here").size(12).style(muted),
+                ]
+                .spacing(6)
+                .align_y(Alignment::Center),
             ]
-            .spacing(10)
+            .spacing(6)
             .align_x(Alignment::Center),
         )
         .into()
@@ -2749,7 +2796,7 @@ impl App {
         let percent = button(
             text(label)
                 .size(15)
-                .font(Font { weight: iced::font::Weight::Semibold, ..Font::DEFAULT })
+                .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
                 .width(70)
                 .align_x(Alignment::Center)
                 .style(move |t: &Theme| text::Style {

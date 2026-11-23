@@ -559,7 +559,7 @@ impl App {
                     .on_press_maybe(can.then_some(m(ChooserMsg::Confirm))),
             );
         let mut card = column![
-            text(c.purpose.title()).size(18).font(Font { weight: iced::font::Weight::Semibold, ..Font::DEFAULT }),
+            text(c.purpose.title()).size(18).font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT }),
             bar,
             row![side, listing].spacing(12),
         ]

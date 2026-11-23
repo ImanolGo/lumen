@@ -133,7 +133,7 @@ impl App {
         let p = |m: PrintMsg| Message::Printing(m);
         let title = text(format!("Print “{}”", super::file_name(&dialog.path)))
             .size(18)
-            .font(Font { weight: iced::font::Weight::Semibold, ..Font::DEFAULT });
+            .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT });
         let label = |t: &'static str| text(t).size(13).width(110);
         let body: Element<'_, Message> = match &dialog.printers {
             None => text("Looking for printers…").size(14).style(muted).into(),

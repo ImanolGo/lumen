@@ -192,7 +192,7 @@ impl App {
         let mut list = column![
             text(if self.sign_target.is_some() { "Sign this field" } else { "Add your signature" })
                 .size(14)
-                .font(Font { weight: iced::font::Weight::Semibold, ..Font::DEFAULT }),
+                .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT }),
         ]
         .spacing(8);
         if self.signatures.items.is_empty() {
@@ -235,7 +235,7 @@ impl App {
             column![
                 text("Draw your signature")
                     .size(18)
-                    .font(Font { weight: iced::font::Weight::Semibold, ..Font::DEFAULT }),
+                    .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT }),
                 text("It is kept for next time, on this computer only.").size(13).style(muted),
                 drawing,
                 row![
