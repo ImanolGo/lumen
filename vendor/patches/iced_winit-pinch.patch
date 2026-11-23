@@ -1,0 +1,25 @@
+diff --color -ruN a/src/conversion.rs b/src/conversion.rs
+--- a/src/conversion.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/conversion.rs	2026-11-23 12:04:33.298464735 +0100
+@@ -211,6 +211,10 @@
+                 }
+             }))
+         }
++        // Patched in by Lumen: touchpad pinches.
++        WindowEvent::PinchGesture { delta, .. } => {
++            Some(Event::Mouse(mouse::Event::Pinched { delta: delta as f32 }))
++        }
+         WindowEvent::MouseWheel { delta, .. } => match delta {
+             winit::event::MouseScrollDelta::LineDelta(delta_x, delta_y) => {
+                 Some(Event::Mouse(mouse::Event::WheelScrolled {
+diff --color -ruN a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/lib.rs	2026-11-23 12:05:30.939955688 +0100
+@@ -14,6 +14,7 @@
+ //! [`iced_runtime`]: https://github.com/iced-rs/iced/tree/0.14/runtime
+ //! [`winit`]: https://github.com/rust-windowing/winit
+ //! [`conversion`]: crate::conversion
++#![allow(deprecated)] // Lumen: vendored copy; upstream code, warnings from newer futures.
+ #![doc(
+     html_logo_url = "https://raw.githubusercontent.com/iced-rs/iced/9ab6923e943f784985e9ef9ca28b10278297225d/docs/logo.svg"
+ )]

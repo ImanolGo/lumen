@@ -1,0 +1,186 @@
+diff --color -ruN a/src/platform_impl/linux/wayland/seat/mod.rs b/src/platform_impl/linux/wayland/seat/mod.rs
+--- a/src/platform_impl/linux/wayland/seat/mod.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/platform_impl/linux/wayland/seat/mod.rs	2026-11-23 12:04:23.049199325 +0100
+@@ -24,6 +24,7 @@
+ mod text_input;
+ mod touch;
+ 
++pub use pointer::gestures::PointerGesturesState;
+ pub use pointer::relative_pointer::RelativePointerState;
+ pub use pointer::{PointerConstraintsState, WinitPointerData, WinitPointerDataExt};
+ pub use text_input::{TextInputState, ZwpTextInputV3Ext};
+@@ -49,6 +50,9 @@
+     /// The relative pointer bound on the seat.
+     relative_pointer: Option<ZwpRelativePointerV1>,
+ 
++    /// Touchpad pinches made with the pointer (patched in by Lumen).
++    pinch: Option<sctk::reexports::protocols::wp::pointer_gestures::zv1::client::zwp_pointer_gesture_pinch_v1::ZwpPointerGesturePinchV1>,
++
+     /// The keyboard bound on the seat.
+     keyboard_state: Option<KeyboardState>,
+ 
+@@ -122,6 +126,11 @@
+                     )
+                 });
+ 
++                seat_state.pinch = self
++                    .pointer_gestures
++                    .as_ref()
++                    .map(|gestures| gestures.get_pinch(themed_pointer.pointer(), queue_handle));
++
+                 let themed_pointer = Arc::new(themed_pointer);
+ 
+                 // Register cursor surface.
+@@ -175,6 +184,10 @@
+                     relative_pointer.destroy();
+                 }
+ 
++                if let Some(pinch) = seat_state.pinch.take() {
++                    pinch.destroy();
++                }
++
+                 if let Some(pointer) = seat_state.pointer.take() {
+                     let pointer_data = pointer.pointer().winit_data();
+ 
+diff --color -ruN a/src/platform_impl/linux/wayland/seat/pointer/gestures.rs b/src/platform_impl/linux/wayland/seat/pointer/gestures.rs
+--- a/src/platform_impl/linux/wayland/seat/pointer/gestures.rs	1970-01-01 01:00:00.000000000 +0100
++++ b/src/platform_impl/linux/wayland/seat/pointer/gestures.rs	2026-11-23 12:04:33.297548258 +0100
+@@ -0,0 +1,102 @@
++//! Touchpad pinch gestures (`zwp_pointer_gestures_v1`).
++//!
++//! Patched in by Lumen: winit 0.30 only reports pinch gestures on macOS and iOS. The
++//! compositor sends the total scale of the pinch since it began; winit's `PinchGesture`
++//! carries the change since the last event, as on macOS.
++
++use std::sync::Mutex;
++
++use sctk::globals::GlobalData;
++use sctk::reexports::client::globals::{BindError, GlobalList};
++use sctk::reexports::client::protocol::wl_pointer::WlPointer;
++use sctk::reexports::client::{delegate_dispatch, Connection, Dispatch, Proxy, QueueHandle};
++use sctk::reexports::protocols::wp::pointer_gestures::zv1::client::{
++    zwp_pointer_gesture_pinch_v1::{self, ZwpPointerGesturePinchV1},
++    zwp_pointer_gestures_v1::ZwpPointerGesturesV1,
++};
++
++use crate::event::{TouchPhase, WindowEvent};
++use crate::platform_impl::wayland::state::WinitState;
++use crate::platform_impl::wayland::{self, DeviceId, WindowId};
++
++/// The compositor's gesture manager.
++pub struct PointerGesturesState {
++    manager: ZwpPointerGesturesV1,
++}
++
++impl PointerGesturesState {
++    pub fn new(
++        globals: &GlobalList,
++        queue_handle: &QueueHandle<WinitState>,
++    ) -> Result<Self, BindError> {
++        let manager = globals.bind(queue_handle, 1..=3, GlobalData)?;
++        Ok(Self { manager })
++    }
++
++    /// Pinch gestures made with `pointer`.
++    pub fn get_pinch(
++        &self,
++        pointer: &WlPointer,
++        queue_handle: &QueueHandle<WinitState>,
++    ) -> ZwpPointerGesturePinchV1 {
++        self.manager.get_pinch_gesture(pointer, queue_handle, PinchData::default())
++    }
++}
++
++/// The window a pinch happens over, and its scale so far.
++#[derive(Default)]
++pub struct PinchData {
++    inner: Mutex<(Option<WindowId>, f64)>,
++}
++
++impl Dispatch<ZwpPointerGesturesV1, GlobalData, WinitState> for PointerGesturesState {
++    fn event(
++        _state: &mut WinitState,
++        _proxy: &ZwpPointerGesturesV1,
++        _event: <ZwpPointerGesturesV1 as Proxy>::Event,
++        _data: &GlobalData,
++        _conn: &Connection,
++        _qhandle: &QueueHandle<WinitState>,
++    ) {
++    }
++}
++
++impl Dispatch<ZwpPointerGesturePinchV1, PinchData, WinitState> for PointerGesturesState {
++    fn event(
++        state: &mut WinitState,
++        _proxy: &ZwpPointerGesturePinchV1,
++        event: <ZwpPointerGesturePinchV1 as Proxy>::Event,
++        data: &PinchData,
++        _conn: &Connection,
++        _qhandle: &QueueHandle<WinitState>,
++    ) {
++        let mut inner = data.inner.lock().unwrap_or_else(|e| e.into_inner());
++        let (window_id, delta, phase) = match event {
++            zwp_pointer_gesture_pinch_v1::Event::Begin { surface, .. } => {
++                let window_id = wayland::make_wid(&surface);
++                *inner = (Some(window_id), 1.0);
++                (window_id, 0.0, TouchPhase::Started)
++            },
++            zwp_pointer_gesture_pinch_v1::Event::Update { scale, .. } => {
++                let Some(window_id) = inner.0 else { return };
++                let delta = scale - inner.1;
++                inner.1 = scale;
++                (window_id, delta, TouchPhase::Moved)
++            },
++            zwp_pointer_gesture_pinch_v1::Event::End { cancelled, .. } => {
++                let Some(window_id) = inner.0.take() else { return };
++                let phase = if cancelled != 0 { TouchPhase::Cancelled } else { TouchPhase::Ended };
++                (window_id, 0.0, phase)
++            },
++            _ => return,
++        };
++        drop(inner);
++        let device_id = crate::event::DeviceId(crate::platform_impl::DeviceId::Wayland(DeviceId));
++        state
++            .events_sink
++            .push_window_event(WindowEvent::PinchGesture { device_id, delta, phase }, window_id);
++    }
++}
++
++delegate_dispatch!(WinitState: [ZwpPointerGesturesV1: GlobalData] => PointerGesturesState);
++delegate_dispatch!(WinitState: [ZwpPointerGesturePinchV1: PinchData] => PointerGesturesState);
+diff --color -ruN a/src/platform_impl/linux/wayland/seat/pointer/mod.rs b/src/platform_impl/linux/wayland/seat/pointer/mod.rs
+--- a/src/platform_impl/linux/wayland/seat/pointer/mod.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/platform_impl/linux/wayland/seat/pointer/mod.rs	2026-11-23 12:04:23.041168947 +0100
+@@ -33,6 +33,7 @@
+ use crate::platform_impl::wayland::state::WinitState;
+ use crate::platform_impl::wayland::{self, DeviceId, WindowId};
+ 
++pub mod gestures;
+ pub mod relative_pointer;
+ 
+ impl PointerHandler for WinitState {
+diff --color -ruN a/src/platform_impl/linux/wayland/state.rs b/src/platform_impl/linux/wayland/state.rs
+--- a/src/platform_impl/linux/wayland/state.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/platform_impl/linux/wayland/state.rs	2026-11-23 12:04:23.049474247 +0100
+@@ -97,6 +97,9 @@
+     /// Relative pointer.
+     pub relative_pointer: Option<RelativePointerState>,
+ 
++    /// Touchpad gestures (patched in by Lumen).
++    pub pointer_gestures: Option<crate::platform_impl::wayland::seat::PointerGesturesState>,
++
+     /// Pointer constraints to handle pointer locking and confining.
+     pub pointer_constraints: Option<Arc<PointerConstraintsState>>,
+ 
+@@ -182,6 +185,11 @@
+             text_input_state: TextInputState::new(globals, queue_handle).ok(),
+ 
+             relative_pointer: RelativePointerState::new(globals, queue_handle).ok(),
++            pointer_gestures: crate::platform_impl::wayland::seat::PointerGesturesState::new(
++                globals,
++                queue_handle,
++            )
++            .ok(),
+             pointer_constraints: PointerConstraintsState::new(globals, queue_handle)
+                 .map(Arc::new)
+                 .ok(),

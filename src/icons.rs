@@ -27,30 +27,14 @@ icon!(
     r#"<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 17v-6"/><path d="m9.5 13.5 2.5-2.5 2.5 2.5"/>"#
 );
 icon!(folder, r#"<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>"#);
-icon!(
-    print,
-    r#"<path d="M7 9V3h10v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M7 14h10v7H7z"/><circle cx="17.5" cy="12" r=".6" fill="black"/>"#
-);
 icon!(zoom_in, r#"<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/><path d="M11 8v6M8 11h6"/>"#);
 icon!(zoom_out, r#"<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/><path d="M8 11h6"/>"#);
-icon!(
-    fit,
-    r#"<path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/>"#
-);
-icon!(
-    fit_width,
-    r#"<path d="M3 5v14M21 5v14"/><path d="M7 12h10"/><path d="m9.5 9.5-2.5 2.5 2.5 2.5M14.5 9.5l2.5 2.5-2.5 2.5"/>"#
-);
 icon!(prev, r#"<path d="m15 18-6-6 6-6"/>"#);
 icon!(next, r#"<path d="m9 18 6-6-6-6"/>"#);
 icon!(up, r#"<path d="m18 15-6-6-6 6"/>"#);
 icon!(down, r#"<path d="m6 9 6 6 6-6"/>"#);
 icon!(rotate_left, r#"<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>"#);
 icon!(rotate_right, r#"<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>"#);
-icon!(
-    fullscreen,
-    r#"<path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/>"#
-);
 icon!(strip, r#"<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M5 8h2M5 11h2M5 14h2"/>"#);
 icon!(
     broken,
@@ -85,7 +69,6 @@ icon!(width_thin, r#"<path d="M5 12h14" stroke-width="1.2"/>"#);
 icon!(width_medium, r#"<path d="M5 12h14" stroke-width="3"/>"#);
 icon!(width_thick, r#"<path d="M5 12h14" stroke-width="5.5"/>"#);
 icon!(save_copy, r#"<path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4"/><path d="M8 20v-6h8v6"/>"#);
-icon!(signature, r#"<path d="M3 17c2-1 3.5-5 5-5s0 5 2 5 3-4 4.5-4 1 3 2.5 3 2-1 3-1.5"/><path d="M3 21h18"/>"#);
 icon!(
     lock,
     r#"<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><path d="M12 14v3"/>"#
@@ -109,3 +92,4 @@ icon!(
     r#"<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 11v6M9 14h6"/>"#
 );
 icon!(resize, r#"<rect x="3" y="11" width="10" height="10" rx="1"/><path d="M14 3h7v7"/><path d="m21 3-8 8"/>"#);
+icon!(menu, r#"<path d="M4 7h16M4 12h16M4 17h16"/>"#);

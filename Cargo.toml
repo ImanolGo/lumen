@@ -30,3 +30,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 lto = "thin"
 codegen-units = 1
 strip = true
+
+# Touchpad pinch gestures. winit 0.30 reports them only on macOS and iOS, and iced
+# 0.14 does not pass them on; these patched copies add Wayland pinches to winit
+# (zwp_pointer_gestures_v1) and a mouse::Event::Pinched to iced. See vendor/README.md.
+[patch.crates-io]
+winit = { path = "vendor/winit" }
+iced_core = { path = "vendor/iced_core" }
+iced_winit = { path = "vendor/iced_winit" }

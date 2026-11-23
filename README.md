@@ -37,8 +37,9 @@ The original Lumen is built on GTK 4, libadwaita and poppler. This edition:
 - **Page organiser:** press G (or the grid button) on a PDF to see every page as a thumbnail. Drag pages to reorder them (Ctrl/Shift+click picks several), turn them, delete them, or insert the pages of other PDFs, with undo. Saving rewrites the PDF with the new order; outline and links follow their pages, unsaved markup and form values are written too, and a password-protected PDF stays protected.
 - **Folders:** open a folder, or open one file and flip through its neighbours. You can also drop files and folders onto the window. A sidebar on the left shows the files as big thumbnails with their names underneath, loaded lazily (only the rows on screen are built, so huge folders stay fast); camera JPEGs use their embedded EXIF thumbnail.
 - **Printing:** uses the desktop's native print dialog through the XDG print portal. PDFs are sent as they are. Pictures are fitted to the paper and margins you choose and sent as a one-page PDF at up to 300 dpi.
+- **A tidy header:** as in the GTK Lumen, the header has the sidebar and open buttons, the file's name, the markup and edit buttons, and a ☰ menu with everything else (print, fit, turn, fullscreen, sign, save, keyboard shortcuts, about), each with its shortcut.
 - **Light and dark mode:** follows the system colour scheme and switches live when you change it.
-- **Zoom and pan:** best fit, fit width (PDF), actual size, Ctrl + scroll wheel, and drag to pan. Moving the pointer over the picture fades in a zoom control at the bottom and previous/next arrows at the sides, as in the GTK Lumen; they fade out again when the pointer rests.
+- **Zoom and pan:** best fit, fit width (PDF), actual size, Ctrl + scroll wheel (around the pointer), pinch on a touchpad (Wayland; see `vendor/README.md`), and drag to pan. Zoom changes ease in. Moving the pointer over the picture fades in a zoom control at the bottom and previous/next arrows at the sides, as in the GTK Lumen; they fade out again when the pointer rests.
 - **Fast flipping:** the next and previous pictures are preloaded, and recently viewed ones are kept decoded.
 - **Robust:** decoding runs under allocation limits, and a panic while decoding or rendering a hostile file becomes an error message instead of a crash.
 
@@ -109,6 +110,8 @@ xdg-mime default io.github.imanolgo.LumenRs.desktop application/pdf
 | `src/forms.rs` | PDF forms: reading the fields, writing values and their appearances |
 | `src/signatures.rs` | Saved signatures |
 | `src/app/forms.rs`, `src/app/signature.rs` | Inputs over form fields; the signature menu, drawing pad and placing |
+| `src/app/menu.rs` | The header's menus, and the keyboard shortcuts and about dialogs |
+| `vendor/` | winit, iced_core and iced_winit with small patches for touchpad pinch (see `vendor/README.md`) |
 | `src/app/markup.rs`, `src/app/overlay.rs` | The markup bar and its messages; the canvas that draws annotations over a page and takes the pointer |
 | `src/raster.rs` | Picture decoding, SVG rendering and thumbnails |
 | `src/library.rs` | Which files to browse: folders, natural sort order |

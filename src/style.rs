@@ -426,3 +426,15 @@ pub fn floating_disc(theme: &Theme, status: button::Status, alpha: f32) -> butto
         ..Default::default()
     }
 }
+
+/// A line of a drop-down menu.
+pub fn menu_item(theme: &Theme, status: button::Status) -> button::Style {
+    let p = theme.extended_palette();
+    button::Style {
+        background: matches!(status, button::Status::Hovered | button::Status::Pressed)
+            .then(|| p.background.weak.color.into()),
+        text_color: p.background.base.text,
+        border: Border { radius: 6.0.into(), ..Default::default() },
+        ..Default::default()
+    }
+}

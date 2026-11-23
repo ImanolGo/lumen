@@ -1,0 +1,16 @@
+diff --color -ruN a/src/mouse/event.rs b/src/mouse/event.rs
+--- a/src/mouse/event.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/mouse/event.rs	2026-11-23 12:04:33.297878732 +0100
+@@ -33,6 +33,12 @@
+         /// The scroll movement.
+         delta: ScrollDelta,
+     },
++
++    /// A pinch on a touchpad changed its scale (patched in by Lumen).
++    Pinched {
++        /// How much the scale changed since the last event: positive to zoom in.
++        delta: f32,
++    },
+ }
+ 
+ /// A scroll movement.

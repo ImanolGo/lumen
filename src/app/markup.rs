@@ -920,7 +920,7 @@ impl App {
                 .height(22)
                 .style(style::swatch(iced::Color::from_rgb(c.r, c.g, c.b), chosen))
                 .on_press(Message::Markup(MarkupMsg::Swatch(i)));
-            tools = tools.push(super::tip(dot.into(), name));
+            tools = tools.push(super::tip(dot.into(), *name));
         }
         tools = tools.push(separator());
         let text_mode = self.editor.tool == Tool::Text || matches!(self.selected_shape(), Some(Shape::Text { .. }));
