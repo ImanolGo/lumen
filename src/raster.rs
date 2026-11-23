@@ -21,7 +21,7 @@ const MAX_SIDE: u32 = 16_384;
 /// Hard cap for a single decode allocation (1 GiB).
 const MAX_ALLOC: u64 = 1 << 30;
 /// Thumbnails are this many pixels on their longest side.
-pub const THUMB_SIDE: u32 = 192;
+pub const THUMB_SIDE: u32 = 256;
 
 /// A decoded picture, ready to upload: straight (not premultiplied) RGBA8.
 #[derive(Debug, Clone)]

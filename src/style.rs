@@ -375,3 +375,54 @@ pub fn drop_slot(theme: &Theme, target: bool) -> container::Style {
         ..Default::default()
     }
 }
+
+/// A floating control over the picture, faded by `alpha` while it appears and disappears.
+pub fn floating(theme: &Theme, status: button::Status, alpha: f32, radius: f32) -> button::Style {
+    let p = theme.extended_palette();
+    let bg = match status {
+        button::Status::Hovered => p.background.strong.color,
+        button::Status::Pressed => p.background.stronger.color,
+        _ => Color { a: 0.0, ..p.background.base.color },
+    };
+    button::Style {
+        background: Some(Color { a: bg.a * alpha, ..bg }.into()),
+        text_color: p.background.base.text.scale_alpha(alpha),
+        border: Border { radius: radius.into(), ..Default::default() },
+        ..Default::default()
+    }
+}
+
+/// The rounded panel behind floating controls.
+pub fn floating_panel(theme: &Theme, alpha: f32) -> container::Style {
+    let p = theme.extended_palette();
+    container::Style {
+        background: Some(p.background.base.color.scale_alpha(0.92 * alpha).into()),
+        border: Border { radius: 14.0.into(), width: 1.0, color: p.background.strong.color.scale_alpha(0.5 * alpha) },
+        shadow: Shadow {
+            color: Color::from_rgba(0.0, 0.0, 0.0, if p.is_dark { 0.45 } else { 0.15 } * alpha),
+            offset: Vector::new(0.0, 3.0),
+            blur_radius: 14.0,
+        },
+        ..Default::default()
+    }
+}
+
+/// A round floating button with its own backdrop (the previous/next arrows).
+pub fn floating_disc(theme: &Theme, status: button::Status, alpha: f32) -> button::Style {
+    let p = theme.extended_palette();
+    let bg = match status {
+        button::Status::Hovered | button::Status::Pressed => p.background.weak.color,
+        _ => p.background.base.color,
+    };
+    button::Style {
+        background: Some(bg.scale_alpha(0.92 * alpha).into()),
+        text_color: p.background.base.text.scale_alpha(alpha),
+        border: Border { radius: 22.0.into(), width: 1.0, color: p.background.strong.color.scale_alpha(0.5 * alpha) },
+        shadow: Shadow {
+            color: Color::from_rgba(0.0, 0.0, 0.0, if p.is_dark { 0.45 } else { 0.15 } * alpha),
+            offset: Vector::new(0.0, 2.0),
+            blur_radius: 10.0,
+        },
+        ..Default::default()
+    }
+}

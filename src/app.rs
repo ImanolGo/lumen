@@ -42,10 +42,13 @@ use hayro::kurbo::{Point as PagePoint, Rect};
 // ---------------------------------------------------------------- constants
 
 const TOOLBAR_H: f32 = 52.0;
-const SIDEBAR_W: f32 = 236.0;
+const SIDEBAR_W: f32 = 220.0;
 /// Height of one sidebar row; rows are fixed-height so the list can be virtualised.
-const ROW_H: f32 = 64.0;
-const ROW_THUMB: f32 = 52.0;
+const ROW_H: f32 = 150.0;
+/// Height of the picture in a sidebar row; the file name goes underneath.
+const ROW_THUMB: f32 = 112.0;
+/// How long the floating controls stay after the pointer stops moving.
+const CONTROLS_LINGER: Duration = Duration::from_millis(1800);
 /// Height of one table-of-contents row.
 const TOC_ROW_H: f32 = 30.0;
 /// How many thumbnails are decoded at once.
@@ -195,6 +198,12 @@ pub struct App {
     stash_edits: HashMap<PathBuf, PicEdit>,
     /// The page organiser of the open PDF.
     organizer: Option<Organizer>,
+    /// The floating zoom and previous/next controls fade in while the pointer moves over the view.
+    controls: iced::Animation<bool>,
+    now: Instant,
+    last_pointer: Instant,
+    hide_pending: bool,
+    over_controls: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -418,6 +427,12 @@ pub enum Message {
     Sign(SignMsg),
     Edit(EditMsg),
     Pages(PagesMsg),
+    /// The pointer moved over the view, or left it.
+    Pointer,
+    PointerLeft,
+    ControlsCheck,
+    OverControls(bool),
+    Frame(Instant),
 }
 
 fn err_string(e: anyhow::Error) -> String {
@@ -500,6 +515,11 @@ impl App {
             resize_form: None,
             stash_edits: HashMap::new(),
             organizer: None,
+            controls: iced::Animation::new(false).duration(Duration::from_millis(180)),
+            now: Instant::now(),
+            last_pointer: Instant::now(),
+            hide_pending: false,
+            over_controls: false,
         };
         let mut tasks = vec![system::theme().map(Message::SystemTheme)];
         if !paths.is_empty() {
@@ -522,7 +542,13 @@ impl App {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
+        let fading = if self.controls.is_animating(self.now) {
+            window::frames().map(Message::Frame)
+        } else {
+            Subscription::none()
+        };
         Subscription::batch([
+            fading,
             system::theme_changes().map(Message::SystemTheme),
             window::events().map(|(id, e)| Message::WindowEvent(id, e)),
             keyboard::listen().map(Message::Key),
@@ -1018,6 +1044,49 @@ impl App {
             Message::Sign(msg) => self.sign_update(msg),
             Message::Edit(msg) => self.edit_update(msg),
             Message::Pages(msg) => self.pages_update(msg),
+            Message::Pointer => {
+                let now = Instant::now();
+                self.now = now;
+                self.last_pointer = now;
+                if !self.controls.value() {
+                    self.controls.go_mut(true, now);
+                }
+                if std::mem::replace(&mut self.hide_pending, true) {
+                    Task::none()
+                } else {
+                    Task::perform(tokio::time::sleep(CONTROLS_LINGER), |_| Message::ControlsCheck)
+                }
+            }
+            Message::ControlsCheck => {
+                self.hide_pending = false;
+                let now = Instant::now();
+                let still = now.duration_since(self.last_pointer);
+                if self.over_controls || still < CONTROLS_LINGER {
+                    // Keep them while a control is under the pointer, or it moved meanwhile.
+                    self.hide_pending = true;
+                    let wait = CONTROLS_LINGER.saturating_sub(still).max(Duration::from_millis(200));
+                    return Task::perform(tokio::time::sleep(wait), |_| Message::ControlsCheck);
+                }
+                self.now = now;
+                self.controls.go_mut(false, now);
+                Task::none()
+            }
+            Message::PointerLeft => {
+                if !self.over_controls {
+                    let now = Instant::now();
+                    self.now = now;
+                    self.controls.go_mut(false, now);
+                }
+                Task::none()
+            }
+            Message::OverControls(over) => {
+                self.over_controls = over;
+                Task::none()
+            }
+            Message::Frame(now) => {
+                self.now = now;
+                Task::none()
+            }
         }
     }
 
@@ -1785,6 +1854,11 @@ impl App {
         let content = sensor(container(self.content()).width(Length::Fill).height(Length::Fill).style(style::canvas))
             .on_show(Message::AreaResized)
             .on_resize(Message::AreaResized);
+        let mut view_area = stack![content];
+        if let Some(controls) = self.floating_controls() {
+            view_area = view_area.push(controls);
+        }
+        let content = mouse_area(view_area).on_move(|_| Message::Pointer).on_exit(Message::PointerLeft);
 
         let mut body = row![];
         if !self.fullscreen
@@ -1902,13 +1976,6 @@ impl App {
         .align_x(Alignment::Center)
         .spacing(1);
 
-        let zoom_label = self.zoom_percent().map(|z| format!("{:.0} %", z)).unwrap_or_default();
-        let zoom_pill: Element<'_, Message> = button(text(zoom_label).size(12).width(52).align_x(Alignment::Center))
-            .padding([6, 4])
-            .style(style::tool)
-            .on_press_maybe(has_doc.then_some(Message::ZoomActual))
-            .into();
-
         let mut right = row![].spacing(4).align_y(Alignment::Center);
         if is_pdf {
             right = right
@@ -1922,17 +1989,6 @@ impl App {
             Doc::Pdf(v) => v.fit == PdfFit::Page,
             _ => false,
         };
-        right = right
-            .push(icon_button(icons::zoom_out(), "Zoom out (−)", has_doc.then_some(Message::ZoomOut), false))
-            .push(
-                tooltip(
-                    zoom_pill,
-                    container(text("Actual size (1)").size(12)).padding([4, 8]).style(style::pill),
-                    tooltip::Position::Bottom,
-                )
-                .gap(6),
-            )
-            .push(icon_button(icons::zoom_in(), "Zoom in (+)", has_doc.then_some(Message::ZoomIn), false));
         if is_pdf {
             let width_active = matches!(&self.doc, Doc::Pdf(v) if v.fit == PdfFit::Width);
             right =
@@ -2338,32 +2394,27 @@ impl App {
                 }
                 _ => container(space()).width(Length::Fill).height(Length::Fill).style(style::thumb_placeholder).into(),
             };
-            let name = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
-            let (stem, ext) = match name.rsplit_once('.') {
-                Some((stem, ext)) if !stem.is_empty() => (stem.to_owned(), ext.to_ascii_uppercase()),
-                _ => (name.to_string(), String::new()),
-            };
-            let label = column![
-                text(stem).size(13).wrapping(text::Wrapping::None),
-                text(ext).size(11).style(muted).wrapping(text::Wrapping::None),
+            // A big picture with the file name underneath, as in the GTK Lumen.
+            let name = text(file_name(path))
+                .size(12)
+                .wrapping(text::Wrapping::None)
+                .align_x(Alignment::Center)
+                .width(Length::Fill);
+            let content = column![
+                container(thumb).width(Length::Fill).height(ROW_THUMB),
+                container(name).width(Length::Fill).clip(true),
             ]
-            .spacing(2);
-            let content = row![
-                container(thumb).width(ROW_THUMB).height(ROW_THUMB),
-                container(label).width(Length::Fill).clip(true),
-            ]
-            .spacing(10)
-            .align_y(Alignment::Center);
+            .spacing(6);
             list = list.push(
                 container(
                     button(content)
-                        .padding([4, 6])
+                        .padding(6)
                         .width(Length::Fill)
                         .height(Length::Fill)
                         .style(style::thumb(i == self.current))
                         .on_press(Message::Select(i)),
                 )
-                .padding([2, 6])
+                .padding([3, 8])
                 .height(ROW_H),
             );
         }
@@ -2469,6 +2520,92 @@ impl App {
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
+    }
+}
+
+impl App {
+    /// The zoom pill at the bottom and the previous/next arrows at the sides, while they are showing.
+    fn floating_controls<'a>(&'a self) -> Option<Element<'a, Message>> {
+        if !matches!(self.doc, Doc::Image(_) | Doc::Pdf(_)) || self.organizer.is_some() || self.crop.is_some() {
+            return None;
+        }
+        let alpha = self.controls.interpolate(0.0_f32, 1.0, self.now);
+        if alpha <= 0.01 {
+            return None;
+        }
+        let round = |icon: svg::Handle, msg: Option<Message>, size: f32| -> Element<'a, Message> {
+            let enabled = msg.is_some();
+            let glyph = svg(icon).width(20).height(20).style(move |t: &Theme, _| svg::Style {
+                color: Some(
+                    t.extended_palette().background.base.text.scale_alpha(alpha * if enabled { 1.0 } else { 0.35 }),
+                ),
+            });
+            button(center(glyph))
+                .width(size)
+                .height(size)
+                .padding(0)
+                .style(move |t, status| style::floating(t, status, alpha, size / 2.0))
+                .on_press_maybe(msg)
+                .into()
+        };
+        let label = self.zoom_percent().map(|z| format!("{z:.0}%")).unwrap_or_default();
+        let percent = button(
+            text(label)
+                .size(15)
+                .font(Font { weight: iced::font::Weight::Semibold, ..Font::DEFAULT })
+                .width(70)
+                .align_x(Alignment::Center)
+                .style(move |t: &Theme| text::Style {
+                    color: Some(t.extended_palette().background.base.text.scale_alpha(alpha)),
+                }),
+        )
+        .padding([6, 4])
+        .style(move |t, status| style::floating(t, status, 0.0, 8.0))
+        .on_press(Message::ZoomActual);
+        let pill = container(
+            row![
+                round(icons::zoom_out(), Some(Message::ZoomOut), 34.0),
+                percent,
+                round(icons::zoom_in(), Some(Message::ZoomIn), 34.0)
+            ]
+            .spacing(2)
+            .align_y(Alignment::Center),
+        )
+        .padding(5)
+        .style(move |t: &Theme| style::floating_panel(t, alpha));
+        let hold = |e: Element<'a, Message>| -> Element<'a, Message> {
+            mouse_area(e).on_enter(Message::OverControls(true)).on_exit(Message::OverControls(false)).into()
+        };
+        let bottom = container(hold(pill.into()))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(Alignment::Center)
+            .align_y(Alignment::End)
+            .padding(Padding { bottom: 22.0, ..Padding::ZERO });
+        let multi = self.files.len() > 1;
+        let prev = (multi && self.current > 0).then_some(Message::Prev);
+        let next = (multi && self.current + 1 < self.files.len()).then_some(Message::Next);
+        let side = |msg: Option<Message>, icon: svg::Handle| -> Element<'a, Message> {
+            if msg.is_none() {
+                return space().width(44).into();
+            }
+            let glyph = svg(icon).width(22).height(22).style(move |t: &Theme, _| svg::Style {
+                color: Some(t.extended_palette().background.base.text.scale_alpha(alpha)),
+            });
+            let disc = button(center(glyph))
+                .width(44)
+                .height(44)
+                .padding(0)
+                .style(move |t, status| style::floating_disc(t, status, alpha))
+                .on_press_maybe(msg);
+            hold(disc.into())
+        };
+        let arrows = container(row![side(prev, icons::prev()), space().width(Length::Fill), side(next, icons::next())])
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_y(Alignment::Center)
+            .padding([0, 18]);
+        Some(stack![arrows, bottom].into())
     }
 }
 
