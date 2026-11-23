@@ -33,6 +33,8 @@ mod prefs;
 mod printing;
 mod signature;
 mod slideshow;
+#[cfg(test)]
+mod tests;
 
 use anim::Anim;
 use chooser::{Chooser, ChooserMsg, Purpose};
@@ -699,7 +701,7 @@ impl App {
             print_dialog: None,
         };
         let mut app = app;
-        app.prefs = crate::settings::Settings::load();
+        app.prefs = if cfg!(test) { crate::settings::Settings::default() } else { crate::settings::Settings::load() };
         crate::settings::set_portals(app.prefs.portals);
         crate::sandbox::set_enabled(app.prefs.sandbox);
         app.show_sidebar = app.prefs.sidebar_open;
@@ -3164,20 +3166,20 @@ impl App {
         if alpha <= 0.01 {
             return None;
         }
-        let round = |icon: svg::Handle, msg: Option<Message>, size: f32| -> Element<'a, Message> {
+        let round = |icon: svg::Handle, msg: Option<Message>, size: f32, label: String| -> Element<'a, Message> {
             let enabled = msg.is_some();
             let glyph = svg(icon).width(20).height(20).style(move |t: &Theme, _| svg::Style {
                 color: Some(
                     t.extended_palette().background.base.text.scale_alpha(alpha * if enabled { 1.0 } else { 0.35 }),
                 ),
             });
-            button(center(glyph))
+            let button = button(center(glyph))
                 .width(size)
                 .height(size)
                 .padding(0)
                 .style(move |t, status| style::floating(t, status, alpha, size / 2.0))
-                .on_press_maybe(msg)
-                .into()
+                .on_press_maybe(msg);
+            tip(button.into(), label)
         };
         let label = self.zoom_percent().map(|z| format!("{z:.0}%")).unwrap_or_default();
         let percent = button(
@@ -3195,9 +3197,9 @@ impl App {
         .on_press(Message::ZoomActual);
         let pill = container(
             row![
-                round(icons::zoom_out(), Some(Message::ZoomOut), 34.0),
-                percent,
-                round(icons::zoom_in(), Some(Message::ZoomIn), 34.0)
+                round(icons::zoom_out(), Some(Message::ZoomOut), 34.0, tr("Zoom out (−)")),
+                tip(percent.into(), tr("Actual size")),
+                round(icons::zoom_in(), Some(Message::ZoomIn), 34.0, tr("Zoom in (+)"))
             ]
             .spacing(2)
             .align_y(Alignment::Center),
@@ -3216,7 +3218,7 @@ impl App {
         let multi = self.files.len() > 1;
         let prev = (multi && self.current > 0).then_some(Message::Prev);
         let next = (multi && self.current + 1 < self.files.len()).then_some(Message::Next);
-        let side = |msg: Option<Message>, icon: svg::Handle| -> Element<'a, Message> {
+        let side = |msg: Option<Message>, icon: svg::Handle, label: String| -> Element<'a, Message> {
             if msg.is_none() {
                 return space().width(44).into();
             }
@@ -3229,13 +3231,17 @@ impl App {
                 .padding(0)
                 .style(move |t, status| style::floating_disc(t, status, alpha))
                 .on_press_maybe(msg);
-            hold(disc.into())
+            hold(tip(disc.into(), label))
         };
-        let arrows = container(row![side(prev, icons::prev()), space().width(Length::Fill), side(next, icons::next())])
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .align_y(Alignment::Center)
-            .padding([0, 18]);
+        let arrows = container(row![
+            side(prev, icons::prev(), tr("Previous file (←)")),
+            space().width(Length::Fill),
+            side(next, icons::next(), tr("Next file (→)"))
+        ])
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .align_y(Alignment::Center)
+        .padding([0, 18]);
         Some(stack![arrows, bottom].into())
     }
 }

@@ -87,6 +87,19 @@ Everything from the original Lumen is ported.
 | F / F11, Esc | Fullscreen, leave fullscreen |
 | Ctrl+Q / Ctrl+W | Quit |
 
+## Accessibility
+
+Lumen does not work with screen readers yet. iced 0.14, the toolkit it is built on, does not expose an accessibility tree (AT-SPI), so assistive technology sees one unlabelled window; this is worth re-checking whenever iced gains support. What Lumen does today: every icon button has a tooltip naming it (with its shortcut), nearly everything has a keyboard shortcut (see the table above and ☰ → Keyboard Shortcuts), the interface follows the system light or dark setting, and text is set in Inter at sizes that scale with the window's scale factor. Markup drawing and cropping need a pointer. Form check boxes and radio buttons sit on the page and take their meaning from the text around them, so they have no tooltip.
+
+## Installing
+
+Packaging files live in `build-aux/` and `.github/workflows/release.yml`. None of this is published yet.
+
+- **Arch Linux:** `build-aux/aur/lumen-rs` (a tagged release) and `build-aux/aur/lumen-rs-git` (the latest commit) are PKGBUILDs ready for the AUR. Try one with `makepkg -si` inside its folder.
+- **Release tarball and Debian package:** pushing a tag `vX.Y.Z` (matching `Cargo.toml`) makes the Release workflow run the tests, build an x86_64 tarball (`make install DESTDIR=… PREFIX=/usr` layout) and a `.deb` (`cargo deb`; dependencies are on the libraries the window system and GPU driver load at run time) and attach them, with checksums, to a GitHub release.
+- **Flatpak:** `build-aux/flatpak/io.github.imanolgo.LumenRs.yml`; see the README next to it for generating its offline Cargo sources and building it.
+- **From source:** see below.
+
 ## Building
 
 You need Rust 1.88 or newer. Nothing else is needed at build or run time: the app is pure Rust.
@@ -136,6 +149,8 @@ xdg-mime default io.github.imanolgo.LumenRs.desktop application/pdf
 | `src/sandbox.rs` | The sandboxed decoder process, and the parent side that runs it |
 | `src/control.rs`, `src/app/control.rs` | The control interface on the session bus, and running its commands |
 | `src/i18n.rs`, `po/` | Translations: the `.po` reader, `tr()`, and the catalogues |
+| `build-aux/`, `.github/workflows/release.yml` | AUR PKGBUILDs, the Flatpak manifest, the release workflow |
+| `data/*.metainfo.xml` | The AppStream description (software centres) |
 | `src/properties.rs` | What the Properties dialog shows |
 | `src/app/edit.rs`, `src/app/pages.rs` | The picture editing bar, crop overlay and colour panel; the page organiser |
 | `src/forms.rs` | PDF forms: reading the fields, writing values and their appearances |

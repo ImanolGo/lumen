@@ -14,7 +14,7 @@ impl App {
         task
     }
 
-    fn control_run(&mut self, command: &Command) -> (Result<String, String>, Task<Message>) {
+    pub(super) fn control_run(&mut self, command: &Command) -> (Result<String, String>, Task<Message>) {
         let page_count = match &self.doc {
             Doc::Pdf(v) => v.doc.page_count(),
             _ => 0,

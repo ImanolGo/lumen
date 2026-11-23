@@ -1,0 +1,58 @@
+# Maintainer: ImanolGo (https://github.com/ImanolGo/lumen-rs)
+#
+# Builds the latest commit of main.
+pkgname=lumen-rs-git
+pkgver=0.1.0.r0.g0000000
+pkgrel=1
+pkgdesc='A fast, safe viewer and editor for pictures and PDFs, in pure Rust with iced (git version)'
+arch=('x86_64')
+url='https://github.com/ImanolGo/lumen-rs'
+license=('GPL-3.0-or-later')
+depends=('gcc-libs' 'glibc' 'libxkbcommon' 'wayland' 'vulkan-icd-loader' 'hicolor-icon-theme')
+makedepends=('cargo' 'git')
+optdepends=('xdg-desktop-portal: native file and print dialogs'
+            'cups: printing without a desktop print dialog'
+            'xdg-utils: opening links when there is no portal')
+provides=('lumen-rs')
+conflicts=('lumen-rs')
+source=("git+$url.git")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd lumen-rs
+  # The version in Cargo.toml, then the commits since it was last changed.
+  local version
+  version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+  printf '%s.r%s.g%s' "$version" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+prepare() {
+  cd lumen-rs
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd lumen-rs
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release
+}
+
+check() {
+  cd lumen-rs
+  export RUSTUP_TOOLCHAIN=stable
+  cargo test --frozen
+}
+
+package() {
+  cd lumen-rs
+  local id=io.github.imanolgo.LumenRs
+  install -Dm755 target/release/lumen-rs "$pkgdir/usr/bin/lumen-rs"
+  install -Dm644 "data/$id.desktop" "$pkgdir/usr/share/applications/$id.desktop"
+  install -Dm644 "data/$id.metainfo.xml" "$pkgdir/usr/share/metainfo/$id.metainfo.xml"
+  (cd data/icons && for f in */apps/$id.*; do
+    install -Dm644 "$f" "$pkgdir/usr/share/icons/hicolor/$f"
+  done)
+  install -Dm644 README.md "$pkgdir/usr/share/doc/lumen-rs/README.md"
+}

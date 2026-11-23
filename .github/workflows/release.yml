@@ -1,0 +1,45 @@
+name: Release
+
+# Runs when a version tag (v0.1.0, …) is pushed: builds an x86_64 tarball and a .deb and
+# attaches them to a GitHub release of that tag.
+on:
+  push:
+    tags: ['v*']
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: System libraries
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Check the tag matches Cargo.toml
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          test "v$version" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} is not v$version"; exit 1; }
+      - run: cargo test --locked
+      - name: Tarball
+        run: |
+          make install PREFIX=/usr DESTDIR="$PWD/stage"
+          tar -C stage -czf "lumen-rs-${GITHUB_REF_NAME}-x86_64-linux.tar.gz" usr
+      - name: Debian package
+        run: |
+          cargo install cargo-deb --locked
+          cargo deb --locked
+          cp target/debian/*.deb .
+      - name: Checksums
+        run: sha256sum lumen-rs-*.tar.gz *.deb > SHA256SUMS
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" --title "Lumen ${GITHUB_REF_NAME}" --generate-notes \
+            lumen-rs-*.tar.gz ./*.deb SHA256SUMS

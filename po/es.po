@@ -735,3 +735,15 @@ msgstr "Oscuro"
 
 msgid "Off"
 msgstr "Desactivado"
+
+msgid "Zoom out (−)"
+msgstr "Alejar (−)"
+
+msgid "Zoom in (+)"
+msgstr "Acercar (+)"
+
+msgid "Previous file (←)"
+msgstr "Archivo anterior (←)"
+
+msgid "Next file (→)"
+msgstr "Archivo siguiente (→)"

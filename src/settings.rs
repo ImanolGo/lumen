@@ -133,16 +133,26 @@ impl Settings {
         text
     }
 
-    /// Writes the file (all at once, so a crash never leaves half of it).
+    /// Writes the file (all at once, so a crash never leaves half of it). Tests of the app
+    /// never write the user's real file.
     pub fn save(&self) {
-        let Some(path) = Self::path() else { return };
+        if cfg!(test) {
+            return;
+        }
+        if let Some(path) = Self::path() {
+            self.save_to(&path);
+        }
+    }
+
+    /// Writes the file at `path`.
+    pub fn save_to(&self, path: &std::path::Path) {
         let write = || -> std::io::Result<()> {
             if let Some(dir) = path.parent() {
                 std::fs::create_dir_all(dir)?;
             }
             let temp = path.with_extension("toml.tmp");
             std::fs::write(&temp, self.to_toml())?;
-            std::fs::rename(&temp, &path)
+            std::fs::rename(&temp, path)
         };
         if let Err(e) = write() {
             tracing::warn!("could not save the settings to {}: {e}", path.display());
@@ -209,6 +219,20 @@ mod tests {
         assert_eq!(s.slideshow_seconds, 9);
         assert!(s.sidebar_open, "a value of the wrong kind keeps the default");
         assert_eq!(s.pdf_fit, PdfFit::Page);
+    }
+
+    #[test]
+    fn saving_to_a_path_makes_the_folder_and_leaves_no_temporary_file() {
+        let dir = std::env::temp_dir().join(format!("lumen-rs-settings-{}", std::process::id()));
+        let path = dir.join("nested/lumen-rs/settings.toml");
+        let settings = Settings { slideshow_seconds: 9, theme: Theme::Light, ..Settings::default() };
+        settings.save_to(&path);
+        assert_eq!(Settings::parse(&std::fs::read_to_string(&path).unwrap()), settings);
+        assert!(!path.with_extension("toml.tmp").exists());
+        // Saving again replaces it.
+        Settings { slideshow_seconds: 3, ..settings }.save_to(&path);
+        assert_eq!(Settings::parse(&std::fs::read_to_string(&path).unwrap()).slideshow_seconds, 3);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

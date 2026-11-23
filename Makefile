@@ -20,6 +20,7 @@ lint:
 install: build
 	install -Dm755 $(BIN) $(DESTDIR)$(PREFIX)/bin/lumen-rs
 	install -Dm644 data/$(APP_ID).desktop $(DESTDIR)$(PREFIX)/share/applications/$(APP_ID).desktop
+	install -Dm644 data/$(APP_ID).metainfo.xml $(DESTDIR)$(PREFIX)/share/metainfo/$(APP_ID).metainfo.xml
 	cd data/icons && for f in */apps/$(APP_ID).*; do \
 		install -Dm644 "$$f" "$(DESTDIR)$(PREFIX)/share/icons/hicolor/$$f"; \
 	done
@@ -29,6 +30,7 @@ install: build
 uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/lumen-rs
 	rm -f $(DESTDIR)$(PREFIX)/share/applications/$(APP_ID).desktop
+	rm -f $(DESTDIR)$(PREFIX)/share/metainfo/$(APP_ID).metainfo.xml
 	rm -f $(DESTDIR)$(PREFIX)/share/icons/hicolor/*/apps/$(APP_ID).*
 
 clean:

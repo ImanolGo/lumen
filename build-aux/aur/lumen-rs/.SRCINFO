@@ -1,0 +1,21 @@
+pkgbase = lumen-rs
+	pkgdesc = A fast, safe viewer and editor for pictures and PDFs, in pure Rust with iced
+	pkgver = 0.1.0
+	pkgrel = 1
+	url = https://github.com/ImanolGo/lumen-rs
+	arch = x86_64
+	license = GPL-3.0-or-later
+	makedepends = cargo
+	depends = gcc-libs
+	depends = glibc
+	depends = libxkbcommon
+	depends = wayland
+	depends = vulkan-icd-loader
+	depends = hicolor-icon-theme
+	optdepends = xdg-desktop-portal: native file and print dialogs
+	optdepends = cups: printing without a desktop print dialog
+	optdepends = xdg-utils: opening links when there is no portal
+	source = lumen-rs-0.1.0.tar.gz::https://github.com/ImanolGo/lumen-rs/archive/refs/tags/v0.1.0.tar.gz
+	sha256sums = SKIP
+
+pkgname = lumen-rs

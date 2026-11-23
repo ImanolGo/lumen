@@ -53,3 +53,31 @@ strip = true
 winit = { path = "vendor/winit" }
 iced_core = { path = "vendor/iced_core" }
 iced_winit = { path = "vendor/iced_winit" }
+
+[package.metadata.deb]
+maintainer = "ImanolGo <https://github.com/ImanolGo/lumen-rs>"
+copyright = "2026, ImanolGo. GPL-3.0-or-later"
+license-file = ["LICENSE", "0"]
+extended-description = """\
+Lumen opens pictures and PDFs quickly and keeps them safe: pure Rust, no C code in the \
+document path, pictures decoded in a sandboxed process. View, search, fill in forms, \
+mark up, sign, edit pictures, organise PDF pages, export and print."""
+section = "graphics"
+priority = "optional"
+# The window system and GPU driver are loaded at run time, so they are not found by $auto.
+depends = "$auto, libxkbcommon0, libwayland-client0, libvulkan1 | libgl1"
+recommends = "xdg-desktop-portal, mesa-vulkan-drivers"
+assets = [
+    ["target/release/lumen-rs", "usr/bin/", "755"],
+    ["data/io.github.imanolgo.LumenRs.desktop", "usr/share/applications/", "644"],
+    ["data/io.github.imanolgo.LumenRs.metainfo.xml", "usr/share/metainfo/", "644"],
+    ["data/icons/scalable/apps/io.github.imanolgo.LumenRs.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+    ["data/icons/16x16/apps/io.github.imanolgo.LumenRs.png", "usr/share/icons/hicolor/16x16/apps/", "644"],
+    ["data/icons/32x32/apps/io.github.imanolgo.LumenRs.png", "usr/share/icons/hicolor/32x32/apps/", "644"],
+    ["data/icons/48x48/apps/io.github.imanolgo.LumenRs.png", "usr/share/icons/hicolor/48x48/apps/", "644"],
+    ["data/icons/64x64/apps/io.github.imanolgo.LumenRs.png", "usr/share/icons/hicolor/64x64/apps/", "644"],
+    ["data/icons/128x128/apps/io.github.imanolgo.LumenRs.png", "usr/share/icons/hicolor/128x128/apps/", "644"],
+    ["data/icons/256x256/apps/io.github.imanolgo.LumenRs.png", "usr/share/icons/hicolor/256x256/apps/", "644"],
+    ["data/icons/512x512/apps/io.github.imanolgo.LumenRs.png", "usr/share/icons/hicolor/512x512/apps/", "644"],
+    ["README.md", "usr/share/doc/lumen-rs/README", "644"],
+]

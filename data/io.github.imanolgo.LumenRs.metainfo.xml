@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.imanolgo.LumenRs</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Lumen</name>
+  <summary>A fast, safe viewer and editor for pictures and PDFs</summary>
+  <description>
+    <p>Lumen opens pictures and PDFs quickly and keeps them safe. It is written in pure Rust, with no C code in the document path, and decodes pictures in a sandboxed process.</p>
+    <p>View pictures and PDFs, flip through a folder, search and select text, fill in forms, draw and highlight, sign, turn and crop pictures, organise PDF pages, and print.</p>
+    <ul>
+      <li>PNG, JPEG, GIF, WebP, TIFF, BMP, JPEG XL, JPEG 2000, OpenEXR, SVG and more, with animation</li>
+      <li>PDF reading with contents, search, links, forms and password-protected files</li>
+      <li>Markup saved as real PDF annotations, and handwritten signatures</li>
+      <li>Page organiser, export to PNG or PDF, night mode, slideshow</li>
+    </ul>
+  </description>
+  <developer id="io.github.imanolgo">
+    <name>ImanolGo</name>
+  </developer>
+  <launchable type="desktop-id">io.github.imanolgo.LumenRs.desktop</launchable>
+  <url type="homepage">https://github.com/ImanolGo/lumen-rs</url>
+  <url type="bugtracker">https://github.com/ImanolGo/lumen-rs/issues</url>
+  <categories>
+    <category>Graphics</category>
+    <category>Viewer</category>
+  </categories>
+  <provides>
+    <binary>lumen-rs</binary>
+    <mediatype>application/pdf</mediatype>
+    <mediatype>image/png</mediatype>
+    <mediatype>image/jpeg</mediatype>
+  </provides>
+  <content_rating type="oars-1.1"/>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+    <control>touch</control>
+  </supports>
+  <releases>
+    <release version="0.1.0" date="2026-11-23">
+      <description>
+        <p>First release: pictures, PDFs, markup, forms, signatures, picture editing, page organising, export, printing, slideshow, preferences, sandboxed decoding, Spanish translation.</p>
+      </description>
+    </release>
+  </releases>
+</component>

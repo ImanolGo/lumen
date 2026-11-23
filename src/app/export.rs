@@ -107,7 +107,7 @@ impl App {
 
     /// The pages to export, the documents they come from, and a name for the files:
     /// what is selected in the page organiser, or else the page in view.
-    fn export_selection(&self) -> Option<(Vec<Entry>, Vec<pdf::Document>, String)> {
+    pub(super) fn export_selection(&self) -> Option<(Vec<Entry>, Vec<pdf::Document>, String)> {
         let Doc::Pdf(view) = &self.doc else { return None };
         let stem = view.doc.path().file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
         match &self.organizer {
