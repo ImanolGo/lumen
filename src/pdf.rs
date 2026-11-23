@@ -16,8 +16,9 @@ use hayro::hayro_syntax::{LoadPdfError, Pdf};
 use hayro::{PixmapSettings, RenderCache, RenderSettings};
 use tokio::sync::oneshot;
 
-use crate::annotate::pdf::{Imported, ObjRef, PageEdit};
+use crate::annotate::pdf::{Fill, Imported, ObjRef, PageEdit};
 use crate::annotate::{self, AnnotationLayer};
+use crate::forms::{self, Form};
 use crate::raster::Picture;
 use crate::structure::{self, Link, OutlineItem, PageText};
 
@@ -80,6 +81,25 @@ impl Queue {
     }
 }
 
+/// A PDF opened with what Lumen shows on top of it.
+#[derive(Debug, Clone)]
+pub struct Opened {
+    pub doc: Document,
+    /// Editable annotations, when opened for markup.
+    pub imported: Option<Imported>,
+    pub form: Arc<Form>,
+}
+
+/// What to write into a PDF: annotation layers for `pages`, and form values.
+pub struct Changes<'a> {
+    pub layers: &'a BTreeMap<usize, AnnotationLayer>,
+    pub refs: &'a [Vec<ObjRef>],
+    pub pages: &'a [usize],
+    pub form: &'a Form,
+    /// One per field of `form`; the ones that differ from the file are written.
+    pub values: &'a [forms::Value],
+}
+
 /// An open PDF. Cheap to clone; the render threads stop when the last clone drops.
 #[derive(Clone)]
 pub struct Document {
@@ -118,63 +138,78 @@ fn describe(e: LoadPdfError) -> anyhow::Error {
 
 impl Document {
     /// Opens `path` and starts its render threads. Blocking.
+    #[cfg(test)]
     pub fn open(path: &Path) -> Result<Self> {
         let bytes = std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
         Self::from_bytes(path, bytes)
     }
 
-    /// Opens `path` for markup: its editable annotations, and the document to show
-    /// while they are edited, which has them hidden (Lumen draws them itself). Blocking.
-    pub fn open_for_markup(path: &Path) -> Result<(Self, Imported)> {
+    /// Opens `path` with its form, and (with `markup`) its editable annotations. What Lumen
+    /// shows itself (form inputs, annotations being edited) is hidden from the renderer. Blocking.
+    pub fn open_full(path: &Path, markup: bool) -> Result<Opened> {
         let bytes = std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
-        Self::markup_from_bytes(path, bytes)
+        Self::full_from_bytes(path, bytes, markup)
     }
 
-    fn markup_from_bytes(path: &Path, bytes: Vec<u8>) -> Result<(Self, Imported)> {
-        let imported = {
+    fn full_from_bytes(path: &Path, bytes: Vec<u8>, markup: bool) -> Result<Opened> {
+        let (mut form, imported) = {
             let pdf = Pdf::new(Arc::new(bytes.clone())).map_err(describe)?;
-            catch_unwind(AssertUnwindSafe(|| annotate::pdf::import(&pdf))).unwrap_or_default()
+            let form = catch_unwind(AssertUnwindSafe(|| forms::read(&pdf))).unwrap_or_else(|_| {
+                tracing::warn!("could not read the form of {}", path.display());
+                Form::default()
+            });
+            let imported =
+                markup.then(|| catch_unwind(AssertUnwindSafe(|| annotate::pdf::import(&pdf))).unwrap_or_default());
+            (form, imported)
         };
-        let shown = if imported.is_empty() {
+        let mut hidden = form.hidden_widgets();
+        hidden.extend(imported.iter().flat_map(|i| i.refs.iter().flatten().copied()));
+        let shown = if hidden.is_empty() {
             bytes
         } else {
-            let all: Vec<_> = imported.refs.iter().flatten().copied().collect();
-            annotate::pdf::hide(&bytes, &all)?
+            match annotate::pdf::hide(&bytes, &hidden) {
+                Ok(shown) => shown,
+                // Markup cannot work without it; a form can still be shown, just not filled in.
+                Err(e) if imported.is_none() => {
+                    tracing::warn!("the form of {} cannot be filled in: {e:#}", path.display());
+                    form = Form::default();
+                    bytes
+                }
+                Err(e) => return Err(e),
+            }
         };
-        Ok((Self::from_bytes(path, shown)?, imported))
+        Ok(Opened { doc: Self::from_bytes(path, shown)?, imported, form: Arc::new(form) })
     }
 
-    /// Writes `layers` into the PDF at `source` and saves the result to `target` (which may
-    /// be `source`), then opens it for markup again. Blocking.
-    pub fn save_markup(
-        source: &Path,
-        target: &Path,
-        layers: &BTreeMap<usize, AnnotationLayer>,
-        refs: &[Vec<ObjRef>],
-        pages: &[usize],
-    ) -> Result<(Self, Imported)> {
-        let bytes = Self::with_markup(source, layers, refs, pages)?;
+    /// Writes `changes` into the PDF at `source` and saves the result to `target` (which may
+    /// be `source`), then opens it again. Blocking.
+    pub fn save_changes(source: &Path, target: &Path, changes: &Changes<'_>, markup: bool) -> Result<Opened> {
+        let bytes = Self::with_changes(source, changes)?;
         write_atomic(target, &bytes)?;
-        Self::markup_from_bytes(target, bytes)
+        Self::full_from_bytes(target, bytes, markup)
     }
 
-    /// The bytes of the PDF at `source` with `layers` written into `pages`. Blocking.
-    pub fn with_markup(
-        source: &Path,
-        layers: &BTreeMap<usize, AnnotationLayer>,
-        refs: &[Vec<ObjRef>],
-        pages: &[usize],
-    ) -> Result<Vec<u8>> {
+    /// The bytes of the PDF at `source` with `changes` written in. Blocking.
+    pub fn with_changes(source: &Path, changes: &Changes<'_>) -> Result<Vec<u8>> {
         let bytes = std::fs::read(source).with_context(|| format!("cannot read {}", source.display()))?;
-        let edits: Vec<PageEdit<'_>> = pages
+        let edits: Vec<PageEdit<'_>> = changes
+            .pages
             .iter()
             .map(|&page| PageEdit {
                 page,
-                layer: layers.get(&page),
-                replaces: refs.get(page).map_or(&[], Vec::as_slice),
+                layer: changes.layers.get(&page),
+                replaces: changes.refs.get(page).map_or(&[], Vec::as_slice),
             })
             .collect();
-        catch_unwind(AssertUnwindSafe(|| annotate::pdf::save(&bytes, &edits)))
+        let fills: Vec<Fill<'_>> = changes
+            .form
+            .fields
+            .iter()
+            .zip(changes.values)
+            .filter(|(field, value)| field.value != **value)
+            .map(|(field, value)| Fill { field, value })
+            .collect();
+        catch_unwind(AssertUnwindSafe(|| annotate::pdf::save(&bytes, &edits, &fills)))
             .map_err(|_| anyhow!("the PDF could not be written"))?
     }
 

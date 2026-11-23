@@ -283,3 +283,67 @@ pub fn text_box(
 pub fn scrim(_theme: &Theme) -> container::Style {
     container::Style { background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.35).into()), ..Default::default() }
 }
+
+/// The tint of a form field waiting to be filled in, as most PDF viewers show it.
+fn field_fill(focused: bool) -> Color {
+    Color::from_rgba(0.25, 0.45, 1.0, if focused { 0.05 } else { 0.12 })
+}
+
+fn field_border(theme: &Theme, focused: bool) -> Border {
+    let accent = theme.extended_palette().primary.base.color;
+    Border { radius: 2.0.into(), width: 1.0, color: Color { a: if focused { 0.9 } else { 0.35 }, ..accent } }
+}
+
+/// A text field of a PDF form. The page is paper-white in either theme, so the text is the field's own colour.
+pub fn form_input(ink: Color) -> impl Fn(&Theme, iced::widget::text_input::Status) -> iced::widget::text_input::Style {
+    move |theme, status| {
+        let focused = matches!(status, iced::widget::text_input::Status::Focused { .. });
+        iced::widget::text_input::Style {
+            background: field_fill(focused).into(),
+            border: field_border(theme, focused),
+            icon: ink,
+            placeholder: Color { a: 0.4, ..ink },
+            value: ink,
+            selection: Color { a: 0.3, ..theme.extended_palette().primary.base.color },
+        }
+    }
+}
+
+pub fn form_text_area(
+    ink: Color,
+) -> impl Fn(&Theme, iced::widget::text_editor::Status) -> iced::widget::text_editor::Style {
+    move |theme, status| {
+        let focused = matches!(status, iced::widget::text_editor::Status::Focused { .. });
+        iced::widget::text_editor::Style {
+            background: field_fill(focused).into(),
+            border: field_border(theme, focused),
+            placeholder: Color { a: 0.4, ..ink },
+            value: ink,
+            selection: Color { a: 0.3, ..theme.extended_palette().primary.base.color },
+        }
+    }
+}
+
+/// A check box, radio button or signature place of a PDF form.
+pub fn form_box(theme: &Theme, status: button::Status) -> button::Style {
+    let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+    button::Style {
+        background: Some(field_fill(hovered).into()),
+        text_color: Color::from_rgb(0.05, 0.05, 0.1),
+        border: field_border(theme, hovered),
+        ..Default::default()
+    }
+}
+
+pub fn form_choice(ink: Color) -> impl Fn(&Theme, iced::widget::pick_list::Status) -> iced::widget::pick_list::Style {
+    move |theme, status| {
+        let open = !matches!(status, iced::widget::pick_list::Status::Active);
+        iced::widget::pick_list::Style {
+            text_color: ink,
+            placeholder_color: Color { a: 0.4, ..ink },
+            handle_color: Color { a: 0.6, ..ink },
+            background: field_fill(open).into(),
+            border: field_border(theme, open),
+        }
+    }
+}

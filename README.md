@@ -27,6 +27,8 @@ The original Lumen is built on GTK 4, libadwaita and poppler. This edition:
 - **Links:** links inside the document jump to their target. Web and mail links open in your browser or mail app through the desktop portal; other kinds of link (files, programs) are ignored for safety.
 - **Markup:** press M (or the pen button) to draw on a picture or a PDF page: highlighter, pen, rectangles, ellipses, lines, arrows and text boxes, in eight colours and three line widths. Select, move, resize, recolour and delete what you drew, with undo and redo. On a PDF the highlighter marks the text you drag over.
 - **Real PDF annotations:** markup is saved into the PDF as standard annotations (highlight, ink, square, circle, line, free text), each with its own appearance, so every PDF viewer shows it. Saving appends an incremental update: the original bytes are kept as they were. Annotations of those kinds that are already in a PDF, from Lumen or another app, can be edited too; comments attached to them are kept.
+- **Forms:** fill in PDF forms: text fields (single and multi-line, passwords, length limits), check boxes, radio buttons and drop-downs. Ctrl+S saves the values into the PDF, each with a matching appearance, so other viewers and printers show the filled-in form. Read-only fields and script buttons are left alone.
+- **Signatures:** draw your signature once and Lumen keeps it (in `~/.local/share/lumen/signatures.toml`, shared with the GTK Lumen). Sign from the toolbar, or click a signature field, and the signature is placed as ink you can move and resize; it is saved like other markup. This is a handwritten signature, as on paper, not a cryptographic (certificate) one.
 - **Pictures with markup** are saved as a copy (PNG, JPEG, WebP, TIFF or BMP), never over the original unless you choose it. Printing prints what you see, unsaved markup included. Markup you have not saved yet is kept while you look at other files, and quitting asks first.
 - **Folders:** open a folder, or open one file and flip through its neighbours. You can also drop files and folders onto the window. A sidebar on the left lists the files with lazily loaded thumbnails (only the rows on screen are built, so huge folders stay fast); camera JPEGs use their embedded EXIF thumbnail.
 - **Printing:** uses the desktop's native print dialog through the XDG print portal. PDFs are sent as they are. Pictures are fitted to the paper and margins you choose and sent as a one-page PDF at up to 300 dpi.
@@ -35,7 +37,7 @@ The original Lumen is built on GTK 4, libadwaita and poppler. This edition:
 - **Fast flipping:** the next and previous pictures are preloaded, and recently viewed ones are kept decoded.
 - **Robust:** decoding runs under allocation limits, and a panic while decoding or rendering a hostile file becomes an error message instead of a crash.
 
-Picture editing (crop, adjust), page reordering, forms, signing and password-protected PDFs from the original Lumen are not ported yet.
+Picture editing (crop, adjust), page reordering and password-protected PDFs from the original Lumen are not ported yet.
 
 ## Keyboard
 
@@ -46,7 +48,7 @@ Picture editing (crop, adjust), page reordering, forms, signing and password-pro
 | M | Markup on or off |
 | Ctrl+Z / Ctrl+Shift+Z | Undo / redo markup |
 | Delete, arrow keys | Delete / nudge the selected annotation (Shift moves further) |
-| Ctrl+S / Ctrl+Shift+S | Save markup into the PDF / save a copy (a picture always saves a copy) |
+| Ctrl+S / Ctrl+Shift+S | Save markup and form values into the PDF / save a copy (a picture always saves a copy) |
 | Ctrl+C / Ctrl+A | Copy the selected text / select all text (PDF) |
 | Ctrl+F | Find in the PDF (Enter / Shift+Enter or F3 / Shift+F3 for next / previous, Esc to close) |
 | ← → (Space / Backspace for pictures) | Next / previous file |
@@ -93,6 +95,9 @@ xdg-mime default io.github.imanolgo.LumenRs.desktop application/pdf
 | `src/pdf.rs` | PDF documents and their render-thread pool (hayro) |
 | `src/structure.rs` | Outline, links and page text (for search) |
 | `src/annotate/` | Markup: the annotation model and editor, the shared drawing description, PDF annotations in and out (lopdf), pictures with markup |
+| `src/forms.rs` | PDF forms: reading the fields, writing values and their appearances |
+| `src/signatures.rs` | Saved signatures |
+| `src/app/forms.rs`, `src/app/signature.rs` | Inputs over form fields; the signature menu, drawing pad and placing |
 | `src/app/markup.rs`, `src/app/overlay.rs` | The markup bar and its messages; the canvas that draws annotations over a page and takes the pointer |
 | `src/raster.rs` | Picture decoding, SVG rendering and thumbnails |
 | `src/library.rs` | Which files to browse: folders, natural sort order |

@@ -17,10 +17,14 @@ use iced::{
     system, window,
 };
 
+mod forms;
 mod markup;
 mod overlay;
+mod signature;
 
+use forms::{FormMsg, FormState};
 use markup::{DocMarkup, MarkupMsg, TextEdit};
+use signature::{Pad, SignMsg};
 
 use crate::annotate::{self, Editor};
 use crate::library::{self, Kind};
@@ -157,6 +161,19 @@ pub struct App {
     markup_busy: Option<&'static str>,
     last_drag: Option<(f64, f64)>,
     confirm_quit: bool,
+
+    /// The form of the PDF on screen, and the file it belongs to.
+    form: Option<FormState>,
+    form_path: Option<PathBuf>,
+    /// Unsaved form values of other files.
+    stash_forms: HashMap<PathBuf, Vec<crate::forms::Value>>,
+    signatures: crate::signatures::Signatures,
+    sign_menu: bool,
+    pad: Option<Pad>,
+    /// The signature field being signed.
+    sign_target: Option<(usize, annotate::Rect)>,
+    /// A signature to place once the PDF is ready for markup.
+    pending_sign: Option<(crate::signatures::Signature, usize, annotate::Rect)>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -311,7 +328,7 @@ pub enum Message {
 
     PictureLoaded(u64, PathBuf, Result<Picture, String>),
     Preloaded(PathBuf, Result<Picture, String>),
-    PdfOpened(u64, PathBuf, Result<pdf::Document, String>),
+    PdfOpened(u64, PathBuf, Result<pdf::Opened, String>),
     PageRendered(u64, usize, f32, Result<Picture, String>),
     Thumb(PathBuf, Option<Picture>),
     SidebarScrolled(f32, f32),
@@ -360,6 +377,8 @@ pub enum Message {
     DismissToast(u64),
     Quit,
     Markup(MarkupMsg),
+    Form(FormMsg),
+    Sign(SignMsg),
 }
 
 fn err_string(e: anyhow::Error) -> String {
@@ -425,6 +444,14 @@ impl App {
             markup_busy: None,
             last_drag: None,
             confirm_quit: false,
+            form: None,
+            form_path: None,
+            stash_forms: HashMap::new(),
+            signatures: crate::signatures::Signatures::user(),
+            sign_menu: false,
+            pad: None,
+            sign_target: None,
+            pending_sign: None,
         };
         let mut tasks = vec![system::theme().map(Message::SystemTheme)];
         if !paths.is_empty() {
@@ -435,7 +462,7 @@ impl App {
     }
 
     pub fn title(&self) -> String {
-        let unsaved = if self.has_unsaved_markup() { "• " } else { "" };
+        let unsaved = if self.has_unsaved_changes() { "• " } else { "" };
         match self.current_path() {
             Some(p) => format!("{unsaved}{} — Lumen", file_name(p)),
             None => "Lumen".into(),
@@ -598,7 +625,7 @@ impl App {
                     return Task::none();
                 }
                 match result {
-                    Ok(doc) => self.open_pdf_view(path, doc),
+                    Ok(opened) => self.install_opened(path, opened),
                     Err(error) => {
                         self.doc = Doc::Failed { path, error };
                         Task::none()
@@ -761,7 +788,9 @@ impl App {
                 Task::none()
             }
             Message::Escape => {
-                if let Some(task) = self.markup_escape() {
+                if self.sign_escape() {
+                    Task::none()
+                } else if let Some(task) = self.markup_escape() {
                     task
                 } else if self.search.is_some() {
                     self.search = None;
@@ -949,6 +978,8 @@ impl App {
                 iced::exit()
             }
             Message::Markup(msg) => self.markup_update(msg),
+            Message::Form(msg) => self.form_update(msg),
+            Message::Sign(msg) => self.sign_update(msg),
         }
     }
 
@@ -997,7 +1028,7 @@ impl App {
             _ => return Task::none(),
         };
         self.modifiers = modifiers;
-        if self.confirm_quit {
+        if self.confirm_quit || self.pad.is_some() {
             return Task::none();
         }
         if let Some(task) = self.markup_key(&key, modifiers) {
@@ -1105,7 +1136,10 @@ impl App {
         if index >= self.files.len() || index == self.current {
             return Task::none();
         }
+        self.detach_form();
         self.detach_markup();
+        self.pending_sign = None;
+        self.sign_target = None;
         self.current = index;
         self.generation += 1;
         self.load_started = Some(Instant::now());
@@ -1122,25 +1156,25 @@ impl App {
         let path = self.files[index].clone();
 
         let load = match Kind::of(&path) {
-            Some(Kind::Pdf) if self.opens_for_markup(&path) => {
-                self.doc = Doc::Loading(path.clone());
-                self.markup_busy = Some("Preparing…");
-                Task::perform(
-                    {
-                        let path = path.clone();
-                        blocking(move || pdf::Document::open_for_markup(&path).map_err(err_string))
-                    },
-                    move |r| Message::Markup(MarkupMsg::Prepared(generation, path.clone(), r.and_then(|r| r))),
-                )
-            }
             Some(Kind::Pdf) => {
                 self.doc = Doc::Loading(path.clone());
+                let markup = self.opens_for_markup(&path);
+                if markup {
+                    self.markup_busy = Some("Preparing…");
+                }
                 Task::perform(
                     {
                         let path = path.clone();
-                        blocking(move || pdf::Document::open(&path).map_err(err_string))
+                        blocking(move || pdf::Document::open_full(&path, markup).map_err(err_string))
                     },
-                    move |r| Message::PdfOpened(generation, path.clone(), r.and_then(|r| r)),
+                    move |r| {
+                        let r = r.and_then(|r| r);
+                        if markup {
+                            Message::Markup(MarkupMsg::Prepared(generation, path.clone(), r))
+                        } else {
+                            Message::PdfOpened(generation, path.clone(), r)
+                        }
+                    },
                 )
             }
             _ => {
@@ -1683,6 +1717,12 @@ impl App {
         if self.drop_hover {
             layers = layers.push(self.drop_overlay());
         }
+        if self.sign_menu {
+            layers = layers.push(self.sign_menu_view());
+        }
+        if self.pad.is_some() {
+            layers = layers.push(self.pad_view());
+        }
         if self.confirm_quit {
             layers = layers.push(self.quit_dialog());
         }
@@ -1792,7 +1832,21 @@ impl App {
                 .push(icon_button(icons::rotate_left(), "Rotate left (Shift+R)", Some(Message::Rotate(-1)), false))
                 .push(icon_button(icons::rotate_right(), "Rotate right (R)", Some(Message::Rotate(1)), false));
         }
-        right = right.push(separator()).push(icon_button(
+        right = right.push(separator());
+        if is_pdf && self.has_unsaved_changes() && !self.markup_open {
+            let save = button(text("Save").size(13))
+                .padding([6, 14])
+                .style(style::primary)
+                .on_press_maybe(self.markup_busy.is_none().then_some(Message::Markup(MarkupMsg::Save)));
+            right = right.push(tip(save.into(), "Save into the PDF (Ctrl+S)"));
+        }
+        right = right.push(icon_button(
+            icons::signature(),
+            "Sign",
+            has_doc.then_some(Message::Sign(SignMsg::Menu)),
+            self.sign_menu,
+        ));
+        right = right.push(icon_button(
             icons::markup(),
             "Markup: draw, highlight, add text (M)",
             has_doc.then_some(Message::Markup(MarkupMsg::Toggle)),
@@ -1961,6 +2015,9 @@ impl App {
                     .into(),
                 };
                 layers = layers.push(placed(&link.rect, view.zoom, area));
+            }
+            for layer in self.form_layers(i, view.zoom) {
+                layers = layers.push(layer);
             }
             for layer in self.markup_layers(i, view.zoom, w, h) {
                 layers = layers.push(layer);

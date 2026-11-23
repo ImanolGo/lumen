@@ -16,7 +16,7 @@ use iced::{Alignment, Element, Font, Length, Task};
 use super::overlay::{Capture, Overlay};
 use super::{App, Doc, Message, blocking, err_string, file_name, icon_button, muted, placed, separator};
 use crate::annotate::model::Style;
-use crate::annotate::pdf::{Imported, ObjRef};
+use crate::annotate::pdf::ObjRef;
 use crate::annotate::{AnnotationLayer, Color, GeometryChange, History, Outcome, Point, Rect, Shape, Store, Tool};
 use crate::{icons, pdf, style};
 
@@ -96,6 +96,27 @@ impl DocMarkup {
     }
 }
 
+/// An owned copy of what to write into a PDF, to hand to a worker thread.
+struct Pending {
+    layers: Layers,
+    refs: Vec<Vec<ObjRef>>,
+    pages: Vec<usize>,
+    form: std::sync::Arc<crate::forms::Form>,
+    values: Vec<crate::forms::Value>,
+}
+
+impl Pending {
+    fn changes(&self) -> pdf::Changes<'_> {
+        pdf::Changes {
+            layers: &self.layers,
+            refs: &self.refs,
+            pages: &self.pages,
+            form: &self.form,
+            values: &self.values,
+        }
+    }
+}
+
 /// The text box being typed into.
 pub struct TextEdit {
     pub page: usize,
@@ -120,8 +141,8 @@ pub enum MarkupMsg {
     Save,
     SaveAs,
     SaveTo(Result<Option<PathBuf>, String>),
-    Prepared(u64, PathBuf, Result<(pdf::Document, Imported), String>),
-    PdfSaved(u64, PathBuf, Layers, Result<(pdf::Document, Imported), String>),
+    Prepared(u64, PathBuf, Result<pdf::Opened, String>),
+    PdfSaved(u64, PathBuf, Layers, Result<pdf::Opened, String>),
     PictureSaved(u64, PathBuf, Layers, Result<(), String>),
     TextAction(text_editor::Action),
     QuitAnyway,
@@ -153,11 +174,14 @@ impl App {
 
     /// Files with markup that is not saved yet.
     pub(super) fn unsaved_files(&self) -> usize {
-        self.marks.iter().filter(|m| m.is_dirty()).count() + self.stash.values().filter(|m| m.is_dirty()).count()
+        let elsewhere: std::collections::HashSet<&PathBuf> =
+            self.stash.iter().filter(|(_, m)| m.is_dirty()).map(|(p, _)| p).chain(self.stash_forms.keys()).collect();
+        usize::from(self.has_unsaved_changes()) + elsewhere.len()
     }
 
-    pub(super) fn has_unsaved_markup(&self) -> bool {
-        self.marks.as_ref().is_some_and(DocMarkup::is_dirty)
+    /// Markup or form values on screen that the file does not have yet.
+    pub(super) fn has_unsaved_changes(&self) -> bool {
+        self.marks.as_ref().is_some_and(DocMarkup::is_dirty) || self.form.as_ref().is_some_and(|f| f.is_dirty())
     }
 
     fn capture(&self, is_pdf: bool) -> Capture {
@@ -196,7 +220,7 @@ impl App {
                 Task::perform(
                     {
                         let path = path.clone();
-                        blocking(move || pdf::Document::open_for_markup(&path).map_err(err_string))
+                        blocking(move || pdf::Document::open_full(&path, true).map_err(err_string))
                     },
                     move |r| Message::Markup(MarkupMsg::Prepared(generation, path.clone(), r.and_then(|r| r))),
                 )
@@ -236,26 +260,39 @@ impl App {
         self.stash.insert(path, marks);
     }
 
-    /// The renderer has the editable annotations hidden now; swap it in and start editing.
-    fn install_pdf(&mut self, path: PathBuf, doc: pdf::Document, imported: Imported) -> Task<Message> {
+    /// A PDF was opened (or reopened for markup, or after saving): show it, with its form and markup.
+    pub(super) fn install_opened(&mut self, path: PathBuf, opened: pdf::Opened) -> Task<Message> {
         let same = matches!(&self.doc, Doc::Pdf(v) if v.doc.path() == path);
+        let pages = opened.doc.page_count();
         let shown = if same {
-            self.swap_pdf(doc)
+            self.swap_pdf(opened.doc)
         } else if matches!(&self.doc, Doc::Loading(p) if *p == path) {
-            self.open_pdf_view(path.clone(), doc)
+            self.open_pdf_view(path.clone(), opened.doc)
         } else {
             return Task::none();
         };
-        let refs = imported.refs;
-        self.marks = Some(match self.stash.remove(&path) {
-            Some(mut waiting) => {
-                waiting.refs = refs;
-                waiting
+        self.attach_form(&path, opened.form, pages);
+        if let Some(imported) = opened.imported {
+            let refs = imported.refs;
+            match &mut self.marks {
+                Some(marks) => marks.refs = refs,
+                None => {
+                    self.marks = Some(match self.stash.remove(&path) {
+                        Some(mut waiting) => {
+                            waiting.refs = refs;
+                            waiting
+                        }
+                        None => DocMarkup::new(imported.layers, refs, 1.0),
+                    });
+                    self.apply_unit();
+                }
             }
-            None => DocMarkup::new(imported.layers, refs, 1.0),
-        });
-        self.apply_unit();
-        shown
+        }
+        let signed = match self.pending_sign.take() {
+            Some((signature, page, target)) => self.place_signature(signature, page, target),
+            None => Task::none(),
+        };
+        Task::batch([shown, signed])
     }
 
     /// Replaces the open PDF's renderer, keeping the view where it is; pages re-render.
@@ -482,7 +519,7 @@ impl App {
                     return Task::none();
                 }
                 match result {
-                    Ok((doc, imported)) => self.install_pdf(path, doc, imported),
+                    Ok(opened) => self.install_opened(path, opened),
                     Err(error) if matches!(&self.doc, Doc::Loading(p) if *p == path) => {
                         self.doc = Doc::Failed { path, error };
                         Task::none()
@@ -493,7 +530,7 @@ impl App {
             MarkupMsg::Save => {
                 let done = self.finish_text();
                 match &self.doc {
-                    Doc::Pdf(view) if self.has_unsaved_markup() => {
+                    Doc::Pdf(view) if self.has_unsaved_changes() => {
                         let path = view.doc.path().to_owned();
                         Task::batch([done, self.save_pdf(path)])
                     }
@@ -538,12 +575,14 @@ impl App {
             MarkupMsg::PdfSaved(generation, target, layers, result) => {
                 self.markup_busy = None;
                 match result {
-                    Ok((doc, imported)) if generation == self.generation => {
+                    Ok(opened) if generation == self.generation => {
                         if self.files.get(self.current).is_some_and(|p| *p != target) {
                             self.files[self.current] = target.clone();
                         }
-                        let shown = self.swap_pdf(doc);
-                        if let Some(marks) = &mut self.marks {
+                        let pages = opened.doc.page_count();
+                        let shown = self.swap_pdf(opened.doc);
+                        self.attach_form(&target, opened.form, pages);
+                        if let (Some(marks), Some(imported)) = (&mut self.marks, opened.imported) {
                             marks.refs = imported.refs;
                             marks.saved = layers;
                         }
@@ -584,23 +623,35 @@ impl App {
         }
     }
 
+    /// What to write into the PDF on screen: unsaved markup and form values.
+    fn pdf_changes(&self) -> Pending {
+        let (layers, refs, pages) = match &self.marks {
+            Some(m) => (m.store.pages.layers.clone(), m.refs.clone(), m.dirty_pages()),
+            None => Default::default(),
+        };
+        let (form, values) = match &self.form {
+            Some(f) => (f.form.clone(), f.values.clone()),
+            None => Default::default(),
+        };
+        Pending { layers, refs, pages, form, values }
+    }
+
     fn save_pdf(&mut self, target: PathBuf) -> Task<Message> {
-        let (Doc::Pdf(view), Some(marks)) = (&self.doc, &self.marks) else { return Task::none() };
+        let Doc::Pdf(view) = &self.doc else { return Task::none() };
         if self.markup_busy.is_some() {
             return Task::none();
         }
         self.markup_busy = Some("Saving…");
         let source = view.doc.path().to_owned();
-        let layers = marks.store.pages.layers.clone();
-        let refs = marks.refs.clone();
-        let pages = marks.dirty_pages();
+        let markup = self.marks.is_some();
+        let pending = self.pdf_changes();
         let generation = self.generation;
-        let saved = layers.clone();
+        let saved = pending.layers.clone();
         Task::perform(
             {
                 let target = target.clone();
                 blocking(move || {
-                    pdf::Document::save_markup(&source, &target, &layers, &refs, &pages).map_err(err_string)
+                    pdf::Document::save_changes(&source, &target, &pending.changes(), markup).map_err(err_string)
                 })
             },
             move |r| Message::Markup(MarkupMsg::PdfSaved(generation, target.clone(), saved.clone(), r.and_then(|r| r))),
@@ -635,14 +686,13 @@ impl App {
 
     /// For printing: a copy of the file with its markup, when it has markup the file lacks.
     pub(super) fn printable_copy(&self) -> Option<Task<Result<PathBuf, String>>> {
-        let marks = self.marks.as_ref()?;
         match &self.doc {
-            Doc::Pdf(view) if marks.is_dirty() => {
+            Doc::Pdf(view) if self.has_unsaved_changes() => {
                 let source = view.doc.path().to_owned();
-                let (layers, refs, pages) = (marks.store.pages.layers.clone(), marks.refs.clone(), marks.dirty_pages());
+                let pending = self.pdf_changes();
                 Some(Task::perform(
                     blocking(move || {
-                        let bytes = pdf::Document::with_markup(&source, &layers, &refs, &pages).map_err(err_string)?;
+                        let bytes = pdf::Document::with_changes(&source, &pending.changes()).map_err(err_string)?;
                         let copy = print_copy(&file_name(&source))?;
                         std::fs::write(&copy, bytes).map_err(|e| e.to_string())?;
                         Ok(copy)
@@ -650,7 +700,7 @@ impl App {
                     |r| r.and_then(|r| r),
                 ))
             }
-            Doc::Image(view) if marks.has_items() => {
+            Doc::Image(view) if self.marks.as_ref().is_some_and(DocMarkup::has_items) => {
                 let (rgba, layer) = self.picture_with_markup()?;
                 let stem = view.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
                 Some(Task::perform(
@@ -684,8 +734,8 @@ impl App {
             Key::Character(c) => match (c.to_lowercase().as_str(), ctrl, modifiers.shift()) {
                 ("z", true, false) if has_marks => MarkupMsg::Undo,
                 ("z", true, true) | ("y", true, false) if has_marks => MarkupMsg::Redo,
-                ("s", true, false) if has_marks => MarkupMsg::Save,
-                ("s", true, true) if has_marks => MarkupMsg::SaveAs,
+                ("s", true, false) if has_marks || self.has_unsaved_changes() => MarkupMsg::Save,
+                ("s", true, true) if has_marks || self.form.is_some() => MarkupMsg::SaveAs,
                 ("m", false, false) => MarkupMsg::Toggle,
                 _ => return None,
             },
@@ -877,7 +927,7 @@ impl App {
         .spacing(2)
         .align_y(Alignment::Center);
 
-        let dirty = self.has_unsaved_markup();
+        let dirty = self.has_unsaved_changes();
         let status = match self.markup_busy {
             Some(s) => s,
             None if dirty => "Unsaved",

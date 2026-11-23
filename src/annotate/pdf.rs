@@ -45,6 +45,7 @@ pub struct Imported {
 }
 
 impl Imported {
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.refs.iter().all(Vec::is_empty)
     }
@@ -213,7 +214,7 @@ fn read_one(annot: &Dict<'_>, to_view: Affine) -> Option<(Annotation, Note)> {
 }
 
 /// Font size and colour from a default appearance string such as `/Helv 12 Tf 1 0 0 rg`.
-fn parse_da(da: Option<Vec<u8>>) -> (f64, Option<Color>) {
+pub(crate) fn parse_da(da: Option<Vec<u8>>) -> (f64, Option<Color>) {
     let da = da.map(|d| String::from_utf8_lossy(&d).into_owned()).unwrap_or_default();
     let tokens: Vec<&str> = da.split_whitespace().collect();
     let mut size = 12.0;
@@ -275,8 +276,14 @@ pub struct PageEdit<'a> {
     pub replaces: &'a [ObjRef],
 }
 
-/// `bytes` with the pages in `edits` carrying their new annotations.
-pub fn save(bytes: &[u8], edits: &[PageEdit<'_>]) -> Result<Vec<u8>> {
+/// A form field to set.
+pub struct Fill<'a> {
+    pub field: &'a crate::forms::Field,
+    pub value: &'a crate::forms::Value,
+}
+
+/// `bytes` with the pages in `edits` carrying their new annotations, and the fields in `fills` filled in.
+pub fn save(bytes: &[u8], edits: &[PageEdit<'_>], fills: &[Fill<'_>]) -> Result<Vec<u8>> {
     let hayro_doc = Pdf::new(bytes.to_vec()).map_err(|_| anyhow::anyhow!("the PDF could not be read"))?;
     let to_view = transforms(&hayro_doc);
     drop(hayro_doc);
@@ -332,6 +339,9 @@ pub fn save(bytes: &[u8], edits: &[PageEdit<'_>]) -> Result<Vec<u8>> {
             page.set("Annots", annots);
         }
     }
+    for fill in fills {
+        crate::forms::fill(&mut doc, fill.field, fill.value).context("a form field could not be filled in")?;
+    }
     finish(doc)
 }
 
@@ -354,7 +364,7 @@ fn user_point(to_user: Affine, p: Point) -> [Object; 2] {
 }
 
 /// A PDF text string: plain when it is ASCII, UTF-16 otherwise.
-fn pdf_text(s: &str) -> Object {
+pub(crate) fn pdf_text(s: &str) -> Object {
     if s.is_ascii() {
         Object::String(s.as_bytes().to_vec(), StringFormat::Literal)
     } else {
@@ -555,7 +565,7 @@ fn appearance(a: &Annotation, outer: Rect, to_view: Affine) -> Stream {
 }
 
 /// The WinAnsiEncoding byte for `c` (the standard fonts' encoding), or `?`.
-fn win_ansi(c: char) -> u8 {
+pub(crate) fn win_ansi(c: char) -> u8 {
     match c as u32 {
         0x20..=0x7E | 0xA0..=0xFF => c as u8,
         _ => match c {
@@ -661,7 +671,7 @@ mod tests {
                 layer.add(shape, style.clone());
             }
             let edit = PageEdit { page: 0, layer: Some(&layer), replaces: &imported.refs[0] };
-            let saved = save(&bytes, &[edit]).unwrap();
+            let saved = save(&bytes, &[edit], &[]).unwrap();
             assert!(saved.starts_with(&bytes));
 
             let back = read(&saved);
@@ -700,7 +710,7 @@ mod tests {
             assert!(rgba.chunks(4).any(|p| p[0] > 150 && p[2] < 100), "the amber shapes are drawn");
 
             // Deleting everything removes the list.
-            let empty = save(&saved, &[PageEdit { page: 0, layer: None, replaces: &back.refs[0] }]).unwrap();
+            let empty = save(&saved, &[PageEdit { page: 0, layer: None, replaces: &back.refs[0] }], &[]).unwrap();
             assert!(read(&empty).is_empty());
             assert_eq!(crate::structure::read(&Pdf::new(empty).unwrap()).1[0].len(), 1);
         }
