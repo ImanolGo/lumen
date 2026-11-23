@@ -72,7 +72,9 @@ Everything from the original Lumen is ported.
 
 ## Building
 
-You need Rust 1.88 or newer. At run time you also need an XDG desktop portal with a file chooser and print backend: `xdg-desktop-portal-gtk` or `xdg-desktop-portal-gnome` (`-kde` works as well). The rest is pure Rust.
+You need Rust 1.88 or newer. Nothing else is needed at build or run time: the app is pure Rust.
+
+On the desktop, Lumen uses the XDG desktop portal when there is one (`xdg-desktop-portal-gnome`, `-gtk` or `-kde`), so file dialogs, the print dialog and opening links look and feel native. Without a portal it falls back to its own: a built-in file chooser for opening, saving a copy and inserting pages, and a built-in print dialog that sends jobs straight to CUPS over its local socket (IPP, written in plain Rust; no libcups). Set `LUMEN_NO_PORTAL=1` to use them even when a portal is there.
 
 ```sh
 git clone https://github.com/ImanolGo/lumen-rs.git
@@ -116,7 +118,9 @@ xdg-mime default io.github.imanolgo.LumenRs.desktop application/pdf
 | `src/raster.rs` | Picture decoding, SVG rendering and thumbnails |
 | `src/library.rs` | Which files to browse: folders, natural sort order |
 | `src/print.rs` | Printing through the portal; turns pictures into PDFs |
-| `src/portal.rs` | Native file and folder choosers |
+| `src/portal.rs` | Native file and folder choosers (XDG portal) |
+| `src/cups.rs` | Printing straight to CUPS without a portal: a small IPP client |
+| `src/app/chooser.rs`, `src/app/printing.rs` | Lumen's own file chooser and print dialog, for desktops without a portal |
 | `src/style.rs`, `src/icons.rs` | Light and dark palettes, widget styles, symbolic icons |
 
 Run `make test` and `make lint` before sending changes.

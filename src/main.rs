@@ -4,6 +4,7 @@
 
 mod annotate;
 mod app;
+mod cups;
 mod edit;
 mod forms;
 mod icons;

@@ -6,8 +6,30 @@ use anyhow::{Context, Result};
 use ashpd::desktop::ResponseError;
 use ashpd::desktop::file_chooser::{FileFilter, SelectedFiles};
 
-/// Asks the user for files (or one folder). `Ok(empty)` means cancelled.
+/// Whether the portals are switched off (`LUMEN_NO_PORTAL=1`): Lumen's own file and
+/// print dialogs are used then, as on desktops without a portal.
+pub fn disabled() -> bool {
+    std::env::var_os("LUMEN_NO_PORTAL").is_some_and(|v| !v.is_empty() && v != "0")
+}
+
+/// No portal answered: Lumen shows its own dialog instead.
+#[derive(Debug, Clone, Copy)]
+pub struct NoPortal;
+
+impl std::fmt::Display for NoPortal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("no file chooser portal is available")
+    }
+}
+
+impl std::error::Error for NoPortal {}
+
+/// Asks the user for files (or one folder). `Ok(empty)` means cancelled; a [`NoPortal`]
+/// error means there is no portal to ask.
 pub async fn choose(folder: bool) -> Result<Vec<PathBuf>> {
+    if disabled() {
+        return Err(NoPortal.into());
+    }
     let mut request = SelectedFiles::open_file()
         .title(if folder { "Open Folder" } else { "Open Files" })
         .accept_label("Open")
@@ -36,7 +58,8 @@ pub async fn choose(folder: bool) -> Result<Vec<PathBuf>> {
         Ok(files) => files,
         Err(ashpd::Error::Response(ResponseError::Cancelled)) => return Ok(Vec::new()),
         Err(e) => {
-            return Err(e).context("no file chooser portal is available (install xdg-desktop-portal-gtk or -gnome)");
+            tracing::info!("the file chooser portal failed ({e}); using Lumen's own");
+            return Err(NoPortal.into());
         }
     };
     Ok(files.uris().iter().filter_map(|uri| uri_to_path(uri.as_str())).collect())
@@ -44,6 +67,9 @@ pub async fn choose(folder: bool) -> Result<Vec<PathBuf>> {
 
 /// Asks where to save a file, suggesting `suggested` (its folder and name). `Ok(None)` means cancelled.
 pub async fn save_as(suggested: PathBuf) -> Result<Option<PathBuf>> {
+    if disabled() {
+        return Err(NoPortal.into());
+    }
     let name = suggested.file_name().map(|n| n.to_string_lossy().into_owned());
     let base = || {
         SelectedFiles::save_file().title("Save a Copy").accept_label("Save").modal(true).current_name(name.as_deref())
@@ -55,7 +81,10 @@ pub async fn save_as(suggested: PathBuf) -> Result<Option<PathBuf>> {
     match request.send().await.and_then(|r| r.response()) {
         Ok(files) => Ok(files.uris().iter().find_map(|uri| uri_to_path(uri.as_str()))),
         Err(ashpd::Error::Response(ResponseError::Cancelled)) => Ok(None),
-        Err(e) => Err(e).context("no file chooser portal is available (install xdg-desktop-portal-gtk or -gnome)"),
+        Err(e) => {
+            tracing::info!("the file chooser portal failed ({e}); using Lumen's own");
+            Err(NoPortal.into())
+        }
     }
 }
 

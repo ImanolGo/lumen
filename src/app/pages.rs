@@ -231,9 +231,7 @@ impl App {
                 }
                 self.request_thumbs_grid()
             }
-            PagesMsg::Insert => Task::perform(async { crate::portal::choose(false).await.map_err(err_string) }, |r| {
-                Message::Pages(PagesMsg::InsertChosen(r))
-            }),
+            PagesMsg::Insert => App::ask_for_files(super::chooser::Purpose::InsertPdf, None),
             PagesMsg::InsertChosen(Err(e)) => self.toast(e),
             PagesMsg::InsertChosen(Ok(paths)) => {
                 let tasks = paths
@@ -289,9 +287,7 @@ impl App {
                 let p = view.doc.path();
                 let stem = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
                 let suggested = p.with_file_name(format!("{stem} (rearranged).pdf"));
-                Task::perform(async move { crate::portal::save_as(suggested).await.map_err(err_string) }, |r| {
-                    Message::Pages(PagesMsg::SaveTo(r))
-                })
+                App::ask_for_files(super::chooser::Purpose::SavePages, Some(suggested))
             }
             PagesMsg::SaveTo(Ok(Some(target))) => self.save_pages(target),
             PagesMsg::SaveTo(Ok(None)) => Task::none(),

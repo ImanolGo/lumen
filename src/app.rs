@@ -17,19 +17,23 @@ use iced::{
     system, window,
 };
 
+mod chooser;
 mod edit;
 mod forms;
 mod markup;
 mod menu;
 mod overlay;
 mod pages;
+mod printing;
 mod signature;
 
+use chooser::{Chooser, ChooserMsg, Purpose};
 use edit::{CropState, EditMsg, PicEdit, ResizeForm};
 use forms::{FormMsg, FormState};
 use markup::{DocMarkup, MarkupMsg, TextEdit};
 use menu::{Dialog, Menu};
 use pages::{Organizer, PagesMsg};
+use printing::{PrintDialog, PrintMsg};
 use signature::{Pad, SignMsg};
 
 use crate::annotate::{self, Editor};
@@ -215,6 +219,9 @@ pub struct App {
     pinch_scale: f32,
     menu: Option<Menu>,
     dialog: Option<Dialog>,
+    /// Lumen's own file chooser and print dialog, when the desktop has no portal for them.
+    chooser: Option<Chooser>,
+    print_dialog: Option<PrintDialog>,
 }
 
 /// A zoom change easing in: from one zoom to another, and what to settle on.
@@ -445,7 +452,8 @@ pub enum Message {
     PanEnd,
 
     Print,
-    Printed(Result<Outcome, String>),
+    /// A print finished, or could not start; with what was being printed.
+    Printed(PathBuf, Result<Outcome, String>),
     ToggleFullscreen,
     ToggleSidebar,
     DismissToast(u64),
@@ -464,6 +472,8 @@ pub enum Message {
     Menu(Option<Menu>),
     MenuPick(Box<Message>),
     Dialog(Option<Dialog>),
+    Chooser(ChooserMsg),
+    Printing(PrintMsg),
     ControlsCheck,
     OverControls(bool),
     Frame(Instant),
@@ -559,6 +569,8 @@ impl App {
             pinch_scale: 1.0,
             menu: None,
             dialog: None,
+            chooser: None,
+            print_dialog: None,
         };
         let mut tasks = vec![system::theme().map(Message::SystemTheme)];
         if !paths.is_empty() {
@@ -689,8 +701,10 @@ impl App {
             }
 
             Message::Open { folder } => {
-                Task::perform(async move { crate::portal::choose(folder).await.map_err(err_string) }, Message::Chosen)
+                App::ask_for_files(if folder { Purpose::OpenFolder } else { Purpose::OpenFiles }, None)
             }
+            Message::Chooser(msg) => self.chooser_update(msg),
+            Message::Printing(msg) => self.printing_update(msg),
             Message::Chosen(Ok(paths)) if paths.is_empty() => Task::none(),
             Message::Chosen(Ok(paths)) => expand(paths, false),
             Message::Chosen(Err(e)) => self.toast(e),
@@ -910,7 +924,13 @@ impl App {
                 Task::none()
             }
             Message::Escape => {
-                if self.menu_escape() || self.sign_escape() || self.pages_escape() || self.edit_escape() {
+                if self.chooser.take().is_some()
+                    || self.print_dialog.take().is_some()
+                    || self.menu_escape()
+                    || self.sign_escape()
+                    || self.pages_escape()
+                    || self.edit_escape()
+                {
                     Task::none()
                 } else if let Some(task) = self.markup_escape() {
                     task
@@ -1032,20 +1052,32 @@ impl App {
                 self.printing = true;
                 if let Some(copy) = self.printable_copy() {
                     // Print what is on screen, unsaved markup included.
-                    return copy.then(|copy| match copy {
-                        Ok(copy) => {
-                            Task::perform(async move { print::print(copy).await.map_err(err_string) }, Message::Printed)
-                        }
-                        Err(e) => Task::done(Message::Printed(Err(e))),
+                    let original = path.clone();
+                    return copy.then(move |copy| match copy {
+                        Ok(copy) => Task::perform(
+                            {
+                                let copy = copy.clone();
+                                async move { print::print(copy).await.map_err(err_string) }
+                            },
+                            move |r| Message::Printed(copy.clone(), r),
+                        ),
+                        Err(e) => Task::done(Message::Printed(original.clone(), Err(e))),
                     });
                 }
-                Task::perform(async move { print::print(path).await.map_err(err_string) }, Message::Printed)
+                Task::perform(
+                    {
+                        let path = path.clone();
+                        async move { print::print(path).await.map_err(err_string) }
+                    },
+                    move |r| Message::Printed(path.clone(), r),
+                )
             }
-            Message::Printed(result) => {
+            Message::Printed(path, result) => {
                 self.printing = false;
                 match result {
                     Ok(Outcome::Sent) => self.notice("Sent to the printer"),
                     Ok(Outcome::Cancelled) => Task::none(),
+                    Ok(Outcome::NoPortal) => self.open_print_dialog(path),
                     Err(e) => self.toast(format!("Could not print: {e}")),
                 }
             }
@@ -1190,7 +1222,10 @@ impl App {
             _ => return Task::none(),
         };
         self.modifiers = modifiers;
-        if self.confirm_quit || self.pad.is_some() {
+        if let Some(task) = self.chooser_key(&key) {
+            return task;
+        }
+        if self.confirm_quit || self.pad.is_some() || self.print_dialog.is_some() {
             return Task::none();
         }
         if let Some(task) = self.pages_key(&key, modifiers) {
@@ -2074,6 +2109,12 @@ impl App {
         }
         if let Some(dialog) = self.dialog_view() {
             layers = layers.push(dialog);
+        }
+        if let Some(chooser) = self.chooser_view() {
+            layers = layers.push(chooser);
+        }
+        if let Some(printing) = self.print_dialog_view() {
+            layers = layers.push(printing);
         }
         if self.pad.is_some() {
             layers = layers.push(self.pad_view());

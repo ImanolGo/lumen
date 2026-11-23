@@ -574,10 +574,7 @@ impl App {
                     }
                     _ => return done,
                 };
-                let ask =
-                    Task::perform(async move { crate::portal::save_as(suggested).await.map_err(err_string) }, |r| {
-                        Message::Markup(MarkupMsg::SaveTo(r))
-                    });
+                let ask = App::ask_for_files(super::chooser::Purpose::SaveCopy, Some(suggested));
                 Task::batch([done, ask])
             }
             MarkupMsg::SaveTo(Ok(None)) => Task::none(),
