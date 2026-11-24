@@ -128,6 +128,7 @@ Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): running and testing, CI, checking the interface, translations, the control interface
 - [docs/FEATURES.md](docs/FEATURES.md): every feature in detail, the keyboard, files and environment variables
 - [docs/STATUS.md](docs/STATUS.md): benchmarks, what is missing, what has not been checked
+- [docs/FIDELITY.md](docs/FIDELITY.md): how closely PDFs render compared with poppler
 - [docs/parity-plan.md](docs/parity-plan.md): the plan for closing the gap with the GTK Lumen
 - [docs/RELEASING.md](docs/RELEASING.md): tagging, the AUR, Flatpak
 - [CHANGELOG.md](CHANGELOG.md)

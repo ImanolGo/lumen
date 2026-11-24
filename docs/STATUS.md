@@ -75,7 +75,7 @@ code):
 - **Very large animations** beyond the 96 MB cache, and the home trash (`~/.local/share/Trash`) in the app, were covered by unit tests only. The other-disk trash was tried by hand.
 - **AVIF and HEIC** were tested only with libheif 1.23 on one machine; CI does not build that feature.
 - **Packaging.** The `-git` PKGBUILD was built once with `makepkg` and the `.deb` was built and inspected; the release workflow, the AUR upload, the Flatpak build and the released `lumen-rs` PKGBUILD (it needs a tag) have never been run.
-- **PDF rendering fidelity** against poppler (package 10 of the plan) has not been measured; hayro is young and some PDFs will not render like other readers.
+- **PDF rendering fidelity** was measured against poppler on 132 pages of real documents and a feature test ([FIDELITY.md](FIDELITY.md)): close, with heavier hairlines and slightly heavier text. The corpus is mostly text documents; scanned pages, JBIG2 and JPEG 2000 images, CJK fonts and exotic transparency were not covered.
 - **The Spanish** in dialogs other than the menu and Preferences has not been looked at on screen, and was written by the same author as the code.
 - **The headless GUI test job** in CI is new and may need adjusting.
 

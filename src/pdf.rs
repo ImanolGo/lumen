@@ -489,6 +489,45 @@ pub(crate) mod tests {
         assert!(doc.render(9999, 1.0).await.is_err());
     }
 
+    /// Renders pages for tools/fidelity.py, which compares them with poppler's. Not a test of
+    /// anything by itself: it needs `LUMEN_CORPUS_LIST` (lines of `path|1,5,9`, pages from 1)
+    /// and `LUMEN_CORPUS_OUT` (a folder), and runs with
+    /// `cargo test --release render_corpus -- --ignored --nocapture`.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn render_corpus() {
+        let (Some(list), Some(out)) = (std::env::var_os("LUMEN_CORPUS_LIST"), std::env::var_os("LUMEN_CORPUS_OUT"))
+        else {
+            return;
+        };
+        let out = std::path::PathBuf::from(out);
+        std::fs::create_dir_all(&out).unwrap();
+        // Pixels per point (1.0 is 72 dpi); `LUMEN_CORPUS_SCALE` changes it.
+        let scale: f32 = std::env::var("LUMEN_CORPUS_SCALE").ok().and_then(|v| v.parse().ok()).unwrap_or(1.0);
+        for (n, line) in std::fs::read_to_string(list).unwrap().lines().enumerate() {
+            let Some((path, pages)) = line.split_once('|') else { continue };
+            let doc = match Document::open(Path::new(path)) {
+                Ok(d) => d,
+                Err(e) => {
+                    println!("OPEN-ERR\t{n}\t{path}\t{e}");
+                    continue;
+                }
+            };
+            for page in pages.split(',').filter_map(|p| p.trim().parse::<usize>().ok()) {
+                let start = std::time::Instant::now();
+                // The same size as `pdftoppm -r (72 * scale)`.
+                match doc.render(page - 1, scale).await {
+                    Ok(pic) => {
+                        let img = image::RgbaImage::from_raw(pic.width, pic.height, pic.rgba.to_vec()).unwrap();
+                        img.save(out.join(format!("{n}-{page}.png"))).unwrap();
+                        println!("OK\t{n}\t{page}\t{}\t{}", start.elapsed().as_millis(), path);
+                    }
+                    Err(e) => println!("RENDER-ERR\t{n}\t{page}\t{path}\t{e}"),
+                }
+            }
+        }
+    }
+
     #[test]
     fn night_tone_turns_paper_dark_and_keeps_hues() {
         let mut px = [255, 255, 255, 255, 0, 0, 0, 255, 255, 0, 0, 255, 0, 0, 255, 255];

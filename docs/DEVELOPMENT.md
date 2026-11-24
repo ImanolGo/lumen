@@ -103,6 +103,10 @@ on the bus could otherwise open files in your viewer.
 
 Every method answers with the state afterwards, or an error that says why.
 
+## PDF rendering fidelity
+
+`tools/fidelity.py` compares how lumen-rs and poppler draw the same pages and ranks them by pixel difference; `tools/make_feature_pdf.py` makes a PDF with gradients, transparency, clipping, CMYK and so on to try it on. The method and results are in [FIDELITY.md](FIDELITY.md).
+
 ## Benchmarks
 
 `tools/bench.py [runs]` starts the GTK Lumen and lumen-rs cold on the same files (from
