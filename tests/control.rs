@@ -67,6 +67,7 @@ impl Lumen {
             .env("LUMEN_NO_PORTAL", "1")
             .env("XDG_CONFIG_HOME", dir.join("config"))
             .env("XDG_DATA_HOME", dir.join("data"))
+            .env("XDG_STATE_HOME", dir.join("state"))
             .stdout(Stdio::null())
             .stderr(log)
             .spawn()

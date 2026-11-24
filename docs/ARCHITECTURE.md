@@ -49,6 +49,7 @@ dependencies (touchpad pinch); see `vendor/README.md`.
 | `src/app.rs` | State, messages, update and view |
 | `src/style.rs`, `src/icons.rs` | Design tokens, widget styles, symbolic icons |
 | `src/settings.rs`, `src/app/prefs.rs` | Preferences: the settings file, and the dialog |
+| `src/state.rs` | What Lumen remembers between runs: window size, recent files, each PDF's page |
 | `src/i18n.rs`, `po/` | Translations: the `.po` reader, `tr()`, the catalogues |
 | `assets/fonts` | Inter (Latin), under the SIL Open Font License (`OFL.txt`) |
 

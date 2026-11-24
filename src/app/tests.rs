@@ -331,6 +331,51 @@ fn a_file_changed_by_another_program_is_reloaded_where_it_was() {
 }
 
 #[test]
+fn opened_files_are_remembered_and_a_pdf_comes_back_at_its_page() {
+    let _inside = runtime().enter();
+    let mut app = pdf_app();
+    let pdf = fixture("pages.pdf");
+    // Reading page 3, then moving on to a picture, notes the page...
+    let _ = app.update(Message::Expanded { files: vec![pdf.clone()], start: 0, append: false });
+    assert_eq!(app.state.recent[0].path, pdf);
+    app.doc = Doc::Empty;
+    let doc = pdf::Document::open(&pdf).unwrap();
+    let _ = app.open_pdf_view(pdf.clone(), doc);
+    scrolled_to_page(&mut app, 3);
+    let picture = fixture("pictures").join("g.png");
+    let _ = app.update(Message::Expanded { files: vec![picture.clone()], start: 0, append: false });
+    assert_eq!(app.state.recent[0].path, picture, "the newest file is first");
+    assert_eq!(app.state.page_of(&pdf), Some(3));
+    // ...and opening the PDF again starts there.
+    let doc = pdf::Document::open(&pdf).unwrap();
+    let _ = app.open_pdf_view(pdf.clone(), doc);
+    assert_eq!(page(&app), 3);
+    // A reload keeps its own place rather than the remembered one.
+    app.restore = Some(Place { page: 1, down: 0.0, across: 0.0 });
+    let doc = pdf::Document::open(&pdf).unwrap();
+    let _ = app.open_pdf_view(pdf.clone(), doc);
+    assert_eq!(page(&app), 1);
+}
+
+#[test]
+fn the_recent_list_can_be_opened_from_and_cleared() {
+    let _inside = runtime().enter();
+    let mut app = app();
+    let picture = fixture("pictures").join("g.png");
+    let _ = app.update(Message::Expanded { files: vec![picture.clone()], start: 0, append: false });
+    app.doc = Doc::Empty;
+    app.files.clear();
+    assert_eq!(app.state.recent.len(), 1);
+    let _ = app.update(Message::ClearRecent);
+    assert!(app.state.recent.is_empty());
+    // A file that cannot be opened drops out of the list.
+    let missing = fixture("pictures").join("not-there.png");
+    app.state.touch(&missing);
+    let _ = app.update(Message::PictureLoaded(app.generation, missing.clone(), Err("gone".into())));
+    assert!(app.state.recent.is_empty());
+}
+
+#[test]
 fn search_options_survive_a_new_query_and_are_remembered_by_the_bar() {
     let _inside = runtime().enter();
     let mut app = pdf_app();

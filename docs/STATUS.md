@@ -52,9 +52,7 @@ code):
 |---|---|
 | Copy the picture to the clipboard (Ctrl+C on a picture) | yes |
 | Command palette (Ctrl+Shift+P) | yes |
-| Recent files on the empty window | yes |
 | The desktop's thumbnail cache (`~/.cache/thumbnails`) | yes |
-| Remembering the window size and the last page of each PDF | yes |
 | An undo toast after deleting pages | yes |
 | Screen-reader support (accessible names) | yes (GTK) |
 | A control interface covering forms, annotation, editing and export | yes (this one covers opening, browsing, pages, zoom and search) |

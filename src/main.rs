@@ -27,6 +27,7 @@ mod raster;
 mod sandbox;
 mod settings;
 mod signatures;
+mod state;
 mod structure;
 mod style;
 mod trash;
@@ -88,7 +89,9 @@ fn main() -> iced::Result {
         .theme(app::App::theme)
         .subscription(app::App::subscription)
         .window(iced::window::Settings {
-            size: iced::Size::new(1180.0, 800.0),
+            size: state::State::load()
+                .window_size()
+                .map_or(iced::Size::new(1180.0, 800.0), |(w, h)| iced::Size::new(w, h)),
             min_size: Some(iced::Size::new(520.0, 360.0)),
             // Closing asks first while there is unsaved markup.
             exit_on_close_request: false,

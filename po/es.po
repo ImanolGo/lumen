@@ -139,6 +139,9 @@ msgstr "Se ha vuelto a cargar «{}»: ha cambiado en el disco"
 msgid "“{}” changed on disk. Your unsaved changes are kept; saving will overwrite it."
 msgstr "«{}» ha cambiado en el disco. Tus cambios sin guardar se conservan; al guardar se sobrescribirá."
 
+msgid "Recent"
+msgstr "Recientes"
+
 msgid "Match case"
 msgstr "Distinguir mayúsculas"
 

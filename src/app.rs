@@ -68,6 +68,9 @@ const ROW_H: f32 = 140.0;
 /// Height of the picture in a sidebar row; the file name goes underneath.
 const ROW_THUMB: f32 = 102.0;
 /// How long a zoom change takes to ease in.
+/// How many recent files the empty window lists.
+const RECENT_SHOWN: usize = 5;
+
 const ZOOM_EASE: Duration = Duration::from_millis(170);
 /// How long the floating controls stay after the pointer stops moving.
 const CONTROLS_LINGER: Duration = Duration::from_millis(1800);
@@ -177,6 +180,9 @@ pub struct App {
     /// The open file's size and modification time as last seen, to notice another program
     /// changing it. `None` until the next check, which then takes the file as it is.
     disk: Option<(PathBuf, Option<Stamp>)>,
+    /// Recent files, PDF pages and the window size, kept between runs.
+    state: crate::state::State,
+    state_save_pending: bool,
     /// Where to put a PDF back after it is reloaded.
     restore: Option<Place>,
     modifiers: Modifiers,
@@ -534,6 +540,10 @@ pub enum Message {
     /// Time to see whether another program changed the open file.
     CheckFile,
     FileStat(PathBuf, Option<Stamp>),
+    /// Write the remembered state to disk (a moment after it changed).
+    SaveState,
+    OpenRecent(PathBuf),
+    ClearRecent,
     SearchOpen,
     SearchClose,
     SearchInput(String),
@@ -693,6 +703,8 @@ impl App {
             viewport: Viewport::default(),
             links: LinkHistory::default(),
             disk: None,
+            state: if cfg!(test) { crate::state::State::default() } else { crate::state::State::load() },
+            state_save_pending: false,
             restore: None,
             modifiers: Modifiers::default(),
             pan: None,
@@ -966,6 +978,7 @@ impl App {
                         Task::batch([shown, self.attach_markup(), self.preload_neighbours()])
                     }
                     Err(error) => {
+                        self.state.forget(&path);
                         self.doc = Doc::Failed { path, error };
                         Task::none()
                     }
@@ -1091,6 +1104,17 @@ impl App {
                 )
             }
             Message::FileStat(path, stamp) => self.file_stat(path, stamp),
+            Message::SaveState => {
+                self.state_save_pending = false;
+                self.state.save();
+                Task::none()
+            }
+            Message::OpenRecent(path) => expand(vec![path], false),
+            Message::ClearRecent => {
+                self.state.clear_recent();
+                self.state.save();
+                Task::none()
+            }
             Message::LinkBack | Message::LinkForward => {
                 let Some(here) = self.place() else { return Task::none() };
                 let to =
@@ -1494,6 +1518,8 @@ impl App {
                     self.confirm_quit = true;
                     return done;
                 }
+                self.remember_place();
+                self.state.save();
                 iced::exit()
             }
             Message::PasswordInput(text) => {
@@ -1606,6 +1632,10 @@ impl App {
                 window::scale_factor(id).map(Message::ScaleFactor)
             }
             window::Event::CloseRequested => self.update(Message::Quit),
+            window::Event::Resized(size) if !self.fullscreen => {
+                self.state.window = Some((size.width.round() as u32, size.height.round() as u32));
+                Task::none()
+            }
             window::Event::Rescaled(f) => {
                 self.scale_factor = f.max(0.5);
                 self.request_pages()
@@ -1779,6 +1809,7 @@ impl App {
     /// Shows file `index` even when it is the one already shown (to load it afresh).
     fn show_forced(&mut self, index: usize) -> Task<Message> {
         self.disk = None;
+        self.remember_place();
         self.organizer = None;
         self.zoom_ease = None;
         self.detach_form();
@@ -1807,6 +1838,7 @@ impl App {
         self.pan = None;
         let generation = self.generation;
         let path = self.files[index].clone();
+        self.state.touch(&path);
 
         let load = match Kind::of(&path) {
             Some(Kind::Pdf) => {
@@ -1835,7 +1867,7 @@ impl App {
             }
         };
         let reset = operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 });
-        Task::batch([load, reset, self.request_thumbs(), self.reveal_in_sidebar()])
+        Task::batch([load, reset, self.request_thumbs(), self.reveal_in_sidebar(), self.state_changed()])
     }
 
     /// Opens the PDF at `path` off the UI thread, with the password given for it earlier, if any;
@@ -1886,6 +1918,7 @@ impl App {
                 operation::focus(password_input_id())
             }
             pdf::OpenError::Failed(error) => {
+                self.state.forget(&path);
                 self.doc = Doc::Failed { path, error };
                 Task::none()
             }
@@ -1895,6 +1928,7 @@ impl App {
     fn open_pdf_view(&mut self, path: PathBuf, doc: pdf::Document) -> Task<Message> {
         self.log_opened(&path, "pdf");
         self.links = LinkHistory::default();
+        let pages = doc.page_count();
         let slots = (0..doc.page_count()).map(|_| Slot::default()).collect();
         let fit = match self.prefs.pdf_fit {
             crate::settings::PdfFit::Width => PdfFit::Width,
@@ -1908,9 +1942,11 @@ impl App {
         self.viewport.x = 0.0;
         self.contents_scroll = (0.0, 0.0);
         self.reset_page_thumbs();
-        let restored = match self.restore.take() {
-            Some(place) => self.go_to_place(place),
-            None => Task::none(),
+        let restored = match (self.restore.take(), self.state.page_of(&path)) {
+            (Some(place), _) => self.go_to_place(place),
+            // A PDF opened again comes back at the page it was left at.
+            (None, Some(page)) if page > 0 && page < pages => self.go_to_page(page),
+            _ => Task::none(),
         };
         Task::batch([
             operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 }),
@@ -2350,6 +2386,23 @@ impl App {
     }
 
     /// Scrolls so that `point` (page points from the page's top-left) is near the top-left of the view.
+    /// Notes the page the open PDF is at, for next time.
+    fn remember_place(&mut self) {
+        if let Doc::Pdf(view) = &self.doc {
+            let path = view.doc.path().to_path_buf();
+            self.state.set_page(&path, view.current_page);
+        }
+    }
+
+    /// The remembered state changed: write it soon (not at every flip through a folder).
+    fn state_changed(&mut self) -> Task<Message> {
+        if self.state_save_pending || cfg!(test) {
+            return Task::none();
+        }
+        self.state_save_pending = true;
+        Task::perform(tokio::time::sleep(Duration::from_secs(2)), |_| Message::SaveState)
+    }
+
     /// The result of looking at the open file on disk: reload it if another program changed it.
     fn file_stat(&mut self, path: PathBuf, stamp: Option<Stamp>) -> Task<Message> {
         if self.current_path() != Some(path.as_path()) {
@@ -2593,6 +2646,16 @@ fn search_toggle<'a>(label: &'a str, tip_text: String, on: bool, message: Messag
     let look = if on { style::tool_active } else { style::tool };
     let b = button(center(text(label).size(12)).width(32).height(28)).padding(0).style(look).on_press(message);
     tip(b.into(), tip_text)
+}
+
+/// A folder as shown in the recent list: the home folder is written `~`.
+fn shorten_home(dir: &Path) -> String {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    match home.as_deref().and_then(|h| dir.strip_prefix(h).ok()) {
+        Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
+        Some(rest) => format!("~/{}", rest.display()),
+        None => dir.display().to_string(),
+    }
 }
 
 fn separator<'a>() -> Element<'a, Message> {
@@ -3279,11 +3342,56 @@ impl App {
                 ]
                 .spacing(6)
                 .align_y(Alignment::Center),
+                self.recent_list(),
             ]
             .spacing(6)
             .align_x(Alignment::Center),
         )
         .into()
+    }
+
+    /// The files opened lately, under the buttons of the empty window.
+    fn recent_list(&self) -> Element<'_, Message> {
+        let recent: Vec<_> = self.state.recent.iter().take(RECENT_SHOWN).collect();
+        if recent.is_empty() {
+            return space().into();
+        }
+        let mut list = column![
+            space().height(18),
+            row![
+                text(tr("Recent")).size(12).font(style::font(iced::font::Weight::Medium)).style(muted),
+                space().width(Length::Fill),
+                button(text(tr("Clear")).size(12).style(muted))
+                    .padding([0, 4])
+                    .style(style::tool)
+                    .on_press(Message::ClearRecent),
+            ]
+            .width(360)
+            .align_y(Alignment::Center),
+        ]
+        .spacing(2)
+        .align_x(Alignment::Center);
+        for r in recent {
+            let folder = r.path.parent().map(shorten_home).unwrap_or_default();
+            let entry = button(
+                row![
+                    text(file_name(&r.path)).size(13).wrapping(text::Wrapping::None),
+                    container(text(folder).size(11).style(muted).wrapping(text::Wrapping::None))
+                        .width(Length::Fill)
+                        .align_x(Alignment::End)
+                        .clip(true),
+                ]
+                .spacing(12)
+                .width(Length::Fill)
+                .align_y(Alignment::Center),
+            )
+            .padding([6, 10])
+            .width(360)
+            .style(style::tool)
+            .on_press(Message::OpenRecent(r.path.clone()));
+            list = list.push(entry);
+        }
+        list.into()
     }
 
     /// Asks for the password of a protected PDF.
