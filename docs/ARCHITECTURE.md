@@ -50,6 +50,7 @@ dependencies (touchpad pinch); see `vendor/README.md`.
 | `src/style.rs`, `src/icons.rs` | Design tokens, widget styles, symbolic icons |
 | `src/settings.rs`, `src/app/prefs.rs` | Preferences: the settings file, and the dialog |
 | `src/app/commands.rs` | The command palette (Ctrl+Shift+P): the menus' commands, filtered by name |
+| `src/clipboard.rs` | Copying a picture to the clipboard (Wayland data-control, `wl-clipboard-rs`) |
 | `src/thumbcache.rs` | The desktop's thumbnail cache (freedesktop standard): read, write, MD5 naming |
 | `src/state.rs` | What Lumen remembers between runs: window size, recent files, each PDF's page |
 | `src/i18n.rs`, `po/` | Translations: the `.po` reader, `tr()`, the catalogues |
@@ -111,6 +112,7 @@ dependencies (touchpad pinch); see `vendor/README.md`.
 | `tests/fixtures/` | Small PDFs and pictures the tests use |
 | `tools/bench.py` | Cold-start benchmark against the GTK Lumen |
 | `tools/screenshots/` | Makes the sample files for screenshots |
+| `tools/update-flatpak-sources.py`, `tools/check-flatpak-sources.py` | Rebuilds / checks the Flatpak crate list against `Cargo.lock` |
 | `tools/fidelity.py`, `tools/make_feature_pdf.py` | Compares PDF rendering with poppler; makes a feature-test PDF |
 | `tools/check-flatpak-sources.py` | Checks the Flatpak sources against `Cargo.lock` |
 

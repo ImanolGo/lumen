@@ -21,6 +21,7 @@ Everything Lumen does, in detail. The [README](../README.md) has the short versi
 - **Reloading:** while a picture or PDF is open Lumen looks at its size and modification time every 1.5 seconds. If another program changed it and you have nothing unsaved, it is loaded again (a PDF returns to the place you were reading, its thumbnail is redrawn) with a short notice; with unsaved changes it only says so, and keeps them. Lumen's own saves do not count as changes.
 - **Search:** Ctrl+F finds text across the whole document (case-insensitive unless you turn on **Aa**; **[ab]** matches whole words only), highlights every match and jumps between them. It starts from the page you are on, results appear while it scans, and each page's text is read only once. The 477-page Ghostscript manual is fully indexed in about 0.7 s.
 - **Reading order:** pages set in columns of running text (two, three or more, also on turned pages) are read column by column for copying and search, even when the file draws them line by line across. Everything else (tables, code, forms, diagrams) keeps the order the file has, which is usually the right one.
+- **Copying a picture:** Ctrl+C (or ☰ → Copy Picture) puts the picture on the clipboard as a PNG, with its edits (crop, colour) but without unsaved markup. It uses the Wayland data-control protocol through the pure-Rust `wl-clipboard-rs` crate, so it works on compositors that offer it (niri, Sway, Hyprland, KDE) and says so when it cannot (GNOME, X11 sessions).
 - **Text selection:** drag over text to select it (Shift+click extends, double-click picks a word), Ctrl+C copies, Ctrl+A selects the whole document. Like other Linux apps, the selection also goes to the primary selection for middle-click paste. Dragging anywhere that is not text still pans.
 - **Pages sidebar:** a third tab, next to Files and Contents, shows a thumbnail of every page (drawn only for the rows on screen); click one to go there, and the page you are on is ringed and followed as you scroll.
 - **Go to page:** Ctrl+G (or a click on "Page x of y" in the header) asks for a page number.
@@ -66,7 +67,7 @@ Everything Lumen does, in detail. The [README](../README.md) has the short versi
 | Ctrl+Z / Ctrl+Shift+Z | Undo / redo markup |
 | Delete, arrow keys | Delete / nudge the selected annotation (Shift moves further) |
 | Ctrl+S / Ctrl+Shift+S | Save markup and form values into the PDF, or an edited JPEG/PNG/WebP over its file / save a copy |
-| Ctrl+C / Ctrl+A | Copy the selected text / select all text (PDF) |
+| Ctrl+C / Ctrl+A | Copy the selected text / select all text (PDF); Ctrl+C on a picture copies the picture |
 | Ctrl+F | Find in the PDF (Enter / Shift+Enter or F3 / Shift+F3 for next / previous, Esc to close) |
 | Ctrl+G | Go to page (PDF) |
 | F5 / Space / Esc | Start or stop the slideshow / pause it / leave it |

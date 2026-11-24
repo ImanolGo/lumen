@@ -71,6 +71,7 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
             ("Space, Shift+Space", "Scroll a screen down / up"),
             ("Alt+←, Alt+→", "Back / forward after following a link"),
             ("Ctrl+C, Ctrl+A", "Copy text, select all"),
+            ("Ctrl+C", "Copy the picture (pictures)"),
             ("G", "Organise pages"),
         ],
     ),
@@ -144,6 +145,9 @@ impl App {
             )));
         }
         items.push(None);
+        if is_image {
+            items.push(Some((tr("Copy Picture"), "Ctrl+C", Some(Message::CopyPicture))));
+        }
         if is_pdf {
             items.push(Some((tr("Find…"), "Ctrl+F", Some(Message::SearchOpen))));
             items.push(Some((

@@ -542,6 +542,8 @@ pub enum Message {
 
     LinkBack,
     LinkForward,
+    CopyPicture,
+    PictureCopied(Result<(), String>),
     Palette(commands::PaletteMsg),
     /// Time to see whether another program changed the open file.
     CheckFile,
@@ -1112,6 +1114,19 @@ impl App {
                 )
             }
             Message::FileStat(path, stamp) => self.file_stat(path, stamp),
+            Message::CopyPicture => {
+                let Doc::Image(view) = &self.doc else { return Task::none() };
+                let picture = view.shown.picture.clone();
+                Task::perform(
+                    blocking(move || {
+                        let png = crate::clipboard::encode_png(picture.width, picture.height, &picture.rgba)?;
+                        crate::clipboard::copy_png(png)
+                    }),
+                    |r| Message::PictureCopied(r.and_then(|r| r)),
+                )
+            }
+            Message::PictureCopied(Ok(())) => self.notice(tr("Copied the picture")),
+            Message::PictureCopied(Err(e)) => self.toast(trf!("Could not copy the picture: {}", e)),
             Message::Palette(msg) => self.palette_update(msg),
             Message::SaveState => {
                 self.state_save_pending = false;
@@ -1714,6 +1729,7 @@ impl App {
                 ("p", true, _) => Message::Print,
                 ("f", true, _) if is_pdf => Message::SearchOpen,
                 ("c", true, _) if is_pdf => Message::Copy,
+                ("c", true, _) if matches!(self.doc, Doc::Image(_)) => Message::CopyPicture,
                 ("a", true, _) if is_pdf => Message::SelectAll,
                 ("g", true, _) if is_pdf => Message::GoToOpen,
                 ("n", true, true) if is_pdf => Message::ToggleNight,

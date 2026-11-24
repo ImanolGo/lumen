@@ -12,11 +12,11 @@ Flatpak build. This file is the checklist for the first one.
 3. If `Cargo.lock` changed, regenerate the Flatpak sources and check them:
 
    ```sh
-   python3 flatpak-cargo-generator.py Cargo.lock -o build-aux/flatpak/cargo-sources.json
+   python3 tools/update-flatpak-sources.py
    python3 tools/check-flatpak-sources.py
    ```
 
-   (`flatpak-cargo-generator.py` is in [flatpak-builder-tools](https://github.com/flatpak/flatpak-builder-tools/tree/master/cargo); it needs `aiohttp` and `tomlkit`.)
+   (`tools/update-flatpak-sources.py` rebuilds the file from `Cargo.lock` alone, offline. The upstream `flatpak-cargo-generator.py`, which writes the same layout, is in [flatpak-builder-tools](https://github.com/flatpak/flatpak-builder-tools/tree/master/cargo); it needs `aiohttp` and `tomlkit`.)
 4. Run `make test` and `make lint`, and check that CI is green on `main`, including the `packaging`, `aur` and `audit` jobs.
 5. Build the Flatpak once, and try it (it has never been built):
 

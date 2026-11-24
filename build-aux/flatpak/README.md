@@ -6,7 +6,9 @@ manifest lists them in `cargo-sources.json`, which is generated from `Cargo.lock
 and committed: **regenerate it whenever `Cargo.lock` changes**, or the build will fail.
 
 ```sh
-# flatpak-builder-tools' generator (needs python3, aiohttp and tomlkit)
+# offline, from Cargo.lock alone:
+python3 tools/update-flatpak-sources.py
+# or flatpak-builder-tools' generator (needs python3, aiohttp and tomlkit)
 curl -LO https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/master/cargo/flatpak-cargo-generator.py
 python3 flatpak-cargo-generator.py Cargo.lock -o build-aux/flatpak/cargo-sources.json
 

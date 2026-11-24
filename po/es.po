@@ -181,6 +181,18 @@ msgstr "Página anterior"
 msgid "Share thumbnails with the desktop's cache"
 msgstr "Compartir las miniaturas con la caché del escritorio"
 
+msgid "Copy Picture"
+msgstr "Copiar imagen"
+
+msgid "Copy the picture (pictures)"
+msgstr "Copiar la imagen (imágenes)"
+
+msgid "Copied the picture"
+msgstr "Imagen copiada"
+
+msgid "Could not copy the picture: {}"
+msgstr "No se pudo copiar la imagen: {}"
+
 msgid "Match case"
 msgstr "Distinguir mayúsculas"
 

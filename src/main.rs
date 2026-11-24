@@ -7,6 +7,7 @@ mod i18n;
 mod animation;
 mod annotate;
 mod app;
+mod clipboard;
 mod control;
 mod cups;
 mod edit;

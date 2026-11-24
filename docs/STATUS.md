@@ -50,7 +50,7 @@ code):
 
 | Feature | GTK Lumen |
 |---|---|
-| Copy the picture to the clipboard (Ctrl+C on a picture) | yes |
+| Copy the picture on GNOME and X11 (it needs the Wayland data-control protocol, which GNOME's compositor lacks) | yes (GTK's clipboard) |
 | Screen-reader support (accessible names) | yes (GTK) |
 | A control interface covering forms, annotation, editing and export | yes (this one covers opening, browsing, pages, zoom and search) |
 | HEIC and AVIF without a C library | via glycin (C-free here only with the optional `heif` feature, which links libheif) |
