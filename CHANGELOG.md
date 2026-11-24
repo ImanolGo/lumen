@@ -20,6 +20,7 @@ First version, 0.1.0, not released yet. Lumen (Rust/iced) is a rewrite of the GT
 - Spanish translation.
 - Search can match case (**Aa**) and whole words (**[ab]**); Space and Shift+Space scroll a screen in a PDF; Alt+Enter opens Properties; with the markup bar open, V H P R O L A T pick the tool; a preference makes ← and → wrap around at the ends of the list.
 - Alt+Left and Alt+Right go back and forward after following a link in a PDF. A picture or PDF that another program changes is reloaded (a PDF at the same place).
+- Deleting pages in the organiser shows a toast with an Undo button.
 - Recent files on the empty window; the window's size and each PDF's last page are remembered (`~/.local/state/lumen-rs/state.toml`).
 - A D-Bus control interface (off unless `LUMEN_CONTROL=1`) and end-to-end tests that drive the real app through it.
 - Packaging files: AUR PKGBUILDs, a `.deb` through `cargo-deb`, a Flatpak manifest, AppStream metadata, a release workflow. None is published yet.

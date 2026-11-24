@@ -195,7 +195,11 @@ impl App {
                 let first = positions.first().copied().unwrap_or(0).min(o.plan.len() - 1);
                 o.selected = BTreeSet::from([first]);
                 o.anchor = Some(first);
-                self.request_thumbs_grid()
+                let deleted = positions.len();
+                let say = if deleted == 1 { tr("Deleted 1 page") } else { trf!("Deleted {} pages", deleted) };
+                let toast = self.show_toast_for(say, false, 8);
+                self.pages_undo = Some(self.toast_seq);
+                Task::batch([toast, self.request_thumbs_grid()])
             }
             PagesMsg::MoveBy(delta) => {
                 let Some(o) = &mut self.organizer else { return Task::none() };
@@ -227,6 +231,10 @@ impl App {
                 Task::none()
             }
             PagesMsg::Undo | PagesMsg::Redo => {
+                // Undoing (by the toast's button, the toolbar or Ctrl+Z) answers the offer.
+                if self.pages_undo.take().is_some() {
+                    self.toast = None;
+                }
                 let Some(o) = &mut self.organizer else { return Task::none() };
                 let (from, to) = if matches!(msg, PagesMsg::Undo) {
                     (&mut o.past, &mut o.future)

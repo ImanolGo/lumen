@@ -280,6 +280,8 @@ pub struct App {
     /// The slideshow, while one is running.
     slideshow: Option<Slideshow>,
     trash_undo: Option<(u64, usize, crate::trash::Trashed)>,
+    /// The toast that offers to undo deleting pages in the organiser.
+    pages_undo: Option<u64>,
     /// Lumen's own file chooser and print dialog, when the desktop has no portal for them.
     chooser: Option<Chooser>,
     print_dialog: Option<PrintDialog>,
@@ -769,6 +771,7 @@ impl App {
             export_job: None,
             control_opening: false,
             trash_undo: None,
+            pages_undo: None,
             slideshow: None,
             chooser: None,
             print_dialog: None,
@@ -1424,6 +1427,9 @@ impl App {
                 }
                 if self.trash_undo.as_ref().is_some_and(|(t, ..)| *t == id) {
                     self.trash_undo = None;
+                }
+                if self.pages_undo == Some(id) {
+                    self.pages_undo = None;
                 }
                 Task::none()
             }
@@ -2764,6 +2770,14 @@ impl App {
                         .padding([3, 10])
                         .style(style::secondary)
                         .on_press(Message::UndoTrash),
+                );
+            }
+            if self.pages_undo == Some(*id) {
+                line = line.push(
+                    button(text(tr("Undo")).size(13))
+                        .padding([3, 10])
+                        .style(style::secondary)
+                        .on_press(Message::Pages(PagesMsg::Undo)),
                 );
             }
             layers = layers.push(

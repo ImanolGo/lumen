@@ -551,6 +551,32 @@ fn the_page_organiser_tracks_changes_and_undoes_them() {
 }
 
 #[test]
+fn deleting_pages_offers_to_undo_it() {
+    let _inside = runtime().enter();
+    let mut app = pdf_app();
+    let _ = app.update(Message::Pages(PagesMsg::Open));
+    let _ = app.update(Message::Pages(PagesMsg::SelectAll));
+    // Not all of them: a document keeps at least one page, and says so.
+    let _ = app.update(Message::Pages(PagesMsg::Delete));
+    assert!(app.pages_undo.is_none() && app.toast.as_ref().is_some_and(|(_, _, error)| *error));
+    // Opened afresh, only the page being read is selected.
+    let _ = app.update(Message::Pages(PagesMsg::Close));
+    let _ = app.update(Message::Pages(PagesMsg::Open));
+    let _ = app.update(Message::Pages(PagesMsg::Delete));
+    let count = |app: &mut App| {
+        let _ = app.update(Message::Pages(PagesMsg::SelectAll));
+        app.export_selection().map(|(pages, ..)| pages.len())
+    };
+    assert_eq!(count(&mut app), Some(4));
+    assert_eq!(app.pages_undo, Some(app.toast_seq));
+    assert!(app.toast.as_ref().is_some_and(|(_, text, error)| text.contains('1') && !*error));
+    // The toast's button undoes it and the offer goes away.
+    let _ = app.update(Message::Pages(PagesMsg::Undo));
+    assert_eq!(count(&mut app), Some(5));
+    assert!(app.pages_undo.is_none() && app.toast.is_none());
+}
+
+#[test]
 fn the_property_and_shortcut_dialogs_open_and_close() {
     let _inside = runtime().enter();
     let mut app = pdf_app();
