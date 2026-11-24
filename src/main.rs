@@ -58,6 +58,23 @@ Options:
   -h, --help       Show this help
   -V, --version    Show the version";
 
+/// iced asks wgpu for the "high performance" GPU unless `WGPU_POWER_PREF` says otherwise, which on
+/// a laptop means waking the discrete one: measured on the author's machine, that costs about
+/// 140 ms of start-up and 65 to 150 MB more memory for no visible gain in a viewer. The variable
+/// can only be set before the process starts (setting it later needs `unsafe`, which is forbidden),
+/// so Lumen starts itself again once with it set. Set `WGPU_POWER_PREF` (to `high`, say) or
+/// `LUMEN_NO_REEXEC=1` to keep the default.
+fn prefer_integrated_gpu() {
+    use std::os::unix::process::CommandExt;
+    if std::env::var_os("WGPU_POWER_PREF").is_some() || std::env::var_os("LUMEN_NO_REEXEC").is_some() {
+        return;
+    }
+    let Ok(exe) = std::env::current_exe() else { return };
+    // Only returns if the new process could not be started: carry on as we are.
+    let error = std::process::Command::new(exe).args(std::env::args_os().skip(1)).env("WGPU_POWER_PREF", "low").exec();
+    eprintln!("could not restart with the integrated GPU: {error}");
+}
+
 fn main() -> iced::Result {
     STARTED.get_or_init(Instant::now);
     // The sandboxed decoder: a separate, tiny job that must not start the app.
@@ -65,6 +82,7 @@ fn main() -> iced::Result {
     if args.first().map(String::as_str) == Some("--decode-worker") {
         sandbox::worker_main(&args[1..]);
     }
+    prefer_integrated_gpu();
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()

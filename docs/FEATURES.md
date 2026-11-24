@@ -111,6 +111,7 @@ are kept in memory until then (and while you look at other files), and quitting 
 | `LUMEN_THEME=light\|dark` | Overrides the theme (and the preference) |
 | `LUMEN_NO_PORTAL=1` | Uses Lumen's own file chooser and print dialog even when a desktop portal is there |
 | `LUMEN_NO_SANDBOX=1` | Decodes pictures in the main process instead of the sandboxed worker |
+| `WGPU_POWER_PREF=high` / `LUMEN_NO_REEXEC=1` | Lumen starts itself once more with `WGPU_POWER_PREF=low` so the integrated GPU is used (faster start, less memory); either variable keeps the default (discrete GPU) |
 | `LUMEN_CONTROL=1` | Offers the D-Bus control interface (see [DEVELOPMENT.md](DEVELOPMENT.md)) |
 | `LC_ALL`, `LC_MESSAGES`, `LANGUAGE`, `LANG` | The language (English or Spanish) |
 | `RUST_LOG=info` | Timing logs: `window built`, `opened load_ms`, `first view on screen` |

@@ -23,6 +23,7 @@ First version, 0.1.0, not released yet. Lumen (Rust/iced) is a rewrite of the GT
 - The control interface also fills in forms, draws annotations, edits pictures, saves and exports (`GetForm`, `SetField`, `SetMarkup`, `Annotate`, `GetAnnotations`, `Edit`, `Save`, `SaveCopy`, `Export`); its `busy` now covers saving, exporting and pictures loading behind the one on screen.
 - Ctrl+C on a picture copies it to the clipboard (Wayland data-control; not available on GNOME or X11).
 - Thumbnails use and add to the desktop's thumbnail cache (`~/.cache/thumbnails/large`), shared with the file manager; a preference turns it off.
+- Lumen asks for the integrated GPU by default (it restarts itself once with `WGPU_POWER_PREF=low`; set that variable or `LUMEN_NO_REEXEC=1` to opt out): faster start and less memory on laptops with two GPUs.
 - A command palette (Ctrl+Shift+P) finds any menu command, and zoom, next/previous file and page, by name.
 - Deleting pages in the organiser shows a toast with an Undo button.
 - Recent files on the empty window; the window's size and each PDF's last page are remembered (`~/.local/state/lumen-rs/state.toml`).

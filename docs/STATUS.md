@@ -16,22 +16,21 @@ a person clicking (see [What has not been checked](#what-has-not-been-checked)).
 
 `tools/bench.py`, medians of 5 cold starts on a 2020 laptop (i7-10710U, Wayland; Intel UHD and
 NVIDIA GTX 1650 graphics), measured on 24 November 2026 with the sandbox on. The JPEG is 5120×2160, the
-PNG 5120×2160. The last column is lumen-rs told to use the integrated GPU (`WGPU_POWER_PREF=low`, 3 runs).
+PNG 5120×2160. lumen-rs restarts itself once to use the integrated GPU (see the notes).
 
-| | GTK Lumen 0.4.2 | lumen-rs | lumen-rs, integrated GPU |
-|---|---|---|---|
-| First view, PDF 42 p / 477 p | **308 / 380 ms** | 345 / 367 ms | 208 / 230 ms |
-| First view, JPEG / PNG (5120×2160) | 619 / 438 ms | 561 / 415 ms | **432 / 292 ms** |
-| Memory after loading: PDF 42 p / 477 p | 173 / 185 MB | 236 / 242 MB | **171 / 169 MB** |
-| Memory after loading: JPEG / PNG | **166 / 166 MB** | 341 / 333 MB | 186 / 178 MB |
-| Idle CPU over 3 s after loading, PDFs | 100–230 ms | **0–10 ms** | **0–10 ms** |
-| Idle CPU over 3 s after loading, pictures | 110–140 ms | **10 ms** | **0 ms** |
-| Binary size / shared libraries | **12 MB** / 145 | 37 MB / **5** | 37 MB / **5** |
-| Tests that always run | 143 | **185** (182 unit + 3 sandbox) | |
+| | GTK Lumen 0.4.2 | lumen-rs |
+|---|---|---|
+| First view, PDF 42 p / 477 p | 312 / 384 ms | **196 / 221 ms** |
+| First view, JPEG / PNG (5120×2160) | 640 / 430 ms | **419 / 284 ms** |
+| Memory after loading: PDF 42 p / 477 p | 173 / 199 MB | **171 / 170 MB** |
+| Memory after loading: JPEG / PNG | **166 / 165 MB** | 186 / 178 MB |
+| Idle CPU over 3 s after loading | 50–140 ms | **0 ms** |
+| Binary size / shared libraries | **12 MB** / 145 | 37 MB / **5** |
+| Tests that always run | 143 | **185** (182 unit + 3 sandbox) |
 
 Notes:
 
-- **These are not the numbers this page had before.** Earlier in development lumen-rs measured 148 / 171 ms and 121 / 120 MB for the PDFs, and the GTK Lumen 261 / 327 ms, on this same laptop. Today the build from before the latest work (`c5ba470`) measures the same as the current one, so the code did not get slower; something about the machine did (the GTK Lumen is slower too). What the measurements show: window creation takes about 320 ms, and with the software renderer (`ICED_BACKEND=tiny-skia`) it takes 38 ms, a PDF's first view 56 / 148 ms and memory 74 / 81 MB. So the time and memory go into starting the GPU renderer, which by default picks the discrete NVIDIA GPU (iced asks wgpu for high performance). The NVIDIA driver and the kernel were upgraded on 22 November, which may be related; that was not isolated. Asking for the integrated GPU recovers most of it.
+- **These are not the numbers this page had before.** Earlier in development lumen-rs measured 148 / 171 ms and 121 / 120 MB for the PDFs, and the GTK Lumen 261 / 327 ms, on this same laptop. Today the build from before the latest work (`c5ba470`) measures the same as the current one, so the code did not get slower; something about the machine did (the GTK Lumen is slower too). What the measurements show: window creation takes about 320 ms, and with the software renderer (`ICED_BACKEND=tiny-skia`) it takes 38 ms, a PDF's first view 56 / 148 ms and memory 74 / 81 MB. So the time and memory go into starting the GPU renderer, which by default picks the discrete NVIDIA GPU (iced asks wgpu for high performance). The NVIDIA driver and the kernel were upgraded on 22 November, which may be related; that was not isolated. Because of that, Lumen now starts itself once more with `WGPU_POWER_PREF=low` (the variable can only be set before the process starts, and setting it needs `unsafe`, which is forbidden), which recovers most of it: with the discrete GPU (`LUMEN_NO_REEXEC=1`) the same build measured 345 / 367 ms and 236 / 242 MB for the PDFs, 561 / 415 ms and 341 / 333 MB for the pictures.
 - The GTK Lumen decodes pictures in glycin's separate processes, so its picture memory does not count the decoders; lumen-rs's sandbox worker is also a separate process whose memory is not counted either.
 - Sandboxing costs about 0–1 ms for the sandbox itself and about 4 ms for a small picture. The pixels of a very large picture take 16–20 ms to come back over a pipe, so the overhead target of 15 ms holds up to roughly 4–5 megapixels and is missed by the biggest pictures (+17…30 ms at 11 MP).
 - A folder of 5K pictures: 149 MB, down from 458 MB before the cache budget, streamed thumbnails and the sandbox.
