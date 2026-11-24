@@ -679,6 +679,7 @@ impl App {
                 _ => Task::none(),
             },
             MarkupMsg::PdfSaved(generation, target, layers, result) => {
+                self.disk = None; // our own write is not a change by someone else
                 self.markup_busy = None;
                 match result {
                     Ok(opened) if generation == self.generation => {
@@ -699,6 +700,7 @@ impl App {
                 }
             }
             MarkupMsg::PictureSaved(generation, target, layers, result) => {
+                self.disk = None;
                 self.markup_busy = None;
                 if let Err(e) = result {
                     return self.toast(trf!("Could not save: {}", e));

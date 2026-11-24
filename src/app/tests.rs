@@ -262,6 +262,74 @@ fn alt_enter_opens_properties_and_letters_pick_markup_tools() {
     }
 }
 
+/// What the scroll area reports after a jump (there is no scroll area to do it here).
+fn scrolled_to_page(app: &mut App, page: usize) {
+    let y = match &app.doc {
+        Doc::Pdf(v) => v.tops[page],
+        _ => panic!("no PDF is open"),
+    };
+    let _ = app.update(Message::Scrolled(Viewport { x: 0.0, y, height: 600.0 }));
+}
+
+#[test]
+fn back_and_forward_retrace_followed_links() {
+    let _inside = runtime().enter();
+    let mut app = pdf_app();
+    scrolled_to_page(&mut app, 0);
+    let _ = app.update(Message::GoTo(Target::Page { page: 3, top: None }));
+    scrolled_to_page(&mut app, 3);
+    let _ = app.update(Message::GoTo(Target::Page { page: 1, top: None }));
+    scrolled_to_page(&mut app, 1);
+    let _ = app.update(Message::LinkBack);
+    assert_eq!(page(&app), 3, "back goes to where the second link was followed from");
+    scrolled_to_page(&mut app, 3);
+    let _ = app.update(Message::LinkBack);
+    assert_eq!(page(&app), 0);
+    scrolled_to_page(&mut app, 0);
+    let _ = app.update(Message::LinkBack);
+    assert_eq!(page(&app), 0, "nothing further back");
+    let _ = app.update(Message::LinkForward);
+    assert_eq!(page(&app), 3);
+    scrolled_to_page(&mut app, 3);
+    let _ = app.update(Message::LinkForward);
+    assert_eq!(page(&app), 1);
+    // Following a new link forgets what was ahead.
+    scrolled_to_page(&mut app, 1);
+    let _ = app.update(Message::LinkBack);
+    scrolled_to_page(&mut app, 3);
+    let _ = app.update(Message::GoTo(Target::Page { page: 2, top: None }));
+    scrolled_to_page(&mut app, 2);
+    let _ = app.update(Message::LinkForward);
+    assert_eq!(page(&app), 2, "forward has nothing after a new jump");
+}
+
+#[test]
+fn a_file_changed_by_another_program_is_reloaded_where_it_was() {
+    use std::time::{Duration, SystemTime};
+    let _inside = runtime().enter();
+    let mut app = pdf_app();
+    let path = app.current_path().unwrap().to_path_buf();
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+    scrolled_to_page(&mut app, 3);
+    let generation = app.generation;
+    // The first look only notes how the file is.
+    let _ = app.update(Message::FileStat(path.clone(), Some((t0, 100))));
+    assert_eq!(app.generation, generation);
+    // Same again, a vanished file and some other file's news change nothing.
+    let _ = app.update(Message::FileStat(path.clone(), Some((t0, 100))));
+    let _ = app.update(Message::FileStat(path.clone(), None));
+    let _ = app.update(Message::FileStat(PathBuf::from("/elsewhere.pdf"), Some((t0, 5))));
+    assert_eq!(app.generation, generation);
+    // A different size or time is a change: load it again, and remember the place.
+    let _ = app.update(Message::FileStat(path.clone(), Some((t0, 120))));
+    assert_eq!(app.generation, generation + 1);
+    assert!(matches!(&app.doc, Doc::Loading(p) if *p == path));
+    assert_eq!(app.restore.map(|p| p.page), Some(3));
+    // The same news again is not a second change.
+    let _ = app.update(Message::FileStat(path.clone(), Some((t0, 120))));
+    assert_eq!(app.generation, generation + 1);
+}
+
 #[test]
 fn search_options_survive_a_new_query_and_are_remembered_by_the_bar() {
     let _inside = runtime().enter();

@@ -172,6 +172,13 @@ pub struct App {
     /// Size of the area pictures and pages are drawn in (logical px).
     area: Size,
     viewport: Viewport,
+    /// Where the PDF was before each link was followed, and where Back came from.
+    links: LinkHistory,
+    /// The open file's size and modification time as last seen, to notice another program
+    /// changing it. `None` until the next check, which then takes the file as it is.
+    disk: Option<(PathBuf, Option<Stamp>)>,
+    /// Where to put a PDF back after it is reloaded.
+    restore: Option<Place>,
     modifiers: Modifiers,
     pan: Option<Option<Point>>,
 
@@ -288,6 +295,48 @@ enum ZoomEnd {
     /// A picture's zoom; `None` fits it to the window.
     Image(Option<f32>),
     Pdf(PdfFit),
+}
+
+/// A file's modification time and size; if either differs, the file changed.
+type Stamp = (std::time::SystemTime, u64);
+
+/// A place in a PDF that survives zooming: a page, how far down it, and how far across.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Place {
+    page: usize,
+    /// Points from the top of the page to the top of the view (negative above the page).
+    down: f32,
+    across: f32,
+}
+
+/// Back and forward after following a link or a contents entry (Alt+Left, Alt+Right).
+#[derive(Debug, Default)]
+struct LinkHistory {
+    back: Vec<Place>,
+    forward: Vec<Place>,
+}
+
+impl LinkHistory {
+    /// Remembers `here` before a jump; whatever was undone by Back is forgotten.
+    fn leave(&mut self, here: Place) {
+        if self.back.last() != Some(&here) {
+            self.back.push(here);
+        }
+        self.forward.clear();
+    }
+
+    /// The place to go back to, remembering `here` for Forward.
+    fn back(&mut self, here: Place) -> Option<Place> {
+        let to = self.back.pop()?;
+        self.forward.push(here);
+        Some(to)
+    }
+
+    fn forward(&mut self, here: Place) -> Option<Place> {
+        let to = self.forward.pop()?;
+        self.back.push(here);
+        Some(to)
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -480,6 +529,11 @@ pub enum Message {
     GoTo(Target),
     LinkOpened(Result<(), String>),
 
+    LinkBack,
+    LinkForward,
+    /// Time to see whether another program changed the open file.
+    CheckFile,
+    FileStat(PathBuf, Option<Stamp>),
     SearchOpen,
     SearchClose,
     SearchInput(String),
@@ -637,6 +691,9 @@ impl App {
             first_view_logged: false,
             area: Size::new(1100.0, 700.0),
             viewport: Viewport::default(),
+            links: LinkHistory::default(),
+            disk: None,
+            restore: None,
             modifiers: Modifiers::default(),
             pan: None,
             files: Vec::new(),
@@ -749,6 +806,12 @@ impl App {
             system::theme_changes().map(Message::SystemTheme),
             window::events().map(|(id, e)| Message::WindowEvent(id, e)),
             keyboard::listen().map(Message::Key),
+            // Another program may change the open file; looking is a stat call, so once in a while.
+            if matches!(self.doc, Doc::Image(_) | Doc::Pdf(_)) {
+                iced::time::every(Duration::from_millis(1500)).map(|_| Message::CheckFile)
+            } else {
+                Subscription::none()
+            },
             event::listen_with(|event, _status, _id| match event {
                 Event::Mouse(mouse::Event::WheelScrolled { delta }) => Some(Message::Wheel(delta)),
                 Event::Mouse(mouse::Event::Pinched { delta }) => Some(Message::Pinch(delta)),
@@ -1005,7 +1068,38 @@ impl App {
                 self.contents_scroll = (offset, height);
                 Task::none()
             }
-            Message::GoTo(Target::Page { page, top }) => self.go_to_point(page, top.map(|t| (0.0, t))),
+            Message::GoTo(Target::Page { page, top }) => {
+                if let Some(here) = self.place() {
+                    self.links.leave(here);
+                }
+                self.go_to_point(page, top.map(|t| (0.0, t)))
+            }
+            Message::CheckFile => {
+                let Some(path) = self.current_path().map(Path::to_path_buf) else { return Task::none() };
+                if self.markup_busy.is_some() {
+                    return Task::none();
+                }
+                Task::perform(
+                    blocking(move || {
+                        let stamp = std::fs::metadata(&path).and_then(|m| Ok((m.modified()?, m.len()))).ok();
+                        (path, stamp)
+                    }),
+                    |r| match r {
+                        Ok((path, stamp)) => Message::FileStat(path, stamp),
+                        Err(_) => Message::LinkOpened(Ok(())),
+                    },
+                )
+            }
+            Message::FileStat(path, stamp) => self.file_stat(path, stamp),
+            Message::LinkBack | Message::LinkForward => {
+                let Some(here) = self.place() else { return Task::none() };
+                let to =
+                    if matches!(message, Message::LinkBack) { self.links.back(here) } else { self.links.forward(here) };
+                match to {
+                    Some(to) => self.go_to_place(to),
+                    None => Task::none(),
+                }
+            }
             Message::GoTo(Target::Uri(uri)) => Task::perform(
                 async move { crate::portal::open_uri(uri).await.map_err(err_string) },
                 Message::LinkOpened,
@@ -1590,6 +1684,8 @@ impl App {
                 _ => return Task::none(),
             },
             Key::Named(named) => match named {
+                Named::ArrowLeft if modifiers.alt() && is_pdf => Message::LinkBack,
+                Named::ArrowRight if modifiers.alt() && is_pdf => Message::LinkForward,
                 Named::ArrowRight if !ctrl => Message::Next,
                 Named::ArrowLeft if !ctrl => Message::Prev,
                 Named::Space if self.slideshow.is_some() => Message::SlideshowPause,
@@ -1677,6 +1773,12 @@ impl App {
         if index >= self.files.len() || index == self.current {
             return Task::none();
         }
+        self.show_forced(index)
+    }
+
+    /// Shows file `index` even when it is the one already shown (to load it afresh).
+    fn show_forced(&mut self, index: usize) -> Task<Message> {
+        self.disk = None;
         self.organizer = None;
         self.zoom_ease = None;
         self.detach_form();
@@ -1792,6 +1894,7 @@ impl App {
 
     fn open_pdf_view(&mut self, path: PathBuf, doc: pdf::Document) -> Task<Message> {
         self.log_opened(&path, "pdf");
+        self.links = LinkHistory::default();
         let slots = (0..doc.page_count()).map(|_| Slot::default()).collect();
         let fit = match self.prefs.pdf_fit {
             crate::settings::PdfFit::Width => PdfFit::Width,
@@ -1805,10 +1908,15 @@ impl App {
         self.viewport.x = 0.0;
         self.contents_scroll = (0.0, 0.0);
         self.reset_page_thumbs();
+        let restored = match self.restore.take() {
+            Some(place) => self.go_to_place(place),
+            None => Task::none(),
+        };
         Task::batch([
             operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 }),
             operation::scroll_to(contents_id(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 }),
             operation::scroll_to(pagelist::list_id(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 }),
+            restored,
             self.request_page_thumbs(),
             self.request_pages(),
             self.start_search(),
@@ -2242,6 +2350,62 @@ impl App {
     }
 
     /// Scrolls so that `point` (page points from the page's top-left) is near the top-left of the view.
+    /// The result of looking at the open file on disk: reload it if another program changed it.
+    fn file_stat(&mut self, path: PathBuf, stamp: Option<Stamp>) -> Task<Message> {
+        if self.current_path() != Some(path.as_path()) {
+            return Task::none();
+        }
+        // The first look just notes how the file is; a file that vanished is left on screen.
+        let Some(now) = stamp else { return Task::none() };
+        let known = match &self.disk {
+            Some((p, Some(known))) if *p == path => *known,
+            _ => {
+                self.disk = Some((path, Some(now)));
+                return Task::none();
+            }
+        };
+        if known == now {
+            return Task::none();
+        }
+        self.disk = Some((path.clone(), Some(now)));
+        if self.has_unsaved_changes() {
+            return self.toast(trf!(
+                "“{}” changed on disk. Your unsaved changes are kept; saving will overwrite it.",
+                file_name(&path)
+            ));
+        }
+        let place = self.place();
+        self.pictures.retain(|(p, _)| *p != path);
+        self.thumbs.remove(&path);
+        self.restore = place;
+        let reloaded = self.show_forced(self.current);
+        self.disk = Some((path.clone(), Some(now)));
+        Task::batch([reloaded, self.notice(trf!("Reloaded “{}”: it changed on disk", file_name(&path)))])
+    }
+
+    /// Where the PDF view is now, in terms that survive a change of zoom.
+    fn place(&self) -> Option<Place> {
+        let Doc::Pdf(view) = &self.doc else { return None };
+        let page = view.page_at(self.viewport.y + self.viewport.height * 0.4);
+        let down = (self.viewport.y - view.tops[page]) / view.zoom;
+        Some(Place { page, down, across: self.viewport.x / view.zoom })
+    }
+
+    fn go_to_place(&mut self, to: Place) -> Task<Message> {
+        let Doc::Pdf(view) = &mut self.doc else { return Task::none() };
+        let page = to.page.min(view.doc.page_count() - 1);
+        view.current_page = page;
+        let y = (view.tops[page] + to.down * view.zoom).max(0.0);
+        let x = (to.across * view.zoom).max(0.0);
+        self.viewport.y = y;
+        self.viewport.x = x;
+        Task::batch([
+            operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x, y }),
+            self.request_pages(),
+            self.follow_in_sidebar(),
+        ])
+    }
+
     fn go_to_point(&mut self, page: usize, point: Option<(f32, f32)>) -> Task<Message> {
         let Some((x, top)) = point else { return self.go_to_page(page) };
         let area = self.area;

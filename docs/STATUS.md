@@ -50,8 +50,6 @@ code):
 
 | Feature | GTK Lumen |
 |---|---|
-| Back and forward after following a PDF link (Alt+Left / Alt+Right) | yes |
-| Reload when another program changes the open file | yes |
 | Copy the picture to the clipboard (Ctrl+C on a picture) | yes |
 | Command palette (Ctrl+Shift+P) | yes |
 | Recent files on the empty window | yes |

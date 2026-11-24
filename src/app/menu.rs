@@ -68,6 +68,7 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
             ("Ctrl+Shift+N", "Night mode"),
             ("Page Up / Down", "Previous / next page"),
             ("Space, Shift+Space", "Scroll a screen down / up"),
+            ("Alt+←, Alt+→", "Back / forward after following a link"),
             ("Ctrl+C, Ctrl+A", "Copy text, select all"),
             ("G", "Organise pages"),
         ],

@@ -130,6 +130,15 @@ msgstr "Decodificar vecinas hasta"
 msgid "Wrap around at the first and last file"
 msgstr "Dar la vuelta al llegar al primer o último archivo"
 
+msgid "Back / forward after following a link"
+msgstr "Atrás / adelante tras seguir un enlace"
+
+msgid "Reloaded “{}”: it changed on disk"
+msgstr "Se ha vuelto a cargar «{}»: ha cambiado en el disco"
+
+msgid "“{}” changed on disk. Your unsaved changes are kept; saving will overwrite it."
+msgstr "«{}» ha cambiado en el disco. Tus cambios sin guardar se conservan; al guardar se sobrescribirá."
+
 msgid "Match case"
 msgstr "Distinguir mayúsculas"
 

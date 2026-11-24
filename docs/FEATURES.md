@@ -17,6 +17,7 @@ Everything Lumen does, in detail. The [README](../README.md) has the short versi
 - **AVIF and HEIC (optional):** `cargo build --release --features heif` adds them through the system's libheif (needs `libheif` and its AVIF/HEIC codecs installed). That is the only C code Lumen can reach, so it is off by default: the default build is pure Rust. Add `image/heic;image/heif;image/avif;` to the `.desktop` file's `MimeType` when you build it that way.
 - **Animation:** animated GIF, APNG and WebP play, each frame for its own delay (a delay of 10 ms or less shows for 100 ms, as browsers do). Frames are decoded on a thread of their own and the first pass is kept while it fits in 96 MB; longer animations keep streaming from the file. The first frame is what editing and markup work on, so the animation pauses (and shows it) while they are open.
 - **PDFs:** continuous scrolling, a table of contents, search, and clickable links. Only the pages near the view are rendered, and that happens on a pool of background threads that does the newest request first. Pages re-render sharply at every zoom level and on HiDPI screens.
+- **Reloading:** while a picture or PDF is open Lumen looks at its size and modification time every 1.5 seconds. If another program changed it and you have nothing unsaved, it is loaded again (a PDF returns to the place you were reading, its thumbnail is redrawn) with a short notice; with unsaved changes it only says so, and keeps them. Lumen's own saves do not count as changes.
 - **Search:** Ctrl+F finds text across the whole document (case-insensitive unless you turn on **Aa**; **[ab]** matches whole words only), highlights every match and jumps between them. It starts from the page you are on, results appear while it scans, and each page's text is read only once. The 477-page Ghostscript manual is fully indexed in about 0.7 s.
 - **Reading order:** pages set in columns of running text (two, three or more, also on turned pages) are read column by column for copying and search, even when the file draws them line by line across. Everything else (tables, code, forms, diagrams) keeps the order the file has, which is usually the right one.
 - **Text selection:** drag over text to select it (Shift+click extends, double-click picks a word), Ctrl+C copies, Ctrl+A selects the whole document. Like other Linux apps, the selection also goes to the primary selection for middle-click paste. Dragging anywhere that is not text still pans.
@@ -72,6 +73,7 @@ Everything Lumen does, in detail. The [README](../README.md) has the short versi
 | Home / End | First / last file (first / last page in a PDF) |
 | Page Up / Page Down | Previous / next page (PDF) |
 | Space / Shift+Space | Scroll a screen down / up (PDF) |
+| Alt+← / Alt+→ | Back / forward after following a link or a contents entry (PDF) |
 | ↑ ↓ | Scroll |
 | + − 0 1 | Zoom in, zoom out, best fit, actual size |
 | W | Fit width (PDF) |

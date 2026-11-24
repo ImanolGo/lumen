@@ -301,6 +301,7 @@ impl App {
             PagesMsg::SaveTo(Ok(None)) => Task::none(),
             PagesMsg::SaveTo(Err(e)) => self.toast(e),
             PagesMsg::Saved(generation, target, result) => {
+                self.disk = None;
                 if let Some(o) = &mut self.organizer {
                     o.saving = false;
                 }
