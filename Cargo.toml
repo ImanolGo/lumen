@@ -2,7 +2,7 @@
 name = "lumen-rs"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.92"
 description = "A fast, safe image and PDF viewer for Linux, written in pure Rust with iced"
 license = "GPL-3.0-or-later"
 authors = ["Imanol Gomez"]
