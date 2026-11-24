@@ -4,7 +4,9 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
-First version, 0.1.0, not released yet. Lumen (Rust/iced) is a rewrite of the GTK Lumen without GTK, poppler or any C library in the document path.
+## [0.1.0] - 2026-11-24
+
+First release. Lumen (Rust/iced) is a rewrite of the GTK Lumen without GTK, poppler or any C library in the document path.
 
 ### Added
 - Pictures: PNG, JPEG, GIF, WebP, BMP, TIFF, ICO, QOI, TGA, PNM, JPEG XL, JPEG 2000, OpenEXR and SVG, with EXIF orientation; animated GIF, APNG and WebP. AVIF and HEIC through the optional `heif` feature (libheif).
@@ -31,3 +33,6 @@ First version, 0.1.0, not released yet. Lumen (Rust/iced) is a rewrite of the GT
 - Packaging files: AUR PKGBUILDs, a `.deb` through `cargo-deb`, a Flatpak manifest, AppStream metadata, a release workflow. None is published yet.
 - A comparison of PDF rendering with poppler (`tools/fidelity.py`, `docs/FIDELITY.md`).
 - CI: format, lint, tests, minimum Rust version, release build, packaging checks, AUR checks, dependency audit and a headless GUI job.
+
+[Unreleased]: https://github.com/ImanolGo/lumen-rs/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/ImanolGo/lumen-rs/releases/tag/v0.1.0

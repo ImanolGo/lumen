@@ -1,7 +1,7 @@
 # Releasing
 
-Nothing has been released yet: there is no tag, no GitHub release, no AUR package and no
-Flatpak build. This file is the checklist for the first one.
+Version 0.1.0 was tagged on 24 November 2026. The AUR packages and the Flatpak are not published
+yet. This file is the checklist for a release.
 
 ## Before tagging
 

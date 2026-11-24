@@ -38,7 +38,7 @@
     <control>touch</control>
   </supports>
   <releases>
-    <release version="0.1.0" date="2026-11-23">
+    <release version="0.1.0" date="2026-11-24">
       <description>
         <p>First release: pictures, PDFs, markup, forms, signatures, picture editing, page organising, export, printing, slideshow, preferences, sandboxed decoding, Spanish translation.</p>
       </description>

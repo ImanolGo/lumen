@@ -1,6 +1,6 @@
 # Status
 
-Where Lumen (Rust/iced) stands, as of 24 November 2026 (version 0.1.0, not released). It is a
+Where Lumen (Rust/iced) stands, as of 24 November 2026 (version 0.1.0). It is a
 ground-up rewrite of the [GTK Lumen](https://github.com/ImanolGo/lumen) 0.4.2, and
 [parity-plan.md](parity-plan.md) is the plan that closes the gap.
 
