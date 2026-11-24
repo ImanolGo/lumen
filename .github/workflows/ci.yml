@@ -105,17 +105,16 @@ jobs:
               || { echo "$dir/.SRCINFO is out of date: run makepkg --printsrcinfo > .SRCINFO"; exit 1; }
           done
 
-  # Known security advisories for the dependencies.
+  # Known security advisories for the dependencies. Vulnerabilities fail the job;
+  # "unmaintained" and "unsound" warnings (mostly in dependencies of dependencies) are shown but do not.
   audit:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      checks: write
     steps:
       - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit
 
   # The app itself, driven over D-Bus in a headless Wayland session (software rendering).
   # Not required to pass yet: it is new, and CI machines vary.
