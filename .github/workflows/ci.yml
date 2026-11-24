@@ -117,10 +117,8 @@ jobs:
       - run: cargo audit
 
   # The app itself, driven over D-Bus in a headless Wayland session (software rendering).
-  # Not required to pass yet: it is new, and CI machines vary.
   gui:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - name: System libraries

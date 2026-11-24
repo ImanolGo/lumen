@@ -64,7 +64,7 @@ code):
 - **Packaging.** The `-git` PKGBUILD was built once with `makepkg` and the `.deb` was built and inspected; the release workflow, the AUR upload, the Flatpak build and the released `lumen-rs` PKGBUILD (it needs a tag) have never been run.
 - **PDF rendering fidelity** was measured against poppler on 132 pages of real documents and a feature test ([FIDELITY.md](FIDELITY.md)): close, with heavier hairlines and slightly heavier text. The corpus is mostly text documents; scanned pages, JBIG2 and JPEG 2000 images, CJK fonts and exotic transparency were not covered.
 - **The Spanish** in dialogs other than the menu and Preferences has not been looked at on screen, and was written by the same author as the code.
-- **The headless GUI test job** in CI is new and may need adjusting.
+- **The headless GUI test job** in CI (the control tests on a headless Wayland compositor with the software renderer) passed on every run so far, so a failure now blocks. Its software rendering is not the GPU path people use.
 
 ## Known issues
 

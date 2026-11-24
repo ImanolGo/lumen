@@ -53,7 +53,7 @@ Test files: `tests/fixtures/` holds small PDFs (a form, a password-protected fil
 | `packaging` | Validates the desktop entry and the AppStream metadata, checks the Flatpak sources against `Cargo.lock`, builds the `.deb` and checks what is in it |
 | `aur` | Checks that each `.SRCINFO` matches its PKGBUILD, in an Arch container |
 | `audit` | Known security advisories for the dependencies (`cargo audit`) |
-| `gui` | Runs the control tests against the real app in a headless Wayland session (software drawing); allowed to fail while it is new |
+| `gui` | Runs the control tests against the real app in a headless Wayland session (software drawing) |
 
 ## Verifying changes to the interface
 
