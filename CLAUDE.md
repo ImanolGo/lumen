@@ -1,9 +1,10 @@
 # Working on lumen-rs
 
 A picture and PDF viewer/editor in pure Rust with iced 0.14; a rewrite of the GTK
-Lumen (`~/repos/lumen`, also on GitHub as ImanolGo/lumen). `README.md` describes
-the features and the source layout; `docs/parity-plan.md` is the plan for what is
-left to do. Read both before starting.
+Lumen (`~/repos/lumen`, also on GitHub as ImanolGo/lumen). `README.md` is the short
+version; `docs/FEATURES.md` and `docs/ARCHITECTURE.md` have the features and the source
+layout, `docs/STATUS.md` says what is missing, and `docs/parity-plan.md` is the plan for
+what is left to do. Read the plan and the docs you need before starting.
 
 ## Rules
 
@@ -35,7 +36,8 @@ not by grepping its output. Commit on `main`, push to `origin`, then check CI wi
 
     Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 
-Update `README.md` (features, keyboard table, layout table) with every feature.
+Update `docs/FEATURES.md` (features, keyboard table), `docs/ARCHITECTURE.md` (layout table) and
+`CHANGELOG.md` with every feature; keep `README.md` short.
 
 ## Verifying UI changes (no input injection here)
 

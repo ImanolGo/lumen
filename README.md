@@ -1,110 +1,62 @@
 <p align="center">
-  <img src="data/icons/scalable/apps/io.github.imanolgo.LumenRs.svg" alt="Lumen icon" width="112" height="112">
+  <img src="data/icons/scalable/apps/io.github.imanolgo.LumenRs.svg" alt="Lumen icon" width="128" height="128">
 </p>
 
 <h1 align="center">Lumen (Rust/iced)</h1>
 
 <p align="center">
-  A fast, safe viewer for pictures and PDFs, written in pure Rust with <a href="https://iced.rs">iced</a>.<br>
-  A ground-up rewrite of <a href="https://github.com/ImanolGo/lumen">Lumen</a> without GTK, poppler or any other C library in the document path.
+  A fast image and PDF viewer for Linux, with the light editing, markup, form filling and signing you use every day.<br>
+  Written in pure Rust with <a href="https://iced.rs">iced</a>: no GTK, no poppler, no C in the document path.
 </p>
 
-## Why a rewrite
+<p align="center">
+  <a href="https://github.com/ImanolGo/lumen-rs/actions/workflows/ci.yml"><img src="https://github.com/ImanolGo/lumen-rs/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License: GPL-3.0-or-later"></a>
+</p>
 
-The original Lumen is built on GTK 4, libadwaita and poppler. This edition:
+<p align="center">
+  <img src="data/screenshots/image-markup.png" alt="Marking up a picture in Lumen" width="720">
+</p>
 
-- **Has no C code in the document path.** Pictures are decoded by [`image`](https://github.com/image-rs/image) and [`resvg`](https://github.com/linebender/resvg). PDFs are rendered by [`hayro`](https://github.com/LaurenzV/hayro), which forbids `unsafe` code, and markup is written into them with [`lopdf`](https://github.com/J-F-Liu/lopdf). The app itself is `#![forbid(unsafe_code)]`.
-- **Has no GTK runtime requirements.** It is a single binary that talks to the desktop only through XDG portals (D-Bus), so it behaves the same on GNOME, KDE, Niri, Sway, Hyprland and others.
-- **Draws on the GPU** through wgpu, with a CPU fallback (tiny-skia).
+> **Status: pre-release.** This is a ground-up rewrite of [Lumen](https://github.com/ImanolGo/lumen), which is built on GTK 4 and poppler. It is at version 0.1.0 and has not been released or packaged yet; see [docs/STATUS.md](docs/STATUS.md) for what works, what is missing and what has not been checked.
 
-## Features (0.1)
+## Features
 
-- **Pictures:** PNG, JPEG, GIF, WebP, BMP, TIFF, ICO, QOI, TGA, the PNM family, JPEG XL, JPEG 2000, OpenEXR (linear light, clamped and given the sRGB curve) and SVG, all decoded in pure Rust. EXIF orientation is honoured.
-- **AVIF and HEIC (optional):** `cargo build --release --features heif` adds them through the system's libheif (needs `libheif` and its AVIF/HEIC codecs installed). That is the only C code Lumen can reach, so it is off by default: the default build is pure Rust. Add `image/heic;image/heif;image/avif;` to the `.desktop` file's `MimeType` when you build it that way.
-- **Animation:** animated GIF, APNG and WebP play, each frame for its own delay (a delay of 10 ms or less shows for 100 ms, as browsers do). Frames are decoded on a thread of their own and the first pass is kept while it fits in 96 MB; longer animations keep streaming from the file. The first frame is what editing and markup work on, so the animation pauses (and shows it) while they are open.
-- **PDFs:** continuous scrolling, a table of contents, search, and clickable links. Only the pages near the view are rendered, and that happens on a pool of background threads that does the newest request first. Pages re-render sharply at every zoom level and on HiDPI screens.
-- **Search:** Ctrl+F finds text across the whole document (case-insensitive), highlights every match and jumps between them. It starts from the page you are on, results appear while it scans, and each page's text is read only once. The 477-page Ghostscript manual is fully indexed in about 0.7 s.
-- **Reading order:** pages set in columns of running text (two, three or more, also on turned pages) are read column by column for copying and search, even when the file draws them line by line across. Everything else (tables, code, forms, diagrams) keeps the order the file has, which is usually the right one.
-- **Text selection:** drag over text to select it (Shift+click extends, double-click picks a word), Ctrl+C copies, Ctrl+A selects the whole document. Like other Linux apps, the selection also goes to the primary selection for middle-click paste. Dragging anywhere that is not text still pans.
-- **Pages sidebar:** a third tab, next to Files and Contents, shows a thumbnail of every page (drawn only for the rows on screen); click one to go there, and the page you are on is ringed and followed as you scroll.
-- **Go to page:** Ctrl+G (or a click on "Page x of y" in the header) asks for a page number.
-- **Night mode:** Ctrl+Shift+N (or ☰ → Night Mode) turns paper dark and text light while pictures in the page keep their colours (the GTK Lumen's colour matrix); page thumbnails follow. It is remembered for the session.
-- **Export:** ☰ → Export Pages… (or the export button in the page organiser) writes the selected pages, or the page in view, as PNG images at 72, 150 or 300 dpi (several pages go into a folder as `name-01.png`, …; the file records its resolution; turned pages come out turned) or as a new PDF (unsaved markup and form values included; a protected PDF stays protected). ☰ → Export as PDF… turns a picture into a PDF as big as the picture, without margins. ☰ → Combine Files… opens the page organiser and asks for the PDFs to add.
-- **File actions:** ☰ → Show in Folder (the file manager selects it, over D-Bus, or `xdg-open` on the folder), Open With… (the portal's app chooser) and Move to Trash. Trashing follows the freedesktop Trash spec (`~/.local/share/Trash`, or `.Trash-<uid>` at the top of another disk, with a `.trashinfo` note, so file managers can restore it too), shows the next file and offers Undo in the toast for eight seconds. A file that cannot be renamed into a trash is reported, never copied and deleted. There is no keyboard shortcut for the trash, so a stray key in a text box cannot send the file there.
-- **Slideshow:** F5 (or ☰ → Slideshow) goes fullscreen and shows each picture for five seconds, PDFs page by page, then the next file; Space pauses and resumes, Esc leaves, and it ends after the last file (the window goes back to how it was). Flipping by hand restarts the count. It will not start with unsaved changes and stops if any appear. The interval becomes a preference with the preferences dialog.
-- **Preferences:** ☰ → Preferences… changes, at once and saved to `~/.config/lumen-rs/settings.toml`: the theme (system, light, dark), whether the sidebar is shown at start, the zoom control and arrows over pictures, how a PDF is fitted when it opens, PDF night mode, the slideshow time (2 to 20 s), how many megabytes of decoded pictures are kept and up to how many megapixels neighbours are decoded ahead (or none), and whether to use the desktop's file and print dialogs. The file is read leniently: a missing key, an unknown key or a bad value keeps its default and never stops Lumen from starting. `LUMEN_THEME` and `LUMEN_NO_PORTAL` in the environment win over the file.
-- **Sandboxed decoding:** raster pictures (everything but SVG, PDF and, in the optional build, AVIF/HEIC) are decoded by `lumen-rs --decode-worker`, a fresh process per picture that gets the open file as its standard input, shuts itself in (Landlock: no file system access at all; seccomp: about forty allowed system calls, anything else kills it, and `write` only to its two output descriptors) and only then reads and decodes. The pixels come back over a pipe. A decoder that crashes, is stopped by the sandbox or hangs for two minutes costs one picture and an error message. If the sandbox cannot start Lumen decodes in-process and logs it once; if the sandbox itself stops a decoder it does not fall back, so a hostile file never runs unsandboxed. A worker starts and exits in about 2 ms, a small picture costs about 4 ms in all, and the pixels of a very large picture (44 MB for 11 megapixels) take another 16 to 20 ms to come back over the pipe; `tests/sandbox.rs` runs every format through the real binary and checks that opening files, sockets, running programs and writing files are all stopped. Turn it off in Preferences or with `LUMEN_NO_SANDBOX=1`.
-- **Control interface (off by default):** with `LUMEN_CONTROL=1` in its environment, Lumen offers `io.github.imanolgo.LumenRs.Control1` on the session bus (`/io/github/imanolgo/LumenRs/Control`) for scripts and tests: `GetState` (JSON: what is open, the file's place among its neighbours, page, zoom, search results, whether it is busy), `Open(paths, password)`, `Next`, `Previous`, `First`, `Last`, `GotoPage(page)`, `Zoom(in|out|fit|width|actual)`, `Search(text)` and `Quit`. It is off by default because anything on the session bus could otherwise open files in your viewer. `tests/control.rs` drives the real app through it (`LUMEN_CONTROL_TESTS=1 cargo test --test control`; it opens real windows, so it is not part of `make test`).
-- **Spanish:** Lumen speaks Spanish when `LC_ALL`, `LC_MESSAGES`, `LANGUAGE` or `LANG` says so (like gettext). English is the source language: every UI string goes through `tr()` / `trf!()` (`src/i18n.rs`) and is looked up in `po/<language>.po`, which is embedded in the binary, so there is no `msgfmt` step and nothing to install. About a fifth of `po/es.po` is reused from the GTK Lumen; a test fails if any string in the source lacks a Spanish entry, so new text cannot be forgotten. To add a language, add a `.po` file and one line to `CATALOGUES`.
-- **Properties:** ☰ → Properties… shows the file (name, folder, size, dates in UTC) and, for a PDF, its title, author, producer, version, page count and size, protection and form fields; for a picture its format, size, colour profile and EXIF summary (camera, lens, exposure, date, location).
-- **Table of contents:** the PDF's outline appears in the sidebar, follows you as you scroll, and jumps to the exact spot of each section.
-- **Links:** links inside the document jump to their target. Web and mail links open in your browser or mail app through the desktop portal; other kinds of link (files, programs) are ignored for safety.
-- **Markup:** press M (or the pen button) to draw on a picture or a PDF page: highlighter, pen, rectangles, ellipses, lines, arrows and text boxes, in eight colours and three line widths. Select, move, resize, recolour and delete what you drew, with undo and redo. On a PDF the highlighter marks the text you drag over.
-- **Real PDF annotations:** markup is saved into the PDF as standard annotations (highlight, ink, square, circle, line, free text), each with its own appearance, so every PDF viewer shows it. Saving appends an incremental update: the original bytes are kept as they were. Annotations of those kinds that are already in a PDF, from Lumen or another app, can be edited too; comments attached to them are kept.
-- **Password-protected PDFs:** Lumen asks for the password and opens the file; the password stays in memory for the session only, so flipping back does not ask again. Markup and form values can be saved into it and it stays protected (what is added is encrypted the same way). Printing sends an unlocked copy, since the print system could not open the file otherwise. In the file list a protected PDF shows a lock until it is unlocked, then its real thumbnail.
-- **Forms:** fill in PDF forms: text fields (single and multi-line, passwords, length limits), check boxes, radio buttons and drop-downs. Ctrl+S saves the values into the PDF, each with a matching appearance, so other viewers and printers show the filled-in form. Read-only fields and script buttons are left alone.
-- **Signatures:** draw your signature once and Lumen keeps it (in `~/.local/share/lumen/signatures.toml`, shared with the GTK Lumen). Sign from the toolbar, or click a signature field, and the signature is placed as ink you can move and resize; it is saved like other markup. This is a handwritten signature, as on paper, not a cryptographic (certificate) one.
-- **Saving pictures:** Ctrl+S saves an edited or marked-up JPEG, PNG or WebP over its own file (atomically, keeping its permissions); Ctrl+Shift+S, or any other format (GIF, animations, JPEG XL, …), saves a copy (PNG, JPEG, WebP, TIFF or BMP). A JPEG that was only turned or mirrored is saved **losslessly**: its pixel data is kept byte for byte and only the EXIF orientation tag changes (files without EXIF get a small block; files whose EXIF has no orientation tag are re-encoded instead). Printing prints what you see, unsaved markup included. Markup you have not saved yet is kept while you look at other files, and quitting asks first.
-- **Picture editing:** press E (or the sliders button) to turn, mirror, crop (free, the picture's own shape, square, 4:3, 3:2, 16:9) and resize (in pixels or by percentage, keeping the proportions if you like), and to change exposure, contrast and saturation, with undo and redo. Editing is non-destructive: the picture as opened is kept, the result is worked out in the background, and markup follows every turn, mirror, crop and resize. Save a copy (Ctrl+S) as PNG, JPEG, WebP, TIFF or BMP; unsaved edits are kept while you look at other files.
-- **Metadata is kept:** copies saved as JPEG, PNG or WebP keep the original's EXIF data (camera, lens, exposure, date, GPS location) and its colour profile. The orientation is reset (the pixels are upright already), the size is updated, and the old embedded preview and maker notes are left out. TIFF keeps the colour profile only; BMP keeps neither.
-- **Page organiser:** press G (or the grid button) on a PDF to see every page as a thumbnail. Drag pages to reorder them (Ctrl/Shift+click picks several), turn them, delete them, or insert the pages of other PDFs, with undo. Saving rewrites the PDF with the new order; outline and links follow their pages, unsaved markup and form values are written too, and a password-protected PDF stays protected.
-- **Folders:** open a folder, or open one file and flip through its neighbours. You can also drop files and folders onto the window. A sidebar on the left shows the files as big thumbnails with their names underneath, loaded lazily (only the rows on screen are built, so huge folders stay fast); camera JPEGs use their embedded EXIF thumbnail, other JPEGs are decoded at a fraction of their size, and PNGs are shrunk while they are read, so big folders stay light on memory.
-- **Printing:** uses the desktop's native print dialog through the XDG print portal. PDFs are sent as they are. Pictures are fitted to the paper and margins you choose and sent as a one-page PDF at up to 300 dpi.
-- **A tidy header:** as in the GTK Lumen, the header has the sidebar and open buttons, the file's name, the markup and edit buttons, and a ☰ menu with everything else (print, fit, turn, fullscreen, sign, save, keyboard shortcuts, about), each with its shortcut.
-- **A calm interface:** one surface for the header, sidebar and canvas; tools float as islands over the view (the markup island shows colours and sizes only while you draw); Lumen's amber marks only what is active. Set in Inter, bundled.
-- **Light and dark mode:** follows the system colour scheme and switches live when you change it (`LUMEN_THEME=light` or `dark` overrides it).
-- **Zoom and pan:** best fit, fit width (PDF), actual size, Ctrl + scroll wheel (around the pointer), pinch on a touchpad (Wayland; see `vendor/README.md`), and drag to pan. Zoom changes ease in. Moving the pointer over the picture fades in a zoom control at the bottom and previous/next arrows at the sides, as in the GTK Lumen; they fade out again when the pointer rests.
-- **Fast flipping:** the next and previous pictures are preloaded, and recently viewed ones are kept decoded, within a memory budget (neighbours over 4 megapixels are not decoded ahead, and decoding runs on a small fixed set of threads).
-- **Robust:** decoding runs under allocation limits, and a panic while decoding or rendering a hostile file becomes an error message instead of a crash.
+- **Fast.** Pictures and pages load in the background, so the interface never freezes. A 5120×2160 picture is on screen in about 0.4 s and a 477-page PDF in about 0.17 s (release build, 2020 laptop). Only the pages near the view are rendered, and they re-render sharply at every zoom level.
+- **Safe with files from anywhere.** Pictures are decoded in a separate process that shuts itself in with Landlock and seccomp before it reads the file, so a malicious picture cannot reach your system. PDFs are read by [hayro](https://github.com/LaurenzV/hayro) and pictures by pure-Rust decoders, so there is no C code to exploit in between. The app is `#![forbid(unsafe_code)]`.
+- **Pictures and PDFs in one app.** Open files or a whole folder, drop in more from anywhere, and flip through them with big thumbnails. Zoom and pan smoothly (pinch on a touchpad too), honour EXIF orientation, run a slideshow or go fullscreen. PNG, JPEG, GIF, WebP, BMP, TIFF, JPEG XL, JPEG 2000, OpenEXR, SVG and more, with animated GIF, APNG and WebP.
+- **Light editing.** Turn, mirror, crop, resize, and adjust exposure, contrast and saturation, with undo and redo. Turning a JPEG does not recompress it. Ctrl+S saves JPEG, PNG and WebP in place.
+- **Markup.** Highlights, pen, rectangles, ellipses, lines, arrows and text on pictures and PDFs. In a PDF they are real annotations, so every other reader shows them (and the original bytes are kept).
+- **Forms and signatures.** Fill in PDF forms (text, check boxes, radio buttons, lists) and save them so any reader sees the answers. Draw your signature once and stamp it onto PDFs and pictures, or into a form's signature field.
+- **PDF reading.** Continuous scroll, page thumbnails, table of contents, search, text selection that follows columns, clickable links, password-protected files, document properties, night mode.
+- **PDF page management.** Reorder, turn, delete and insert pages, combine files, export pages as PNG or as a new PDF.
+- **Printing** through the desktop's print dialog, or straight to CUPS where there is none.
+- **Native enough.** Light and dark themes that follow the system, portals for file dialogs, preferences, a keyboard shortcuts dialog, and a Spanish translation.
 
-Everything from the original Lumen is ported.
+| Fill in and sign a PDF form | Annotate a PDF | Crop with draggable handles |
+|---|---|---|
+| <img src="data/screenshots/pdf-forms.png" alt="A membership form filled in and signed in Lumen" width="260"> | <img src="data/screenshots/pdf-annotations.png" alt="Annotating a PDF with page thumbnails" width="260"> | <img src="data/screenshots/image-crop.png" alt="Cropping a picture" width="260"> |
 
-## Keyboard
+| Organise pages | Browse a folder in the dark | Night mode |
+|---|---|---|
+| <img src="data/screenshots/pages-organiser.png" alt="The page organiser" width="260"> | <img src="data/screenshots/folder-dark.png" alt="Browsing a folder of pictures in the dark theme" width="260"> | <img src="data/screenshots/night-mode.png" alt="A PDF in night mode" width="260"> |
 
-| Keys | Action |
-|---|---|
-| Ctrl+O / Ctrl+Shift+O | Open files / open a folder |
-| Ctrl+P | Print |
-| M | Markup on or off |
-| Ctrl+Z / Ctrl+Shift+Z | Undo / redo markup |
-| Delete, arrow keys | Delete / nudge the selected annotation (Shift moves further) |
-| Ctrl+S / Ctrl+Shift+S | Save markup and form values into the PDF, or an edited JPEG/PNG/WebP over its file / save a copy |
-| Ctrl+C / Ctrl+A | Copy the selected text / select all text (PDF) |
-| Ctrl+F | Find in the PDF (Enter / Shift+Enter or F3 / Shift+F3 for next / previous, Esc to close) |
-| Ctrl+G | Go to page (PDF) |
-| F5 / Space / Esc | Start or stop the slideshow / pause it / leave it |
-| Ctrl+Shift+N | Night mode (PDF) |
-| ← → (Space / Backspace for pictures) | Next / previous file |
-| Home / End | First / last file (first / last page in a PDF) |
-| Page Up / Page Down | Previous / next page (PDF) |
-| ↑ ↓ | Scroll |
-| + − 0 1 | Zoom in, zoom out, best fit, actual size |
-| W | Fit width (PDF) |
-| R / Shift+R | Turn right / left (pictures; selected pages in the organiser) |
-| E | Edit the picture (Enter applies a crop, Esc cancels it) |
-| G | Organise the PDF's pages (Del deletes, Ctrl+← / → moves, Ctrl+A selects all) |
-| T | Show or hide the sidebar (files, the PDF's contents and pages) |
-| F / F11, Esc | Fullscreen, leave fullscreen |
-| Ctrl+Q / Ctrl+W | Quit |
-
-## Accessibility
-
-Lumen does not work with screen readers yet. iced 0.14, the toolkit it is built on, does not expose an accessibility tree (AT-SPI), so assistive technology sees one unlabelled window; this is worth re-checking whenever iced gains support. What Lumen does today: every icon button has a tooltip naming it (with its shortcut), nearly everything has a keyboard shortcut (see the table above and ☰ → Keyboard Shortcuts), the interface follows the system light or dark setting, and text is set in Inter at sizes that scale with the window's scale factor. Markup drawing and cropping need a pointer. Form check boxes and radio buttons sit on the page and take their meaning from the text around them, so they have no tooltip.
+The full list, with the details, is in [docs/FEATURES.md](docs/FEATURES.md).
 
 ## Installing
 
-Packaging files live in `build-aux/` and `.github/workflows/release.yml`. None of this is published yet.
+Lumen (Rust/iced) is not released yet, so there are no packages to download. The files to build them are in the repository:
 
-- **Arch Linux:** `build-aux/aur/lumen-rs` (a tagged release) and `build-aux/aur/lumen-rs-git` (the latest commit) are PKGBUILDs ready for the AUR. Try one with `makepkg -si` inside its folder.
-- **Release tarball and Debian package:** pushing a tag `vX.Y.Z` (matching `Cargo.toml`) makes the Release workflow run the tests, build an x86_64 tarball (`make install DESTDIR=… PREFIX=/usr` layout) and a `.deb` (`cargo deb`; dependencies are on the libraries the window system and GPU driver load at run time) and attach them, with checksums, to a GitHub release.
-- **Flatpak:** `build-aux/flatpak/io.github.imanolgo.LumenRs.yml`; see the README next to it for generating its offline Cargo sources and building it.
-- **From source:** see below.
+| How | Where | State |
+|---|---|---|
+| From source | below | works |
+| Arch Linux (AUR) | [`build-aux/aur/`](build-aux/aur/): `lumen-rs` (a release) and `lumen-rs-git` (the latest commit). Try one with `makepkg -si` inside its folder | `lumen-rs-git` builds; not on the AUR yet |
+| Debian and Ubuntu (`.deb`) | built by `cargo deb`, and by the release workflow when a version tag is pushed | builds; no release yet |
+| Flatpak | [`build-aux/flatpak/`](build-aux/flatpak/) | manifest only, never built |
 
-## Building
+### From source
 
-You need Rust 1.88 or newer. Nothing else is needed at build or run time: the app is pure Rust.
-
-On the desktop, Lumen uses the XDG desktop portal when there is one (`xdg-desktop-portal-gnome`, `-gtk` or `-kde`), so file dialogs, the print dialog and opening links look and feel native. Without a portal it falls back to its own: a built-in file chooser for opening, saving a copy and inserting pages, and a built-in print dialog that sends jobs straight to CUPS over its local socket (IPP, written in plain Rust; no libcups). Set `LUMEN_NO_PORTAL=1` to use them even when a portal is there.
+You need Rust 1.92 or newer ([rustup](https://rustup.rs) if yours is older). Nothing else is needed to build, and nothing but your window system and graphics driver at run time.
 
 ```sh
 git clone https://github.com/ImanolGo/lumen-rs.git
@@ -117,63 +69,77 @@ make install PREFIX=$HOME/.local      # or just for your user
 To try it without installing:
 
 ```sh
-cargo run --release -- ~/Pictures/Trip
-cargo run --release -- report.pdf photo.jpg
+cargo run --release -- path/to/file.pdf
 ```
 
-Make it the default PDF viewer:
+Remove an installed copy with `make uninstall` (use the same `PREFIX`). AVIF and HEIC need `cargo build --release --features heif` and the `libheif` library; that is the only C code Lumen can reach, so it is off by default.
+
+On the desktop Lumen uses the XDG desktop portal when there is one (`xdg-desktop-portal-gnome`, `-gtk` or `-kde`), so file dialogs, the print dialog and opening links look native. Without one it shows its own file chooser and print dialog (the latter sends jobs straight to CUPS).
+
+## Usage
+
+```sh
+lumen-rs                            # empty window, Ctrl+O to open
+lumen-rs photo.jpg report.pdf       # open files directly
+lumen-rs ~/Pictures/Trip            # or every picture and PDF in a folder
+```
+
+Drop more files or folders onto the window to add them to the ones you are browsing. To make it the default PDF viewer:
 
 ```sh
 xdg-mime default io.github.imanolgo.LumenRs.desktop application/pdf
 ```
 
-## Layout
+### Filling in forms
 
-| File | What it does |
+Click a check box or radio button to set it, or a text field or list to type or pick a value. `Ctrl+S` saves the answers into the PDF, where any reader sees them. Password-protected PDFs keep their password.
+
+### Signing
+
+Open the signature menu from the markup bar. The first time, draw your signature with the mouse, touchpad or pen; Lumen keeps it for next time. Picking one places it on the page as ink you can drag and resize, and clicking a form's signature field signs right into it. It is a drawn signature, like one on paper, not a certificate-based digital one.
+
+The main shortcuts (☰ → Keyboard Shortcuts has the full list):
+
+| Shortcut | Action |
 |---|---|
-| `src/app.rs` | State, messages, update and view (iced's Elm architecture) |
-| `src/pdf.rs` | PDF documents and their render-thread pool (hayro) |
-| `src/structure.rs` | Outline, links and page text (for search) |
-| `src/annotate/` | Markup: the annotation model and editor, the shared drawing description, PDF annotations in and out (lopdf), pictures with markup |
-| `src/edit/` | Picture edits: turns, mirrors, crop geometry, resizing, colour adjustments, and how each moves markup |
-| `src/metadata.rs` | Carrying EXIF data and colour profiles into saved copies |
-| `src/pages.rs` | Page plans (reorder, turn, delete, insert) and writing them (lopdf) |
-| `src/app/pagelist.rs` | The Pages sidebar tab and the go-to-page box |
-| `src/app/slideshow.rs` | The slideshow |
-| `src/lossless.rs` | Lossless JPEG turning (EXIF orientation) |
-| `src/heif.rs` | AVIF and HEIC through libheif (only with `--features heif`) |
-| `src/animation.rs`, `src/app/anim.rs` | Animated pictures: the decoder thread, and playing the frames |
-| `src/export.rs`, `src/app/export.rs` | Exporting pages as PNG or PDF and pictures as PDF; the Export dialog |
-| `src/trash.rs` | Moving files to the trash and back (freedesktop Trash spec) |
-| `src/settings.rs`, `src/app/prefs.rs` | Preferences: the settings file, and the dialog |
-| `src/sandbox.rs` | The sandboxed decoder process, and the parent side that runs it |
-| `src/control.rs`, `src/app/control.rs` | The control interface on the session bus, and running its commands |
-| `src/i18n.rs`, `po/` | Translations: the `.po` reader, `tr()`, and the catalogues |
-| `build-aux/`, `.github/workflows/release.yml` | AUR PKGBUILDs, the Flatpak manifest, the release workflow |
-| `data/*.metainfo.xml` | The AppStream description (software centres) |
-| `src/properties.rs` | What the Properties dialog shows |
-| `src/app/edit.rs`, `src/app/pages.rs` | The picture editing bar, crop overlay and colour panel; the page organiser |
-| `src/forms.rs` | PDF forms: reading the fields, writing values and their appearances |
-| `src/signatures.rs` | Saved signatures |
-| `src/app/forms.rs`, `src/app/signature.rs` | Inputs over form fields; the signature menu, drawing pad and placing |
-| `src/app/menu.rs` | The header's menus, and the keyboard shortcuts and about dialogs |
-| `vendor/` | winit, iced_core and iced_winit with small patches for touchpad pinch (see `vendor/README.md`) |
-| `src/app/markup.rs`, `src/app/overlay.rs` | The markup bar and its messages; the canvas that draws annotations over a page and takes the pointer |
-| `src/raster.rs` | Picture decoding, SVG rendering and thumbnails |
-| `src/library.rs` | Which files to browse: folders, natural sort order |
-| `src/print.rs` | Printing through the portal; turns pictures into PDFs |
-| `src/portal.rs` | Native file and folder choosers (XDG portal) |
-| `src/cups.rs` | Printing straight to CUPS without a portal: a small IPP client |
-| `src/app/chooser.rs`, `src/app/printing.rs` | Lumen's own file chooser and print dialog, for desktops without a portal |
-| `src/style.rs`, `src/icons.rs` | Design tokens (surfaces, accent, radii, type), widget styles, symbolic icons |
-| `assets/fonts` | Inter (Latin), under the SIL Open Font License (`OFL.txt`) |
+| `Ctrl+O` / `Ctrl+Shift+O` | Open files / open a folder |
+| `←` / `→` | Previous / next file |
+| `Page Up` / `Page Down`, `Ctrl+G` | Previous / next PDF page, go to page |
+| `+` / `-`, `0` / `1`, `W` | Zoom in / out, best fit / actual size, fit width |
+| `R` / `Shift+R` | Turn right / left |
+| `E` | Edit the picture (crop, resize, colour) |
+| `M` | Markup |
+| `G` | Organise the PDF's pages |
+| `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo |
+| `Ctrl+S` / `Ctrl+Shift+S` | Save / save a copy |
+| `Ctrl+F` | Find in the PDF |
+| `Ctrl+P` | Print |
+| `T` | Show or hide the sidebar |
+| `F5` / `F11`, `Esc` | Slideshow / fullscreen, leave them |
+| `Ctrl+Shift+N` | PDF night mode |
 
-Run `make test` and `make lint` before sending changes.
+Lumen only overwrites a file you opened when you choose Save. Preferences are in `~/.config/lumen-rs/settings.toml`; the [features page](docs/FEATURES.md#files-lumen-reads-and-writes) lists every file it writes.
 
-## Timings
+## Contributing
 
-Like the GTK Lumen, timings are logged at `info` level: `open requested`, `window built`, `opened load_ms=…` and `first view on screen ms=…` (for a PDF, when its first page is drawn). Run `lumen-rs file.pdf` from a terminal to see them; `RUST_LOG=warn` silences them.
+Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, and the docs for how the code is organised:
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): stack, data flow, module layout
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): running and testing, CI, checking the interface, translations, the control interface
+- [docs/FEATURES.md](docs/FEATURES.md): every feature in detail, the keyboard, files and environment variables
+- [docs/STATUS.md](docs/STATUS.md): benchmarks, what is missing, what has not been checked
+- [docs/parity-plan.md](docs/parity-plan.md): the plan for closing the gap with the GTK Lumen
+- [docs/RELEASING.md](docs/RELEASING.md): tagging, the AUR, Flatpak
+- [CHANGELOG.md](CHANGELOG.md)
+
+## How Lumen was made
+
+Lumen started because I wanted a fast picture and PDF viewer with light editing on my own Linux desktop, and nothing quite fit. This edition is a rewrite of it in pure Rust, to see how fast and how safe it could be without GTK or poppler. I'm sharing it in case it's useful to someone else too.
+
+It was built with an AI coding agent (Claude Code). I chose the features, directed the work and tested the app, but most of the code, documentation, packaging files and the app icon were generated by the agent. Commits made this way carry a `Co-Authored-By: Claude` trailer, so the history shows which ones.
+
+Lumen is provided as is, without warranty of any kind (see sections 15 and 16 of the [GPL](LICENSE)). It is pre-release software that has not had much use: please keep copies of important files before editing or saving over them.
 
 ## License
 
-GPL-3.0-or-later, like the original Lumen.
+[GPL-3.0-or-later](LICENSE), like the original Lumen. The bundled Inter font is under the SIL Open Font License (`assets/fonts/OFL.txt`).

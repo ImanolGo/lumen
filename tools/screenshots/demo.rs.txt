@@ -1,0 +1,243 @@
+//! TEMPORARY: demo scenes for taking screenshots. Never committed to src/ (see docs/DEVELOPMENT.md);
+//! a reference copy lives in tools/screenshots/demo.rs.txt.
+
+use std::sync::Arc;
+
+use iced::Task;
+use iced::widget::text_editor;
+
+use super::markup::MarkupMsg;
+use super::pages::PagesMsg;
+use super::*;
+use crate::annotate::Tool;
+use crate::signatures::Signature;
+
+pub fn steps(scene: &str) -> Vec<(u64, &'static str)> {
+    match scene {
+        "markup" => vec![
+            (1200, "mk-on"),
+            (1600, "mk-rect"),
+            (2300, "mk-arrow"),
+            (3700, "mk-pen"),
+            (4400, "mk-text"),
+            (5400, "mk-done"),
+        ],
+        "forms" => vec![(1400, "fm-view"), (2200, "fm-fill"), (3000, "fm-sign"), (4200, "fm-done")],
+        "annot" => vec![
+            (1400, "an-page"),
+            (1800, "an-on"),
+            (3800, "an-hl1"),
+            (4200, "an-hl2"),
+            (4600, "an-rect"),
+            (5000, "an-text"),
+            (6000, "an-done"),
+        ],
+        "crop" => vec![(1400, "cr-edit"), (1900, "cr-start"), (2400, "cr-drag")],
+        "organiser" => vec![(1400, "or-hide"), (2000, "or-open"), (2800, "or-rotate"), (3400, "or-select")],
+        "folder" => vec![(1600, "fo-select")],
+        "night" => vec![(1400, "ni-page"), (1900, "ni-night")],
+        _ => vec![],
+    }
+}
+
+impl App {
+    fn mk(&mut self, message: MarkupMsg) -> Task<Message> {
+        self.update(Message::Markup(message))
+    }
+
+    /// Draws with the current tool along `points`, as a pointer would.
+    fn stroke(&mut self, page: usize, points: &[(f64, f64)]) -> Task<Message> {
+        let mut tasks = Vec::new();
+        let (x0, y0) = points[0];
+        tasks.push(self.mk(MarkupMsg::Press { page, x: x0, y: y0, clicks: 1 }));
+        for &(x, y) in &points[1..] {
+            tasks.push(self.mk(MarkupMsg::Drag { x, y }));
+        }
+        let (xn, yn) = *points.last().unwrap();
+        tasks.push(self.mk(MarkupMsg::Release { x: xn, y: yn }));
+        Task::batch(tasks)
+    }
+
+    fn tool(&mut self, tool: Tool, swatch: usize) -> Task<Message> {
+        Task::batch([self.mk(MarkupMsg::Tool(tool)), self.mk(MarkupMsg::Swatch(swatch))])
+    }
+
+    fn field(&self, name: &str) -> Option<usize> {
+        self.form.as_ref()?.form.fields.iter().position(|f| f.name == name)
+    }
+
+    fn say(&mut self, page: usize, x: f64, y: f64, words: &str) -> Task<Message> {
+        let press = self.mk(MarkupMsg::Press { page, x, y, clicks: 1 });
+        let action = text_editor::Action::Edit(text_editor::Edit::Paste(Arc::new(words.to_string())));
+        let typed = self.mk(MarkupMsg::TextAction(action));
+        Task::batch([press, typed])
+    }
+
+    /// Drags over a line of text, as a pointer would: hover, press, move, release.
+    /// Positions are in page points; the app wants widget pixels, so they are scaled by the zoom.
+    fn select_text(&mut self, page: usize, y: f64, from: f64, to: f64) -> Task<Message> {
+        let zoom = match &self.doc {
+            Doc::Pdf(v) => v.zoom as f64,
+            _ => return Task::none(),
+        };
+        let at = |x: f64| iced::Point::new((x * zoom) as f32, (y * zoom) as f32);
+        let mut tasks = vec![self.update(Message::PageHover(page, at(from))), self.update(Message::PagePress(page))];
+        for step in 1..=6 {
+            let x = from + (to - from) * step as f64 / 6.0;
+            tasks.push(self.update(Message::PageHover(page, at(x))));
+        }
+        tasks.push(self.update(Message::MouseUp));
+        Task::batch(tasks)
+    }
+
+    fn finish_markup(&mut self) -> Task<Message> {
+        let text = self.finish_text();
+        let select = self.mk(MarkupMsg::Tool(Tool::Select));
+        let deselect = self.update(Message::Escape);
+        Task::batch([text, select, deselect])
+    }
+
+    pub(super) fn demo_step(&mut self, step: &str) -> Task<Message> {
+        match step {
+            // ---------------------------------------------------------- a picture, marked up
+            "mk-on" => self.mk(MarkupMsg::Toggle),
+            "mk-rect" => {
+                let t = self.tool(Tool::Rectangle, 2);
+                let d = self.stroke(0, &[(700.0, 520.0), (900.0, 700.0), (1280.0, 960.0)]);
+                Task::batch([t, d])
+            }
+            "mk-arrow" => {
+                let t = self.tool(Tool::Arrow, 5);
+                let d = self.stroke(0, &[(1750.0, 330.0), (1650.0, 400.0), (1420.0, 560.0)]);
+                Task::batch([t, d])
+            }
+            "mk-pen" => {
+                let t = self.tool(Tool::Pen, 3);
+                let w = self.mk(MarkupMsg::LineWidth(5.0));
+                let circle: Vec<(f64, f64)> = (0..=40)
+                    .map(|i| {
+                        let a = i as f64 / 40.0 * std::f64::consts::TAU;
+                        (1745.0 + 150.0 * a.cos(), 205.0 + 85.0 * a.sin())
+                    })
+                    .collect();
+                let d = self.stroke(0, &circle);
+                Task::batch([t, w, d])
+            }
+            "mk-text" => {
+                let t = self.tool(Tool::Text, 7);
+                let d = self.say(0, 250.0, 1440.0, "Golden hour, 6:41");
+                Task::batch([t, d])
+            }
+            "mk-done" => self.finish_markup(),
+
+            // ---------------------------------------------------------- a form, filled in and signed
+            "fm-view" => Task::batch([self.update(Message::ZoomFit), self.update(Message::ToggleSidebar)]),
+            "fm-fill" => {
+                let mut tasks = Vec::new();
+                let mut text = |app: &mut App, name: &str, value: &str| {
+                    if let Some(i) = app.field(name) {
+                        tasks.push(app.update(Message::Form(forms::FormMsg::Text(i, value.to_string()))));
+                    }
+                };
+                text(self, "name", "Alex Rivera");
+                text(self, "email", "alex.rivera@example.org");
+                text(self, "phone", "555 0142");
+                text(self, "date", "23 November 2026");
+                if let Some(i) = self.field("kind") {
+                    tasks.push(self.update(Message::Form(forms::FormMsg::Radio(i, "family".into()))));
+                }
+                for name in ["dawn", "photo"] {
+                    if let Some(i) = self.field(name) {
+                        tasks.push(self.update(Message::Form(forms::FormMsg::Toggle(i))));
+                    }
+                }
+                if let Some(i) = self.field("heard") {
+                    tasks.push(self.update(Message::Form(forms::FormMsg::Choose(i, "Notice board".into()))));
+                }
+                if let Some(i) = self.field("notes") {
+                    let words = "Two adults and a nine-year-old. We would like the Saturday dawn walk.";
+                    let action = text_editor::Action::Edit(text_editor::Edit::Paste(Arc::new(words.to_string())));
+                    tasks.push(self.update(Message::Form(forms::FormMsg::Edit(i, action))));
+                }
+                Task::batch(tasks)
+            }
+            "fm-done" => self.update(Message::Escape),
+            "fm-sign" => {
+                // A handwritten-looking scribble: a long wavy stroke and an underline.
+                let name: Vec<(f64, f64)> = (0..=120)
+                    .map(|i| {
+                        let t = i as f64 / 120.0;
+                        let x = t * 9.0;
+                        (x, 0.45 * (t * 38.0).sin() * (1.0 - 0.5 * t) + 0.25 * (t * 9.0).cos() - t * 0.35)
+                    })
+                    .collect();
+                let under: Vec<(f64, f64)> = (0..=20).map(|i| (0.3 + i as f64 * 0.42, 0.95 - i as f64 * 0.012)).collect();
+                if let Some(signature) = Signature::from_strokes(&[name, under]) {
+                    self.sign_target = Some((0, crate::annotate::Rect::new(70.0, 671.0, 240.0, 36.0)));
+                    return self.sign(signature);
+                }
+                Task::none()
+            }
+
+            // ---------------------------------------------------------- a PDF, annotated
+            "an-page" => {
+                Task::batch([self.update(Message::GoToPage(1)), self.update(Message::SidebarTab(SidebarTab::Pages))])
+            }
+            "an-on" => self.mk(MarkupMsg::Toggle),
+            "an-hl1" => {
+                let t = self.tool(Tool::Highlight, 1);
+                let d = self.select_text(1, 108.0, 69.5, 501.0);
+                Task::batch([t, d])
+            }
+            "an-hl2" => self.select_text(1, 123.0, 69.5, 330.0),
+            "an-rect" => {
+                let t = self.tool(Tool::Rectangle, 2);
+                let w = self.mk(MarkupMsg::LineWidth(3.0));
+                let d = self.stroke(1, &[(62.0, 339.0), (180.0, 350.0), (298.0, 368.0)]);
+                Task::batch([t, w, d])
+            }
+            "an-text" => {
+                let t = self.tool(Tool::Text, 5);
+                let d = self.say(1, 330.0, 338.0, "Check dawn times");
+                Task::batch([t, d])
+            }
+            "an-done" => self.finish_markup(),
+
+            // ---------------------------------------------------------- cropping
+            "cr-edit" => self.update(Message::Edit(edit::EditMsg::Toggle)),
+            "cr-start" => self.update(Message::Edit(edit::EditMsg::CropStart)),
+            "cr-drag" => {
+                let (w, h) = match &self.doc {
+                    Doc::Image(v) => (v.shown.width as f64, v.shown.height as f64),
+                    _ => return Task::none(),
+                };
+                let mut tasks = Vec::new();
+                for (from, to) in [((2.0, 2.0), (w * 0.12, h * 0.16)), ((w - 2.0, h - 2.0), (w * 0.9, h * 0.86))] {
+                    tasks.push(self.update(Message::Edit(edit::EditMsg::CropPress(from.0, from.1))));
+                    tasks.push(self.update(Message::Edit(edit::EditMsg::CropDrag(to.0, to.1))));
+                    tasks.push(self.update(Message::Edit(edit::EditMsg::CropRelease)));
+                }
+                Task::batch(tasks)
+            }
+
+            // ---------------------------------------------------------- the page organiser
+            "or-hide" => self.update(Message::ToggleSidebar),
+            "or-open" => self.update(Message::Pages(PagesMsg::Open)),
+            "or-rotate" => Task::batch([
+                self.update(Message::Pages(PagesMsg::Press(4))),
+                self.update(Message::Pages(PagesMsg::Rotate(90))),
+            ]),
+            "or-select" => self.update(Message::Pages(PagesMsg::Press(7))),
+
+            // ---------------------------------------------------------- a folder
+            "fo-select" => self.update(Message::Select(2)),
+
+            // ---------------------------------------------------------- night mode
+            "ni-page" => {
+                Task::batch([self.update(Message::GoToPage(1)), self.update(Message::SidebarTab(SidebarTab::Contents))])
+            }
+            "ni-night" => self.update(Message::ToggleNight),
+            _ => Task::none(),
+        }
+    }
+}

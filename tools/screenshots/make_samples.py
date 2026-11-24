@@ -19,7 +19,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
-from reportlab.platypus import (BaseDocTemplate, Frame, Image as RLImage, PageBreak, PageTemplate,
+from reportlab.platypus import (BaseDocTemplate, CondPageBreak, Frame, Image as RLImage, PageBreak, PageTemplate,
                                 Paragraph, Spacer, Table, TableStyle)
 
 W, H = 2400, 1600
@@ -160,11 +160,26 @@ def field_guide(out, picture):
         ("Walking the shore", ["The path loops.", "Benches are marked."]),
         ("Keeping notes", ["Write the time.", "Sketch the sky."]),
     ]
+    openings = [
+        "Still water first. On a calm morning the surface holds the whole sky, and the line where the far shore meets "
+        "its reflection is the sharpest edge you will see all day. Wind arrives as a darker band crossing the mirror.",
+        "Herons stand in the shallows by the jetty from first light, waiting; geese commute across open water in loose "
+        "lines; kingfishers flash between the overhanging branches in the morning, too fast to follow but easy to hear.",
+        "The hour matters more than the season. Low sun turns the hills from blue to rose to gold in a quarter of "
+        "an hour, and thin cloud at the horizon can double the length of the show.",
+        "The path loops the lake in about two hours. Benches are placed where the view opens, and each has a number "
+        "so you can say exactly where you saw something.",
+        "Write down the time before anything else. A sketch of the sky, even a bad one, will tell you more a year "
+        "from now than a long description, and a list of the day's sightings turns a walk into a record.",
+    ]
     for n, (title, _) in enumerate(chapters, 1):
+        flow.append(CondPageBreak(90 * mm))
         flow.append(Paragraph(f"{n}. {title}", h1))
-        for t in text:
+        flow.append(Paragraph(openings[n - 1], body))
+        for t in text[1:]:
             flow.append(Paragraph(t, body))
         flow.append(Paragraph("What to look for", h2))
+        flow.append(Paragraph('See also <a href="https://example.org/lakeshore" color="#2f5d8a">the walkers\' website</a>.', body))
         flow.append(Paragraph("Look low across the surface first, then lift your eyes to the far shore. "
                               "Small changes show up at the edges: where the reeds meet the water, where the "
                               "light leaves the hills, where a ripple starts for no reason you can see.", body))
@@ -180,8 +195,9 @@ def field_guide(out, picture):
                                      ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#c9d4e0")),
                                      ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6)]))
             flow += [Spacer(1, 6), tbl, Spacer(1, 10)]
-        flow.append(PageBreak())
-    flow.pop()
+        if n == 3:
+            flow += [Spacer(1, 6), RLImage(str(picture), width=doc.width * 0.8, height=doc.width * 0.8 * H / W),
+                     Paragraph("Low light over the water, a little before sunrise.", cap), Spacer(1, 8)]
     doc.build(flow)
     return path
 
@@ -247,10 +263,44 @@ def membership_form(out):
     c.drawString(x, y - 9 * mm, "Signature")
     c.setStrokeColor(colors.HexColor("#6b87a8"))
     c.setLineWidth(0.8)
-    c.line(x, y - 30 * mm, x + 90 * mm, y - 30 * mm)
+    c.line(x, y - 24 * mm, x + 90 * mm, y - 24 * mm)
     c.drawString(x + 110 * mm, y - 9 * mm, "Date")
     form.textfield(name="date", x=x + 110 * mm, y=y - 18 * mm, width=45 * mm, height=7.5 * mm, **field)
     c.showPage()
+    c.save()
+    return path
+
+
+def trip_notes(out, pictures_list):
+    """Twelve pages, each with a different picture and colour, so page thumbnails are easy to tell apart."""
+    path = out / "Trip notes.pdf"
+    c = canvas.Canvas(str(path), pagesize=A4)
+    c.setTitle("Trip notes")
+    w, h = A4
+    days = ["Arrival", "The jetty", "Up the east path", "Rain", "Market day", "The long walk", "Boat to the island",
+            "Quiet morning", "Hills at noon", "Swimming", "Last evening", "Going home"]
+    tints = ["#e8f0fb", "#fbeee8", "#e9f6ec", "#f5ecfa", "#fff6dc", "#e6f4f6"]
+    for i, day in enumerate(days):
+        c.setFillColor(colors.HexColor(tints[i % len(tints)]))
+        c.rect(0, 0, w, h, stroke=0, fill=1)
+        c.setFillColor(colors.HexColor("#1f3a5f"))
+        c.setFont("Helvetica-Bold", 30)
+        c.drawString(22 * mm, h - 32 * mm, f"Day {i + 1}")
+        c.setFont("Helvetica", 15)
+        c.setFillColor(colors.HexColor("#555555"))
+        c.drawString(22 * mm, h - 42 * mm, day)
+        pic = pictures_list[i % len(pictures_list)]
+        c.drawImage(str(pic), 22 * mm, h - 150 * mm, width=w - 44 * mm, height=(w - 44 * mm) * H / W, preserveAspectRatio=True)
+        c.setFillColor(colors.HexColor("#333333"))
+        c.setFont("Helvetica", 11)
+        y = h - 175 * mm
+        for line in ["Notes for the day.", "Weather, the path, what we saw, and what to bring next time."]:
+            c.drawString(22 * mm, y, line)
+            y -= 6 * mm
+        c.setFont("Helvetica", 8)
+        c.setFillColor(colors.HexColor("#999999"))
+        c.drawRightString(w - 22 * mm, 12 * mm, f"{i + 1}")
+        c.showPage()
     c.save()
     return path
 
@@ -261,6 +311,7 @@ def main():
     pics = pictures(out)
     field_guide(out, pics[1])
     membership_form(out)
+    trip_notes(out, pics)
     print("made", *sorted(p.name for p in out.iterdir()), sep="\n  ")
 
 
