@@ -72,6 +72,9 @@ const ROW_THUMB: f32 = 102.0;
 /// How many recent files the empty window lists.
 const RECENT_SHOWN: usize = 5;
 
+/// How often an open file is looked at when it cannot be watched.
+const FALLBACK_LOOK: Duration = Duration::from_secs(3);
+
 const ZOOM_EASE: Duration = Duration::from_millis(170);
 /// How long the floating controls stay after the pointer stops moving.
 const CONTROLS_LINGER: Duration = Duration::from_millis(1800);
@@ -184,6 +187,8 @@ pub struct App {
     /// Recent files, PDF pages and the window size, kept between runs.
     state: crate::state::State,
     state_save_pending: bool,
+    /// The file cannot be watched with inotify, so it is looked at now and then instead.
+    watch_failed: bool,
     /// Where to put a PDF back after it is reloaded.
     restore: Option<Place>,
     modifiers: Modifiers,
@@ -314,6 +319,11 @@ enum ZoomEnd {
 
 /// A file's modification time and size; if either differs, the file changed.
 type Stamp = (std::time::SystemTime, u64);
+
+/// The file as it is now, to tell later whether another program changed it.
+fn disk_baseline(path: &Path) -> (PathBuf, Option<Stamp>) {
+    (path.to_path_buf(), std::fs::metadata(path).and_then(|m| Ok((m.modified()?, m.len()))).ok())
+}
 
 /// A place in a PDF that survives zooming: a page, how far down it, and how far across.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -553,6 +563,8 @@ pub enum Message {
     Palette(commands::PaletteMsg),
     /// Time to see whether another program changed the open file.
     CheckFile,
+    /// The watcher's word: something happened to the file (`Some`), or it cannot be watched (`None`).
+    FileEvent(Option<()>),
     FileStat(PathBuf, Option<Stamp>),
     /// Write the remembered state to disk (a moment after it changed).
     SaveState,
@@ -719,6 +731,7 @@ impl App {
             disk: None,
             state: if cfg!(test) { crate::state::State::default() } else { crate::state::State::load() },
             state_save_pending: false,
+            watch_failed: false,
             restore: None,
             modifiers: Modifiers::default(),
             pan: None,
@@ -836,9 +849,16 @@ impl App {
             system::theme_changes().map(Message::SystemTheme),
             window::events().map(|(id, e)| Message::WindowEvent(id, e)),
             keyboard::listen().map(Message::Key),
-            // Another program may change the open file; looking is a stat call, so once in a while.
-            if matches!(self.doc, Doc::Image(_) | Doc::Pdf(_)) {
-                iced::time::every(Duration::from_millis(1500)).map(|_| Message::CheckFile)
+            // Another program may change the open file: inotify tells us (nothing is polled).
+            match self.current_path().map(Path::to_path_buf) {
+                Some(path) if matches!(self.doc, Doc::Image(_) | Doc::Pdf(_)) => {
+                    Subscription::run_with(path, |path| crate::watch::changes(path.clone())).map(Message::FileEvent)
+                }
+                _ => Subscription::none(),
+            },
+            // Where inotify cannot be had (a network folder, too many watches), look now and then.
+            if self.watch_failed && matches!(self.doc, Doc::Image(_) | Doc::Pdf(_)) {
+                iced::time::every(FALLBACK_LOOK).map(|_| Message::CheckFile)
             } else {
                 Subscription::none()
             },
@@ -1121,6 +1141,11 @@ impl App {
                         Err(_) => Message::LinkOpened(Ok(())),
                     },
                 )
+            }
+            Message::FileEvent(Some(())) => self.update(Message::CheckFile),
+            Message::FileEvent(None) => {
+                self.watch_failed = true;
+                Task::none()
             }
             Message::FileStat(path, stamp) => self.file_stat(path, stamp),
             Message::CopyPicture => {
@@ -1850,7 +1875,8 @@ impl App {
 
     /// Shows file `index` even when it is the one already shown (to load it afresh).
     fn show_forced(&mut self, index: usize) -> Task<Message> {
-        self.disk = None;
+        // How the file is as it starts to load: a change after this is another program's.
+        self.disk = self.files.get(index).map(|path| disk_baseline(path));
         self.remember_place();
         self.organizer = None;
         self.zoom_ease = None;

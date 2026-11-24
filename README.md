@@ -22,7 +22,7 @@
 
 ## Features
 
-- **Fast.** Pictures and pages load in the background, so the interface never freezes. A 5120×2160 picture is on screen in about 0.4 s and a 477-page PDF in about 0.17 s (release build, 2020 laptop). Only the pages near the view are rendered, and they re-render sharply at every zoom level.
+- **Fast.** Pictures and pages load in the background, so the interface never freezes. A 5120×2160 picture is on screen in about 0.3 to 0.4 s and a 477-page PDF in about 0.2 to 0.4 s, depending on the graphics driver (release build, 2020 laptop; [numbers](docs/STATUS.md#numbers)). Only the pages near the view are rendered, and they re-render sharply at every zoom level.
 - **Safe with files from anywhere.** Pictures are decoded in a separate process that shuts itself in with Landlock and seccomp before it reads the file, so a malicious picture cannot reach your system. PDFs are read by [hayro](https://github.com/LaurenzV/hayro) and pictures by pure-Rust decoders, so there is no C code to exploit in between. The app is `#![forbid(unsafe_code)]`.
 - **Pictures and PDFs in one app.** Open files or a whole folder, drop in more from anywhere, and flip through them with big thumbnails. Zoom and pan smoothly (pinch on a touchpad too), honour EXIF orientation, run a slideshow or go fullscreen. PNG, JPEG, GIF, WebP, BMP, TIFF, JPEG XL, JPEG 2000, OpenEXR, SVG and more, with animated GIF, APNG and WebP.
 - **Light editing.** Turn, mirror, crop, resize, and adjust exposure, contrast and saturation, with undo and redo. Turning a JPEG does not recompress it. Ctrl+S saves JPEG, PNG and WebP in place.

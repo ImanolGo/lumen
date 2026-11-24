@@ -413,6 +413,23 @@ fn the_command_palette_finds_and_runs_commands() {
 }
 
 #[test]
+fn a_shown_file_is_baselined_at_once_and_a_watch_that_fails_falls_back_to_looking() {
+    let _inside = runtime().enter();
+    let mut app = app();
+    let picture = fixture("pictures").join("g.png");
+    let _ = app.update(Message::Expanded { files: vec![picture.clone()], start: 0, append: false });
+    // The stamp is taken as loading starts, so a change a moment later is another program's.
+    let stamp = app.disk.clone().expect("a baseline");
+    assert_eq!(stamp.0, picture);
+    assert!(stamp.1.is_some_and(|(_, size)| size == std::fs::metadata(&picture).unwrap().len()));
+    assert!(!app.watch_failed);
+    let _ = app.update(Message::FileEvent(None));
+    assert!(app.watch_failed);
+    // An event asks for a look (a task needing the runtime; nothing more to see here).
+    let _ = app.update(Message::FileEvent(Some(())));
+}
+
+#[test]
 fn search_options_survive_a_new_query_and_are_remembered_by_the_bar() {
     let _inside = runtime().enter();
     let mut app = pdf_app();

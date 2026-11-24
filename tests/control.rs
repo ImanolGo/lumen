@@ -517,3 +517,38 @@ async fn exports_pages_and_pictures() {
         assert!(e.contains(why), "{e}");
     }
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reloads_a_file_that_another_program_changes() {
+    if !enabled("reloads_a_file_that_another_program_changes") {
+        return;
+    }
+    let lumen = Lumen::start("reload", &[]).await;
+    let file = work_copy(&lumen, fixture("pages.pdf"), "book.pdf");
+    let state = lumen.settled("Open", &(paths(std::slice::from_ref(&file)), "")).await;
+    assert_eq!((state["kind"].clone(), state["pages"].clone()), ("pdf".into(), 5.into()));
+    lumen.call("GotoPage", &(3u32,)).await;
+    lumen.wait(|s| s["page"] == 3).await;
+
+    // Written over in place, the way `cp` does it…
+    std::fs::copy(fixture("form.pdf"), &file).unwrap();
+    let state = lumen.wait(|s| s["pages"] == 1 && s["busy"] == false).await;
+    assert!(state["notice"]["text"].as_str().unwrap().contains("Reloaded"), "{state}");
+    // …and replaced by a rename, the way most editors save.
+    let again = lumen.dir.join("book.tmp");
+    std::fs::copy(fixture("pages.pdf"), &again).unwrap();
+    std::fs::rename(&again, &file).unwrap();
+    let state = lumen.wait(|s| s["pages"] == 5 && s["busy"] == false).await;
+    assert_eq!(state["kind"], "pdf");
+    assert_eq!(state["unsaved"], false);
+
+    // With something unsaved, the change is reported and the work is kept.
+    lumen.settled("Open", &(paths(std::slice::from_ref(&file)), "")).await;
+    lumen.call("SetMarkup", &(true,)).await;
+    lumen.wait(|s| s["markup"].is_object() && s["busy"] == false).await;
+    lumen.call("Annotate", &("rectangle", 1u32, 10.0, 10.0, 90.0, 60.0, "", "")).await;
+    std::fs::copy(fixture("form.pdf"), &file).unwrap();
+    let state = lumen.wait(|s| s["notice"]["text"].as_str().is_some_and(|t| t.contains("changed on disk"))).await;
+    assert_eq!(state["pages"], 5, "still the document that was being marked up");
+    assert_eq!(state["markup"]["annotations"], 1);
+}

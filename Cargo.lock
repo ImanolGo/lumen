@@ -2661,6 +2661,7 @@ dependencies = [
  "pdf-writer",
  "png 0.18.1",
  "resvg 0.50.0",
+ "rustix 1.1.6",
  "seccompiler",
  "serde",
  "serde_json",

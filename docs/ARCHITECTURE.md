@@ -52,6 +52,7 @@ dependencies (touchpad pinch); see `vendor/README.md`.
 | `src/app/commands.rs` | The command palette (Ctrl+Shift+P): the menus' commands, filtered by name |
 | `src/clipboard.rs` | Copying a picture to the clipboard (Wayland data-control, `wl-clipboard-rs`) |
 | `src/thumbcache.rs` | The desktop's thumbnail cache (freedesktop standard): read, write, MD5 naming |
+| `src/watch.rs` | Notices another program changing the open file (inotify on its folder) |
 | `src/state.rs` | What Lumen remembers between runs: window size, recent files, each PDF's page |
 | `src/i18n.rs`, `po/` | Translations: the `.po` reader, `tr()`, the catalogues |
 | `assets/fonts` | Inter (Latin), under the SIL Open Font License (`OFL.txt`) |

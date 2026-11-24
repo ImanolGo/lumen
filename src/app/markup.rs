@@ -787,7 +787,8 @@ impl App {
                 _ => Task::none(),
             },
             MarkupMsg::PdfSaved(generation, target, layers, result) => {
-                self.disk = None; // our own write is not a change by someone else
+                // Our own write is not a change by someone else: take the file as it now is.
+                self.disk = Some(super::disk_baseline(&target));
                 self.markup_busy = None;
                 match result {
                     Ok(opened) if generation == self.generation => {
@@ -808,12 +809,14 @@ impl App {
                 }
             }
             MarkupMsg::PictureSaved(generation, target, layers, result) => {
-                self.disk = None;
                 self.markup_busy = None;
                 if let Err(e) = result {
                     return self.toast(trf!("Could not save: {}", e));
                 }
                 let in_place = self.current_path() == Some(target.as_path());
+                if in_place {
+                    self.disk = Some(super::disk_baseline(&target));
+                }
                 let saved = self.notice(if in_place {
                     trf!("Saved “{}”", file_name(&target))
                 } else {

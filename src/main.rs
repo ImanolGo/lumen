@@ -33,6 +33,7 @@ mod structure;
 mod style;
 mod thumbcache;
 mod trash;
+mod watch;
 
 use std::path::PathBuf;
 use std::sync::OnceLock;

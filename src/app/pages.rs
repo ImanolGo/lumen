@@ -309,7 +309,8 @@ impl App {
             PagesMsg::SaveTo(Ok(None)) => Task::none(),
             PagesMsg::SaveTo(Err(e)) => self.toast(e),
             PagesMsg::Saved(generation, target, result) => {
-                self.disk = None;
+                // Our own write is not a change by someone else.
+                self.disk = Some(super::disk_baseline(&target));
                 if let Some(o) = &mut self.organizer {
                     o.saving = false;
                 }
