@@ -50,6 +50,7 @@ dependencies (touchpad pinch); see `vendor/README.md`.
 | `src/style.rs`, `src/icons.rs` | Design tokens, widget styles, symbolic icons |
 | `src/settings.rs`, `src/app/prefs.rs` | Preferences: the settings file, and the dialog |
 | `src/app/commands.rs` | The command palette (Ctrl+Shift+P): the menus' commands, filtered by name |
+| `src/thumbcache.rs` | The desktop's thumbnail cache (freedesktop standard): read, write, MD5 naming |
 | `src/state.rs` | What Lumen remembers between runs: window size, recent files, each PDF's page |
 | `src/i18n.rs`, `po/` | Translations: the `.po` reader, `tr()`, the catalogues |
 | `assets/fonts` | Inter (Latin), under the SIL Open Font License (`OFL.txt`) |

@@ -51,7 +51,6 @@ code):
 | Feature | GTK Lumen |
 |---|---|
 | Copy the picture to the clipboard (Ctrl+C on a picture) | yes |
-| The desktop's thumbnail cache (`~/.cache/thumbnails`) | yes |
 | Screen-reader support (accessible names) | yes (GTK) |
 | A control interface covering forms, annotation, editing and export | yes (this one covers opening, browsing, pages, zoom and search) |
 | HEIC and AVIF without a C library | via glycin (C-free here only with the optional `heif` feature, which links libheif) |

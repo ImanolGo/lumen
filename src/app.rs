@@ -2078,6 +2078,7 @@ impl App {
             self.thumbs.insert(path.clone(), None);
             self.thumbs_running += 1;
             let password = self.passwords.get(&path).cloned();
+            let cache = if self.prefs.thumbnail_cache && !cfg!(test) { crate::thumbcache::base_dir() } else { None };
             tasks.push(Task::perform(
                 {
                     let path = path.clone();
@@ -2086,7 +2087,7 @@ impl App {
                             Ok(p) => (Some(p), false),
                             Err(e) => (None, e.downcast_ref::<pdf::PasswordNeeded>().is_some()),
                         },
-                        _ => (raster::thumbnail(&path).ok(), false),
+                        _ => (cached_thumbnail(cache.as_deref(), &path), false),
                     })
                 },
                 move |r| {
@@ -2663,6 +2664,19 @@ fn search_toggle<'a>(label: &'a str, tip_text: String, on: bool, message: Messag
     let look = if on { style::tool_active } else { style::tool };
     let b = button(center(text(label).size(12)).width(32).height(28)).padding(0).style(look).on_press(message);
     tip(b.into(), tip_text)
+}
+
+/// A picture's thumbnail: the desktop's cached one when there is a good one, else made now (and
+/// cached for the next time, and for the file manager).
+fn cached_thumbnail(cache: Option<&Path>, path: &Path) -> Option<raster::Picture> {
+    if let Some(found) = cache.and_then(|base| crate::thumbcache::read(base, path)) {
+        return Some(found);
+    }
+    let made = raster::thumbnail(path).ok()?;
+    if let Some(base) = cache {
+        crate::thumbcache::write(base, path, &made);
+    }
+    Some(made)
 }
 
 /// A folder as shown in the recent list: the home folder is written `~`.

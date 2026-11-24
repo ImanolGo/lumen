@@ -30,6 +30,7 @@ mod signatures;
 mod state;
 mod structure;
 mod style;
+mod thumbcache;
 mod trash;
 
 use std::path::PathBuf;

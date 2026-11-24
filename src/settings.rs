@@ -47,6 +47,8 @@ pub struct Settings {
     pub sandbox: bool,
     /// ← on the first file goes to the last, and → on the last goes to the first.
     pub wrap_around: bool,
+    /// Use the desktop's thumbnail cache (`~/.cache/thumbnails`) and add to it.
+    pub thumbnail_cache: bool,
     /// Megabytes of decoded pictures kept for flipping back and forth.
     pub cache_mb: u32,
     /// Neighbouring pictures up to this many megapixels are decoded ahead (0 turns it off).
@@ -65,6 +67,7 @@ impl Default for Settings {
             night_mode: false,
             sandbox: true,
             wrap_around: false,
+            thumbnail_cache: true,
             cache_mb: 64,
             preload_megapixels: 4,
         }
@@ -118,6 +121,7 @@ impl Settings {
         get(&table, "night_mode", &mut out.night_mode);
         get(&table, "sandbox", &mut out.sandbox);
         get(&table, "wrap_around", &mut out.wrap_around);
+        get(&table, "thumbnail_cache", &mut out.thumbnail_cache);
         get(&table, "cache_mb", &mut out.cache_mb);
         get(&table, "preload_megapixels", &mut out.preload_megapixels);
         out.clamp();
@@ -207,6 +211,7 @@ mod tests {
             night_mode: true,
             sandbox: false,
             wrap_around: true,
+            thumbnail_cache: false,
             cache_mb: 128,
             preload_megapixels: 0,
         };

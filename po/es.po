@@ -178,6 +178,9 @@ msgstr "Página siguiente"
 msgid "Previous Page"
 msgstr "Página anterior"
 
+msgid "Share thumbnails with the desktop's cache"
+msgstr "Compartir las miniaturas con la caché del escritorio"
+
 msgid "Match case"
 msgstr "Distinguir mayúsculas"
 

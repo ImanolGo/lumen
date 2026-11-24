@@ -68,6 +68,7 @@ impl Lumen {
             .env("XDG_CONFIG_HOME", dir.join("config"))
             .env("XDG_DATA_HOME", dir.join("data"))
             .env("XDG_STATE_HOME", dir.join("state"))
+            .env("XDG_CACHE_HOME", dir.join("cache"))
             .stdout(Stdio::null())
             .stderr(log)
             .spawn()

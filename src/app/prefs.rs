@@ -19,6 +19,7 @@ pub enum PrefMsg {
     Portals(bool),
     Sandbox(bool),
     WrapAround(bool),
+    ThumbnailCache(bool),
     NightMode(bool),
     CacheMb(u32),
     PreloadMegapixels(u32),
@@ -63,6 +64,7 @@ impl App {
                 crate::sandbox::set_enabled(on);
             }
             PrefMsg::WrapAround(on) => self.prefs.wrap_around = on,
+            PrefMsg::ThumbnailCache(on) => self.prefs.thumbnail_cache = on,
             PrefMsg::NightMode(on) => {
                 if on != self.night {
                     follow_up = self.update(Message::ToggleNight);
@@ -150,6 +152,7 @@ impl App {
             heading(tr("SECURITY")),
             toggle(tr("Decode pictures in a sandbox"), p.sandbox, PrefMsg::Sandbox),
             toggle(tr("Wrap around at the first and last file"), p.wrap_around, PrefMsg::WrapAround),
+            toggle(tr("Share thumbnails with the desktop's cache"), p.thumbnail_cache, PrefMsg::ThumbnailCache),
             text(tr("Each picture is opened by a separate process that can do nothing but decode it. Costs a few milliseconds a picture. LUMEN_NO_SANDBOX=1 turns it off."))
                 .size(11)
                 .style(muted),
