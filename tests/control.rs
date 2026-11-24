@@ -258,3 +258,262 @@ async fn bad_requests_get_reasons_not_silence() {
     let e = lumen.try_call("GotoPage", &(1u32,)).await.unwrap_err();
     assert!(e.contains("no PDF"), "{e}");
 }
+
+/// Copies a fixture into the test's folder, so the test may change it.
+fn work_copy(lumen: &Lumen, fixture_path: PathBuf, name: &str) -> PathBuf {
+    let to = lumen.dir.join(name);
+    std::fs::copy(fixture_path, &to).unwrap();
+    to
+}
+
+/// Waits until the window has said something with `text` in it (it may already have).
+async fn noticed(lumen: &Lumen, text: &str) -> Value {
+    lumen.wait(|s| s["busy"] == false && s["notice"]["text"].as_str().is_some_and(|t| t.contains(text))).await
+}
+
+fn field<'a>(form: &'a Value, name: &str) -> &'a Value {
+    form["fields"].as_array().unwrap().iter().find(|f| f["name"] == name).unwrap_or_else(|| panic!("no field {name}"))
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fills_in_a_form_and_saves_the_answers() {
+    if !enabled("fills_in_a_form_and_saves_the_answers") {
+        return;
+    }
+    let lumen = Lumen::start("form", &[]).await;
+    let file = work_copy(&lumen, fixture("form.pdf"), "form.pdf");
+    let state = lumen.settled("Open", &(paths(std::slice::from_ref(&file)), "")).await;
+    assert_eq!(state["kind"], "pdf");
+    assert_eq!(state["form"]["dirty"], false);
+
+    let form = lumen.call("GetForm", &()).await;
+    assert_eq!(field(&form, "plan")["kind"], "choice");
+    assert_eq!(field(&form, "experience")["options"], serde_json::json!(["new", "hobby", "pro"]));
+    assert_eq!(field(&form, "newsletter")["value"], false);
+
+    for (name, value) in [
+        ("name", "Ada Lovelace"),
+        ("email", "ada@example.org"),
+        ("plan", "Premium"),
+        ("experience", "pro"),
+        ("newsletter", "on"),
+        ("comments", "Line one\nLine two"),
+    ] {
+        lumen.call("SetField", &(name, value)).await;
+    }
+    let state = lumen.call("GetState", &()).await;
+    assert_eq!((state["form"]["dirty"].clone(), state["unsaved"].clone()), (true.into(), true.into()));
+    let form = lumen.call("GetForm", &()).await;
+    assert_eq!(field(&form, "name")["value"], "Ada Lovelace");
+    assert_eq!(field(&form, "newsletter")["value"], true);
+    assert_eq!(field(&form, "experience")["value"], "pro");
+
+    // Nonsense is refused with a reason, and changes nothing.
+    for (name, value, why) in [
+        ("nope", "x", "no field"),
+        ("experience", "expert", "choose one of: new, hobby, pro"),
+        ("plan", "Gold", "choose one of: Basic, Standard, Premium"),
+        ("newsletter", "maybe", "not on or off"),
+    ] {
+        let e = lumen.try_call("SetField", &(name, value)).await.unwrap_err();
+        assert!(e.contains(why), "{e}");
+    }
+
+    // Saving writes the answers into the file where any reader sees them…
+    lumen.call("Save", &()).await;
+    let state = lumen.wait(|s| s["busy"] == false && s["unsaved"] == false).await;
+    assert!(state["notice"]["text"].as_str().unwrap().contains("Saved"), "{state}");
+    let bytes = std::fs::read(&file).unwrap();
+    assert!(bytes.windows(12).any(|w| w == b"Ada Lovelace"), "the name is in the file");
+    // …and opening the file afresh finds them there.
+    lumen.settled("Open", &(paths(&[file]), "")).await;
+    let form = lumen.call("GetForm", &()).await;
+    assert_eq!(field(&form, "email")["value"], "ada@example.org");
+    assert_eq!(field(&form, "plan")["value"], "Premium");
+    assert_eq!(field(&form, "experience")["value"], "pro");
+    assert_eq!(field(&form, "newsletter")["value"], true);
+    assert_eq!(field(&form, "comments")["value"], "Line one\nLine two");
+    assert_eq!(lumen.call("GetState", &()).await["form"]["dirty"], false);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn draws_annotations_on_a_pdf_and_saves_them_as_real_ones() {
+    if !enabled("draws_annotations_on_a_pdf_and_saves_them_as_real_ones") {
+        return;
+    }
+    let lumen = Lumen::start("annotate", &[]).await;
+    let file = work_copy(&lumen, fixture("pages.pdf"), "pages.pdf");
+    lumen.settled("Open", &(paths(std::slice::from_ref(&file)), "")).await;
+
+    // Drawing needs markup on, and says so.
+    let e = lumen.try_call("Annotate", &("rectangle", 1u32, 10.0, 10.0, 50.0, 50.0, "", "")).await.unwrap_err();
+    assert!(e.contains("turn markup on"), "{e}");
+    lumen.call("SetMarkup", &(true,)).await;
+    lumen.wait(|s| s["markup_open"] == true && s["markup"].is_object() && s["busy"] == false).await;
+
+    let shapes: [(&str, u32, [f64; 4], &str, &str); 7] = [
+        ("rectangle", 1, [72.0, 72.0, 200.0, 140.0], "", "#d62828"),
+        ("ellipse", 1, [220.0, 72.0, 320.0, 140.0], "", ""),
+        ("line", 1, [72.0, 170.0, 320.0, 170.0], "", ""),
+        ("arrow", 1, [72.0, 200.0, 320.0, 260.0], "", ""),
+        ("pen", 1, [72.0, 280.0, 320.0, 340.0], "", ""),
+        ("highlight", 1, [72.0, 360.0, 320.0, 380.0], "", ""),
+        ("text", 2, [72.0, 100.0, 260.0, 140.0], "Hello from the control interface", ""),
+    ];
+    for (kind, page, [x0, y0, x1, y1], text, color) in shapes {
+        lumen.call("Annotate", &(kind, page, x0, y0, x1, y1, text, color)).await;
+    }
+    let listed = lumen.call("GetAnnotations", &()).await;
+    let items = listed["annotations"].as_array().unwrap();
+    assert_eq!(items.len(), 7, "{listed}");
+    let kinds: Vec<&str> = items.iter().map(|a| a["kind"].as_str().unwrap()).collect();
+    assert_eq!(kinds, ["rectangle", "ellipse", "line", "arrow", "pen", "highlight", "text"]);
+    assert_eq!(items[0]["color"], "#d62828");
+    assert_eq!(items[6]["page"], 2);
+    assert_eq!(items[6]["text"], "Hello from the control interface");
+    let state = lumen.call("GetState", &()).await;
+    assert_eq!((state["markup"]["annotations"].clone(), state["markup"]["dirty"].clone()), (7.into(), true.into()));
+
+    for (kind, page, color, why) in [
+        ("rectangle", 9u32, "", "pages 1 to 5"),
+        ("rectangle", 0, "", "counted from 1"),
+        ("star", 1, "", "unknown kind"),
+        ("rectangle", 1, "red", "not a colour"),
+    ] {
+        let e = lumen.try_call("Annotate", &(kind, page, 0.0, 0.0, 9.0, 9.0, "", color)).await.unwrap_err();
+        assert!(e.contains(why), "{e}");
+    }
+
+    // Saved, they are annotations any reader knows…
+    lumen.call("Save", &()).await;
+    lumen.wait(|s| s["busy"] == false && s["unsaved"] == false).await;
+    let doc = lopdf::Document::load(&file).unwrap();
+    let pages = doc.get_pages();
+    let subtypes = |page: u32| -> Vec<String> {
+        doc.get_page_annotations(pages[&page])
+            .unwrap()
+            .iter()
+            .map(|a| String::from_utf8_lossy(a.get(b"Subtype").unwrap().as_name().unwrap()).into_owned())
+            .collect()
+    };
+    let first = subtypes(1);
+    for want in ["Square", "Circle", "Line", "Ink", "Highlight"] {
+        assert!(first.iter().any(|s| s == want), "{want} missing from {first:?}");
+    }
+    assert_eq!(subtypes(2), ["FreeText"]);
+    // …and Lumen finds them again when it opens the file.
+    lumen.settled("Open", &(paths(&[file]), "")).await;
+    lumen.call("SetMarkup", &(true,)).await;
+    let state = lumen.wait(|s| s["markup"].is_object() && s["busy"] == false).await;
+    assert_eq!(state["markup"]["annotations"], 7, "{state}");
+    assert_eq!(state["markup"]["dirty"], false);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn edits_a_picture_and_saves_it() {
+    if !enabled("edits_a_picture_and_saves_it") {
+        return;
+    }
+    let lumen = Lumen::start("edit", &[]).await;
+    let file = work_copy(&lumen, fixture("pictures").join("g.png"), "p.png");
+    let (w, h) = image::image_dimensions(&file).unwrap();
+    let state = lumen.settled("Open", &(paths(std::slice::from_ref(&file)), "")).await;
+    assert_eq!(state["edit"]["original"], serde_json::json!([w, h]));
+    assert_eq!(state["edit"]["dirty"], false);
+
+    let size = |s: &Value| (s["edit"]["width"].as_u64().unwrap() as u32, s["edit"]["height"].as_u64().unwrap() as u32);
+    let step = |op: &'static str, arg: &'static str| {
+        let lumen = &lumen;
+        async move {
+            lumen.call("Edit", &(op, arg)).await;
+            lumen.wait(|s| s["busy"] == false).await
+        }
+    };
+    // A quarter turn swaps the sides; undo and redo go back and forth; reset forgets it all.
+    assert_eq!(size(&step("rotate-right", "").await), (h, w));
+    assert_eq!(size(&step("undo", "").await), (w, h));
+    assert_eq!(size(&step("redo", "").await), (h, w));
+    let state = step("reset", "").await;
+    assert_eq!((size(&state), state["edit"]["dirty"].clone()), ((w, h), false.into()));
+
+    // Crop to a rectangle, then resize, then change the colours.
+    assert_eq!(size(&step("crop", "2,2,20,12").await), (20, 12));
+    assert_eq!(size(&step("resize", "10x6").await), (10, 6));
+    assert_eq!(size(&step("resize", "200%").await), (20, 12));
+    assert_eq!(size(&step("resize", "10x6").await), (10, 6));
+    let state = step("adjust", "exposure=0.5,contrast=0.2").await;
+    assert_eq!(
+        (size(&state), state["edit"]["dirty"].clone(), state["unsaved"].clone()),
+        ((10, 6), true.into(), true.into())
+    );
+
+    for (op, arg, why) in [
+        ("crop", "1,2,3", "x,y,w,h"),
+        ("crop", "9999,0,5,5", "must lie inside"),
+        ("resize", "big", "WxH"),
+        ("adjust", "sparkle=1", "unknown adjustment"),
+        ("tilt", "", "unknown edit"),
+    ] {
+        let e = lumen.try_call("Edit", &(op, arg)).await.unwrap_err();
+        assert!(e.contains(why), "{e}");
+    }
+
+    // Saving in place changes the file itself, and the picture is shown again from it…
+    lumen.call("Save", &()).await;
+    let state = lumen.wait(|s| s["busy"] == false && s["unsaved"] == false).await;
+    assert_eq!(image::image_dimensions(&file).unwrap(), (10, 6));
+    assert_eq!(state["edit"]["original"], serde_json::json!([10, 6]), "{state}");
+    let e = lumen.try_call("Save", &()).await.unwrap_err();
+    assert!(e.contains("nothing to save"), "{e}");
+    // …and a copy keeps the file as it is, taking the new edit with it.
+    assert_eq!(size(&step("rotate-right", "").await), (6, 10));
+    let copy = lumen.dir.join("copy.png");
+    lumen.call("SaveCopy", &(copy.display().to_string(),)).await;
+    noticed(&lumen, "Saved a copy").await;
+    assert_eq!(image::image_dimensions(&copy).unwrap(), (6, 10));
+    assert_eq!(image::image_dimensions(&file).unwrap(), (10, 6), "the file is untouched");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn exports_pages_and_pictures() {
+    if !enabled("exports_pages_and_pictures") {
+        return;
+    }
+    let lumen = Lumen::start("export", &[]).await;
+    let pdf = work_copy(&lumen, fixture("pages.pdf"), "pages.pdf");
+    let picture = work_copy(&lumen, fixture("pictures").join("g.png"), "g.png");
+    lumen.settled("Open", &(paths(std::slice::from_ref(&pdf)), "")).await;
+    lumen.call("GotoPage", &(2u32,)).await;
+    lumen.wait(|s| s["page"] == 2).await;
+
+    // The page in view as a PNG, at two resolutions.
+    let low = lumen.dir.join("low.png");
+    let high = lumen.dir.join("high.png");
+    lumen.call("Export", &("png", low.display().to_string(), 72u32)).await;
+    lumen.wait(|s| s["busy"] == false).await;
+    lumen.call("Export", &("png", high.display().to_string(), 150u32)).await;
+    lumen.wait(|s| s["busy"] == false).await;
+    let (lw, lh) = image::image_dimensions(&low).unwrap();
+    let (hw, hh) = image::image_dimensions(&high).unwrap();
+    assert!(lw > 100 && lh > lw, "a portrait page: {lw}×{lh}");
+    assert!((f64::from(hw) / f64::from(lw) - 150.0 / 72.0).abs() < 0.02, "{lw}→{hw}");
+    assert!((f64::from(hh) / f64::from(lh) - 150.0 / 72.0).abs() < 0.02, "{lh}→{hh}");
+
+    // The page as a one-page PDF.
+    let one = lumen.dir.join("one.pdf");
+    lumen.call("Export", &("pdf", one.display().to_string(), 0u32)).await;
+    lumen.wait(|s| s["busy"] == false).await;
+    assert_eq!(lopdf::Document::load(&one).unwrap().get_pages().len(), 1);
+
+    // A picture as a PDF.
+    lumen.settled("Open", &(paths(&[picture]), "")).await;
+    let made = lumen.dir.join("picture.pdf");
+    lumen.call("Export", &("picture-pdf", made.display().to_string(), 0u32)).await;
+    lumen.wait(|s| s["busy"] == false).await;
+    assert_eq!(lopdf::Document::load(&made).unwrap().get_pages().len(), 1);
+
+    for (kind, dpi, why) in [("png", 100u32, "dpi must be one of"), ("docx", 72, "unknown export")] {
+        let e = lumen.try_call("Export", &(kind, "/tmp/never.out", dpi)).await.unwrap_err();
+        assert!(e.contains(why), "{e}");
+    }
+}

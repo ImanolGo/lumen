@@ -553,6 +553,84 @@ fn control_commands_answer_with_the_state_or_a_reason() {
 }
 
 #[test]
+fn the_new_control_commands_refuse_what_makes_no_sense() {
+    let _inside = runtime().enter();
+    let err = |app: &mut App, command: Command| app.control_run(&command).0.unwrap_err();
+    let ok = |app: &mut App, command: Command| -> serde_json::Value {
+        serde_json::from_str(&app.control_run(&command).0.unwrap()).unwrap()
+    };
+    let mut empty = app();
+    for command in [
+        Command::SetMarkup(true),
+        Command::Save,
+        Command::SaveCopy("/tmp/x.pdf".into()),
+        Command::Edit { op: "rotate-right".into(), arg: String::new() },
+    ] {
+        assert!(err(&mut empty, command).contains("open"), "nothing open");
+    }
+    assert_eq!(ok(&mut empty, Command::GetForm)["fields"], serde_json::json!([]));
+    assert_eq!(ok(&mut empty, Command::GetAnnotations)["annotations"], serde_json::json!([]));
+    assert!(
+        err(&mut empty, Command::Export { kind: "png".into(), path: "/tmp/x".into(), dpi: 72 })
+            .contains("nothing to export")
+    );
+
+    // A PDF with no form, no markup yet and nothing changed.
+    let mut app = pdf_app();
+    let annotate = |kind: &str, page: u32| Command::Annotate {
+        kind: kind.into(),
+        page,
+        rect: [0.0, 0.0, 10.0, 10.0],
+        text: String::new(),
+        color: String::new(),
+    };
+    assert!(err(&mut app, annotate("rectangle", 1)).contains("turn markup on"));
+    assert!(err(&mut app, Command::SetField { name: "x".into(), value: "y".into() }).contains("no form"));
+    assert!(err(&mut app, Command::Save).contains("nothing to save"));
+    assert!(err(&mut app, Command::Edit { op: "flip-h".into(), arg: String::new() }).contains("no picture"));
+    assert!(
+        err(&mut app, Command::Export { kind: "png".into(), path: "/tmp/x".into(), dpi: 100 }).contains("dpi must be")
+    );
+    assert!(
+        err(&mut app, Command::Export { kind: "docx".into(), path: "/tmp/x".into(), dpi: 72 })
+            .contains("unknown export")
+    );
+    // The state says what a script needs to know.
+    let state = ok(&mut app, Command::State);
+    assert!(state["form"].is_null() && state["markup"].is_null() && state["edit"].is_null());
+    assert_eq!(state["markup_open"], false);
+
+    // The form fixture: fields can be listed and filled, and wrong values are explained.
+    let path = fixture("form.pdf");
+    let opened = pdf::Document::open_full(&path, false, None).unwrap();
+    let mut form_app = pdf_app();
+    form_app.files = vec![path.clone()];
+    let _ = form_app.open_pdf_view(path.clone(), opened.doc);
+    form_app.attach_form(&path, opened.form, 1);
+    let form = ok(&mut form_app, Command::GetForm);
+    assert_eq!(form["fields"].as_array().unwrap().len(), 6);
+    let set = |app: &mut App, name: &str, value: &str| {
+        app.control_run(&Command::SetField { name: name.into(), value: value.into() }).0
+    };
+    assert!(set(&mut form_app, "name", "Ada").is_ok());
+    assert!(set(&mut form_app, "newsletter", "yes").is_ok());
+    assert!(set(&mut form_app, "plan", "Standard").is_ok());
+    assert!(set(&mut form_app, "experience", "hobby").is_ok());
+    let form = ok(&mut form_app, Command::GetForm);
+    let value =
+        |name: &str| form["fields"].as_array().unwrap().iter().find(|f| f["name"] == name).unwrap()["value"].clone();
+    assert_eq!(
+        [value("name"), value("newsletter"), value("plan"), value("experience")],
+        [serde_json::json!("Ada"), true.into(), "Standard".into(), "hobby".into()]
+    );
+    assert!(set(&mut form_app, "plan", "Gold").unwrap_err().contains("choose one of"));
+    assert!(set(&mut form_app, "newsletter", "maybe").unwrap_err().contains("not on or off"));
+    assert!(set(&mut form_app, "missing", "x").unwrap_err().contains("no field"));
+    let state = ok(&mut form_app, Command::State);
+    assert_eq!((state["form"]["dirty"].clone(), state["unsaved"].clone()), (true.into(), true.into()));
+}
+
+#[test]
 fn the_export_dialog_counts_the_page_in_view_or_the_selected_pages() {
     let _inside = runtime().enter();
     let mut app = pdf_app();

@@ -221,4 +221,103 @@ impl App {
         }
         out
     }
+
+    /// The open form's fields, for the control interface.
+    pub(super) fn control_form(&self) -> serde_json::Value {
+        use serde_json::json;
+        let Some(state) = &self.form else { return json!({ "fields": [], "dirty": false }) };
+        let fields: Vec<_> = state
+            .form
+            .fields
+            .iter()
+            .enumerate()
+            .map(|(i, f)| {
+                let kind = match &f.kind {
+                    Kind::Text { .. } => "text",
+                    Kind::Check => "check",
+                    Kind::Radio => "radio",
+                    Kind::Choice { .. } => "choice",
+                    Kind::Signature => "signature",
+                    Kind::Push => "button",
+                };
+                let value = match (&f.kind, &state.values[i]) {
+                    (Kind::Check, Value::State(s)) => json!(s.is_some()),
+                    (Kind::Choice { options }, Value::Text(t)) => {
+                        json!(options.iter().find(|o| o.export == *t).map_or(t.as_str(), |o| o.display.as_str()))
+                    }
+                    (_, Value::Text(t)) => json!(t),
+                    (_, Value::State(s)) => json!(s),
+                };
+                let options = match &f.kind {
+                    Kind::Choice { options } => Some(options.iter().map(|o| o.display.clone()).collect::<Vec<_>>()),
+                    Kind::Radio => Some(f.widgets.iter().filter_map(|w| w.on.clone()).collect()),
+                    _ => None,
+                };
+                json!({
+                    "name": f.name,
+                    "kind": kind,
+                    "value": value,
+                    "read_only": f.read_only,
+                    "page": f.widgets.first().map(|w| w.page + 1),
+                    "options": options,
+                })
+            })
+            .collect();
+        json!({ "fields": fields, "dirty": state.is_dirty() })
+    }
+
+    /// Fills in one field by its name, as typing or clicking would.
+    pub(super) fn control_set_field(&mut self, name: &str, value: &str) -> Result<(), String> {
+        let message = {
+            let Some(state) = &self.form else { return Err("this document has no form".into()) };
+            let mut found = state.form.fields.iter().enumerate().filter(|(_, f)| f.name == name);
+            let Some((i, field)) = found.next() else { return Err(format!("no field is named “{name}”")) };
+            if found.next().is_some() {
+                return Err(format!("more than one field is named “{name}”"));
+            }
+            if field.read_only {
+                return Err(format!("“{name}” is read-only"));
+            }
+            match &field.kind {
+                Kind::Text { .. } => FormMsg::Text(i, value.to_string()),
+                Kind::Check => {
+                    let want = match value.to_lowercase().as_str() {
+                        "on" | "true" | "yes" | "1" | "checked" => true,
+                        "off" | "false" | "no" | "0" | "" | "unchecked" => false,
+                        other => return Err(format!("“{other}” is not on or off")),
+                    };
+                    if want == matches!(state.values[i], Value::State(Some(_))) {
+                        return Ok(());
+                    }
+                    FormMsg::Toggle(i)
+                }
+                Kind::Radio => {
+                    let states: Vec<String> = field.widgets.iter().filter_map(|w| w.on.clone()).collect();
+                    if !states.iter().any(|s| s == value) {
+                        return Err(format!("“{name}” is a radio group; choose one of: {}", states.join(", ")));
+                    }
+                    FormMsg::Radio(i, value.to_string())
+                }
+                Kind::Choice { options } => match options.iter().find(|o| o.display == value || o.export == value) {
+                    Some(o) => FormMsg::Choose(i, o.display.clone()),
+                    None => {
+                        let shown: Vec<&str> = options.iter().map(|o| o.display.as_str()).collect();
+                        return Err(format!("“{name}” is a list; choose one of: {}", shown.join(", ")));
+                    }
+                },
+                Kind::Signature => {
+                    return Err(format!("“{name}” is a signature field: sign it with the signature menu"));
+                }
+                Kind::Push => return Err(format!("“{name}” is a button")),
+            }
+        };
+        // A multi-line box keeps its own copy of the text.
+        if let FormMsg::Text(i, text) = &message
+            && let Some(content) = self.form.as_mut().and_then(|s| s.editors.get_mut(i))
+        {
+            *content = text_editor::Content::with_text(text);
+        }
+        let _ = self.form_update(message);
+        Ok(())
+    }
 }

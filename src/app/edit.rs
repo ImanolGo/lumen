@@ -105,6 +105,74 @@ impl App {
         }
     }
 
+    /// One editing step by name, for the control interface (see `crate::control`).
+    pub(super) fn control_edit(&mut self, op: &str, arg: &str) -> Result<Task<Message>, String> {
+        let (Some(size), Doc::Image(view)) = (self.base_size(), &self.doc) else {
+            return Err("no picture is open".into());
+        };
+        if view.edit.is_busy() {
+            return Err("the last edit is still being drawn: wait until busy is false".into());
+        }
+        let (width, height) = view.edit.edits.size(size);
+        let numbers = |text: &str| -> Result<Vec<u32>, String> {
+            text.split(',')
+                .map(|n| n.trim().parse::<u32>().map_err(|_| format!("“{n}” is not a whole number")))
+                .collect()
+        };
+        let message = match op {
+            "rotate-right" => EditMsg::RotateCw,
+            "rotate-left" => EditMsg::RotateCcw,
+            "flip-h" => EditMsg::FlipH,
+            "flip-v" => EditMsg::FlipV,
+            "undo" => EditMsg::Undo,
+            "redo" => EditMsg::Redo,
+            "reset" => EditMsg::Reset,
+            "crop" => {
+                let &[x, y, w, h] = numbers(arg)?.as_slice() else { return Err("crop takes x,y,w,h in pixels".into()) };
+                if w == 0 || h == 0 || x >= width || y >= height {
+                    return Err(format!("the picture is {width}×{height} pixels; the crop must lie inside it"));
+                }
+                let rect = crop::Rect { x: f64::from(x), y: f64::from(y), w: f64::from(w), h: f64::from(h) };
+                self.crop = Some(CropState { rect, aspect: 0, drag: None });
+                EditMsg::CropApply
+            }
+            "resize" => {
+                let (w, h) = if let Some(percent) = arg.strip_suffix('%') {
+                    let p: f64 = percent.trim().parse().map_err(|_| format!("“{arg}” is not a percentage"))?;
+                    ((f64::from(width) * p / 100.0).round() as u32, (f64::from(height) * p / 100.0).round() as u32)
+                } else {
+                    let (w, h) = arg.split_once(['x', '×']).ok_or("resize takes WxH or a percentage like 50%")?;
+                    let parse = |n: &str| n.trim().parse::<u32>().map_err(|_| format!("“{n}” is not a whole number"));
+                    (parse(w)?, parse(h)?)
+                };
+                self.resize_form = Some(ResizeForm { width: w.to_string(), height: h.to_string(), keep_ratio: false });
+                EditMsg::ResizeApply
+            }
+            "adjust" => {
+                let mut adjust = view.edit.edits.adjust;
+                for part in arg.split(',').filter(|p| !p.trim().is_empty()) {
+                    let (key, value) = part.split_once('=').ok_or("adjust takes exposure=…,contrast=…,saturation=…")?;
+                    let value: f32 = value.trim().parse().map_err(|_| format!("“{value}” is not a number"))?;
+                    match key.trim() {
+                        "exposure" => adjust.exposure = value.clamp(-2.0, 2.0),
+                        "contrast" => adjust.contrast = value.clamp(-1.0, 1.0),
+                        "saturation" => adjust.saturation = value.clamp(-1.0, 1.0),
+                        other => return Err(format!("unknown adjustment “{other}” (exposure, contrast, saturation)")),
+                    }
+                }
+                let first = self.edit_update(EditMsg::Adjust(adjust));
+                let done = self.edit_update(EditMsg::AdjustDone);
+                return Ok(Task::batch([first, done]));
+            }
+            other => {
+                return Err(format!(
+                    "unknown edit “{other}” (rotate-right, rotate-left, flip-h, flip-v, undo, redo, reset, crop, resize, adjust)"
+                ));
+            }
+        };
+        Ok(self.edit_update(message))
+    }
+
     fn aspect_value(&self, index: usize) -> Option<f64> {
         let Doc::Image(view) = &self.doc else { return None };
         ASPECTS[index].1.map(|a| if a == 0.0 { view.shown.width as f64 / view.shown.height.max(1) as f64 } else { a })

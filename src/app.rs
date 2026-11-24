@@ -275,6 +275,10 @@ pub struct App {
     properties: Option<Result<crate::properties::Sheet, String>>,
     /// What the file chooser's answer will export.
     export_job: Option<ExportJob>,
+    /// Exports started through the control interface that have not finished.
+    export_running: usize,
+    /// The last thing a toast said (kept for the control interface).
+    last_toast: Option<(String, bool)>,
     /// A file is being found for the control interface's `Open`.
     control_opening: bool,
     /// The file last moved to the trash (and where it sat in the list), while its toast offers Undo: the toast's id comes first.
@@ -399,6 +403,8 @@ struct ImageView {
     edit: PicEdit,
     /// Playing, for an animated GIF, APNG or WebP: the first frame stays in `shown` for the tools.
     anim: Option<Anim>,
+    /// Whether the file holds several frames (from its header; `anim` only learns that by playing).
+    animated: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -775,6 +781,8 @@ impl App {
             dialog: None,
             properties: None,
             export_job: None,
+            export_running: 0,
+            last_toast: None,
             control_opening: false,
             trash_undo: None,
             pages_undo: None,
@@ -872,6 +880,7 @@ impl App {
     fn show_toast_for(&mut self, msg: String, error: bool, seconds: u64) -> Task<Message> {
         self.toast_seq += 1;
         let id = self.toast_seq;
+        self.last_toast = Some((msg.clone(), error));
         self.toast = Some((id, msg, error));
         Task::perform(tokio::time::sleep(Duration::from_secs(seconds)), move |_| Message::DismissToast(id))
     }
@@ -1998,7 +2007,8 @@ impl App {
         let edited = !edit.edits.is_none();
         let original = loaded.picture.clone();
         let anim = Anim::start(&path);
-        self.doc = Doc::Image(Box::new(ImageView { path, original, shown: loaded, zoom: None, edit, anim }));
+        let animated = anim.is_some() && crate::animation::looks_animated(&path);
+        self.doc = Doc::Image(Box::new(ImageView { path, original, shown: loaded, zoom: None, edit, anim, animated }));
         if edited { self.render_edits() } else { Task::none() }
     }
 

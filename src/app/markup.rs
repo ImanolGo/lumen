@@ -7,6 +7,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use iced::widget::{Id, button, canvas, center, column, container, operation, row, space, text, text_editor};
 use iced::{Alignment, Element, Font, Length, Task};
@@ -182,6 +183,113 @@ fn print_copy(name: &str) -> Result<PathBuf, String> {
 }
 
 impl App {
+    // ------------------------------------------------------------ control interface
+
+    /// Markup on or off, for the control interface.
+    pub(super) fn control_markup(&mut self, on: bool) -> Task<Message> {
+        if self.markup_open == on || !matches!(self.doc, Doc::Image(_) | Doc::Pdf(_)) {
+            return Task::none();
+        }
+        self.markup_update(MarkupMsg::Toggle)
+    }
+
+    /// Draws one annotation between two points the way the pointer would (`page` counts from 0).
+    pub(super) fn control_annotate(
+        &mut self,
+        kind: &str,
+        page: usize,
+        rect: [f64; 4],
+        text: &str,
+        color: &str,
+    ) -> Result<Task<Message>, String> {
+        if !self.markup_open || self.marks.is_none() || self.markup_busy.is_some() {
+            return Err("turn markup on (SetMarkup) and wait until busy is false".into());
+        }
+        let page = match &self.doc {
+            Doc::Pdf(v) if page >= v.doc.page_count() => {
+                return Err(format!("the PDF has pages 1 to {}", v.doc.page_count()));
+            }
+            Doc::Pdf(_) => page,
+            _ => 0,
+        };
+        let tool = match kind {
+            "rectangle" => Tool::Rectangle,
+            "ellipse" => Tool::Ellipse,
+            "line" => Tool::Line,
+            "arrow" => Tool::Arrow,
+            "pen" => Tool::Pen,
+            "text" => Tool::Text,
+            "highlight" => Tool::Highlight,
+            other => {
+                return Err(format!("unknown kind “{other}” (rectangle, ellipse, line, arrow, pen, text, highlight)"));
+            }
+        };
+        if !color.is_empty() && super::palette::from_hex(color).is_none() {
+            return Err(format!("“{color}” is not a colour like #e5a50a"));
+        }
+        let [x0, y0, x1, y1] = rect;
+        let mut tasks = Vec::new();
+        if !color.is_empty() {
+            tasks.push(self.markup_update(MarkupMsg::Hex(color.to_string())));
+        }
+        if tool == Tool::Highlight {
+            // A marker over a box. (Highlighting text means selecting it with the pointer.)
+            let Some(marks) = &mut self.marks else { return Err("markup is not ready".into()) };
+            let box_ = Rect::new(x0.min(x1), y0.min(y1), (x1 - x0).abs(), (y1 - y0).abs());
+            let outcome = self.editor.add_highlight(&mut marks.store, page, vec![box_]);
+            tasks.push(self.apply(outcome));
+            return Ok(Task::batch(tasks));
+        }
+        tasks.push(self.markup_update(MarkupMsg::Tool(tool)));
+        tasks.push(self.markup_update(MarkupMsg::Press { page, x: x0, y: y0, clicks: 1 }));
+        for step in 1..=8 {
+            let t = f64::from(step) / 8.0;
+            tasks.push(self.markup_update(MarkupMsg::Drag { x: x0 + (x1 - x0) * t, y: y0 + (y1 - y0) * t }));
+        }
+        tasks.push(self.markup_update(MarkupMsg::Release { x: x1, y: y1 }));
+        if tool == Tool::Text {
+            let Some(edit) = &mut self.editing else { return Err("the text box did not open".into()) };
+            edit.content.perform(text_editor::Action::Edit(text_editor::Edit::Paste(Arc::new(text.to_string()))));
+            tasks.push(self.finish_text());
+        }
+        Ok(Task::batch(tasks))
+    }
+
+    /// The annotations on the open file, for the control interface.
+    pub(super) fn control_annotations(&self) -> serde_json::Value {
+        use serde_json::json;
+        let Some(marks) = &self.marks else { return json!({ "annotations": [], "dirty": false }) };
+        let hex = |c: Color| {
+            let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+            format!("#{:02x}{:02x}{:02x}", byte(c.r), byte(c.g), byte(c.b))
+        };
+        let mut out = Vec::new();
+        for (page, layer) in &marks.store.pages.layers {
+            for a in &layer.items {
+                let b = a.bounds();
+                let (kind, text) = match &a.shape {
+                    Shape::Rect(_) => ("rectangle", None),
+                    Shape::Ellipse(_) => ("ellipse", None),
+                    Shape::Line(..) => ("line", None),
+                    Shape::Arrow(..) => ("arrow", None),
+                    Shape::Freehand(_) => ("pen", None),
+                    Shape::Ink(_) => ("ink", None),
+                    Shape::Text { text, .. } => ("text", Some(text.clone())),
+                    Shape::Highlight(_) => ("highlight", None),
+                };
+                out.push(json!({
+                    "page": page + 1,
+                    "id": a.id,
+                    "kind": kind,
+                    "text": text,
+                    "bounds": [b.x, b.y, b.right(), b.bottom()],
+                    "color": hex(a.style.stroke),
+                }));
+            }
+        }
+        json!({ "annotations": out, "dirty": marks.is_dirty() })
+    }
+
     // ------------------------------------------------------------ queries
 
     /// Screen pixels per document unit for the shown file.
@@ -799,7 +907,7 @@ impl App {
     pub(super) fn picture_in_place(&self) -> Option<PathBuf> {
         let Doc::Image(view) = &self.doc else { return None };
         let ext = view.path.extension()?.to_str()?.to_ascii_lowercase();
-        (matches!(ext.as_str(), "jpg" | "jpeg" | "jpe" | "jfif" | "png" | "webp") && view.anim.is_none())
+        (matches!(ext.as_str(), "jpg" | "jpeg" | "jpe" | "jfif" | "png" | "webp") && !view.animated)
             .then(|| view.path.clone())
     }
 

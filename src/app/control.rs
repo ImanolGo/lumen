@@ -3,6 +3,7 @@
 use iced::Task;
 use serde_json::{Value, json};
 
+use super::markup::MarkupMsg;
 use super::{App, Doc, Message};
 use crate::control::{Command, Shared};
 
@@ -73,6 +74,55 @@ impl App {
                 Task::batch([open, input, submit])
             }
             Command::Quit => iced::exit(),
+            Command::GetForm => return (Ok(self.control_form().to_string()), Task::none()),
+            Command::GetAnnotations => return (Ok(self.control_annotations().to_string()), Task::none()),
+            Command::SetField { name, value } => {
+                if let Err(why) = self.control_set_field(name, value) {
+                    return (Err(why), Task::none());
+                }
+                Task::none()
+            }
+            Command::SetMarkup(on) => {
+                if !matches!(self.doc, Doc::Image(_) | Doc::Pdf(_)) {
+                    return (Err("nothing is open".into()), Task::none());
+                }
+                self.control_markup(*on)
+            }
+            Command::Annotate { kind, page, rect, text, color } => {
+                if *page == 0 {
+                    return (Err("pages are counted from 1".into()), Task::none());
+                }
+                match self.control_annotate(kind, *page as usize - 1, *rect, text, color) {
+                    Ok(task) => task,
+                    Err(why) => return (Err(why), Task::none()),
+                }
+            }
+            Command::Edit { op, arg } => match self.control_edit(op, arg) {
+                Ok(task) => task,
+                Err(why) => return (Err(why), Task::none()),
+            },
+            Command::Save => {
+                if !matches!(self.doc, Doc::Image(_) | Doc::Pdf(_)) {
+                    return (Err("nothing is open".into()), Task::none());
+                }
+                if !self.has_unsaved_changes() {
+                    return (Err("there is nothing to save".into()), Task::none());
+                }
+                if matches!(self.doc, Doc::Image(_)) && self.picture_in_place().is_none() {
+                    return (Err("this kind of picture cannot be saved in place: use SaveCopy".into()), Task::none());
+                }
+                self.markup_update(MarkupMsg::Save)
+            }
+            Command::SaveCopy(path) => {
+                if !matches!(self.doc, Doc::Image(_) | Doc::Pdf(_)) {
+                    return (Err("nothing is open".into()), Task::none());
+                }
+                self.markup_update(MarkupMsg::SaveTo(Ok(Some(path.clone()))))
+            }
+            Command::Export { kind, path, dpi } => match self.control_export(kind, path.clone(), *dpi) {
+                Ok(task) => task,
+                Err(why) => return (Err(why), Task::none()),
+            },
         };
         (Ok(self.control_state().to_string()), task)
     }
@@ -108,6 +158,22 @@ impl App {
                 "done": s.done,
             })
         });
+        let markup = self.marks.as_ref().map(|m| {
+            let annotations: usize = m.store.pages.layers.values().map(|l| l.items.len()).sum();
+            json!({ "annotations": annotations, "dirty": m.is_dirty() })
+        });
+        let form = self.form.as_ref().map(|f| json!({ "fields": f.form.fields.len(), "dirty": f.is_dirty() }));
+        let edit = match &self.doc {
+            Doc::Image(v) => Some(json!({
+                "dirty": v.edit.is_dirty(),
+                "width": v.shown.width,
+                "height": v.shown.height,
+                "original": [v.original.width, v.original.height],
+            })),
+            _ => None,
+        };
+        let editing = matches!(&self.doc, Doc::Image(v) if v.edit.is_busy());
+        let notice = self.last_toast.as_ref().map(|(text, error)| json!({ "text": text, "error": error }));
         json!({
             "kind": kind,
             "file": path.map(|p| p.display().to_string()),
@@ -120,7 +186,18 @@ impl App {
             "night": self.night,
             "unsaved": self.has_unsaved_changes(),
             "search": search,
-            "busy": self.control_opening || matches!(self.doc, Doc::Loading(_)),
+            "markup_open": self.markup_open,
+            "markup": markup,
+            "form": form,
+            "edit": edit,
+            "notice": notice,
+            "busy": self.control_opening
+                || matches!(self.doc, Doc::Loading(_))
+                // A picture is loaded behind the one still on screen; a failed load never clears this.
+                || (self.load_started.is_some() && !matches!(self.doc, Doc::Failed { .. }))
+                || self.markup_busy.is_some()
+                || self.export_running > 0
+                || editing,
         })
     }
 }

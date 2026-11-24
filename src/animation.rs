@@ -31,6 +31,41 @@ pub fn may_animate(path: &Path) -> bool {
     )
 }
 
+/// Whether the file's own header says it holds several frames: an APNG's `acTL` chunk, or the
+/// animation flag of a WebP. A plain look at the first few kilobytes, decided at once (unlike
+/// playing it, which only finds out when it reaches the end). A GIF is never judged here.
+pub fn looks_animated(path: &Path) -> bool {
+    use std::io::Read;
+    let mut head = Vec::new();
+    let Ok(file) = std::fs::File::open(path) else { return false };
+    if file.take(64 * 1024).read_to_end(&mut head).is_err() {
+        return false;
+    }
+    animated_header(&head)
+}
+
+fn animated_header(head: &[u8]) -> bool {
+    const PNG: &[u8] = b"\x89PNG\r\n\x1a\n";
+    if head.starts_with(PNG) {
+        let mut at = PNG.len();
+        while let Some(chunk) = head.get(at..at + 8) {
+            let size = u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) as usize;
+            match &chunk[4..8] {
+                b"acTL" => return true,
+                // The animation control chunk comes before the picture data.
+                b"IDAT" | b"IEND" => return false,
+                _ => {}
+            }
+            at = at.saturating_add(12).saturating_add(size);
+        }
+        return false;
+    }
+    if head.len() >= 21 && &head[..4] == b"RIFF" && &head[8..12] == b"WEBP" && &head[12..16] == b"VP8X" {
+        return head[20] & 0x02 != 0;
+    }
+    false
+}
+
 /// Starts decoding `path`'s frames. Pictures that are not animated send a single
 /// `LoopEnd` (or one frame and then `LoopEnd`) and finish.
 pub fn stream(path: &Path) -> Receiver<Item> {
@@ -100,6 +135,24 @@ fn open(path: &Path) -> Option<Frames<'static>> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn headers_tell_still_pictures_from_animated_ones() {
+        let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/pictures");
+        assert!(looks_animated(&fixtures.join("anim.png")), "an APNG");
+        assert!(!looks_animated(&fixtures.join("g.png")));
+        assert!(!looks_animated(&fixtures.join("gi.png")), "an interlaced one");
+        assert!(!looks_animated(&fixtures.join("g.webp")));
+        assert!(!looks_animated(&fixtures.join("nothing-here.png")));
+        // A WebP's animation flag, and a file too short to say.
+        let mut webp = b"RIFF\0\0\0\0WEBPVP8X\x0a\0\0\0".to_vec();
+        webp.extend_from_slice(&[0x02, 0, 0, 0]);
+        assert!(animated_header(&webp));
+        webp[20] = 0x10; // only an alpha channel
+        assert!(!animated_header(&webp));
+        assert!(!animated_header(b"RIFF"));
+        assert!(!animated_header(b""));
+    }
     use super::*;
     use image::{Delay, Frame, Rgba, RgbaImage, codecs::gif::GifEncoder};
 

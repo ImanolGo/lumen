@@ -92,8 +92,14 @@ impl App {
                 let work = blocking(move || run(job, &target).map_err(err_string));
                 Task::perform(work, |r| Message::Export(ExportMsg::Done(r.and_then(|r| r))))
             }
-            ExportMsg::Done(Ok(what)) => self.notice(what),
-            ExportMsg::Done(Err(e)) => self.toast(trf!("Could not export: {}", e)),
+            ExportMsg::Done(Ok(what)) => {
+                self.export_running = self.export_running.saturating_sub(1);
+                self.notice(what)
+            }
+            ExportMsg::Done(Err(e)) => {
+                self.export_running = self.export_running.saturating_sub(1);
+                self.toast(trf!("Could not export: {}", e))
+            }
             ExportMsg::Combine => {
                 if !matches!(self.doc, Doc::Pdf(_)) {
                     return Task::none();
@@ -103,6 +109,24 @@ impl App {
                 Task::batch([open, Task::done(Message::Pages(PagesMsg::Insert))])
             }
         }
+    }
+
+    /// Exports without asking where to, for the control interface (see `crate::control`).
+    pub(super) fn control_export(&mut self, kind: &str, path: PathBuf, dpi: u32) -> Result<Task<Message>, String> {
+        let first = match kind {
+            "png" if export::DPIS.contains(&dpi) => ExportMsg::Png(dpi),
+            "png" => return Err(format!("dpi must be one of {:?}", export::DPIS)),
+            "pdf" => ExportMsg::Pdf,
+            "picture-pdf" => ExportMsg::Picture,
+            other => return Err(format!("unknown export “{other}” (png, pdf, picture-pdf)")),
+        };
+        // This sets up the job and would ask where to put it; the answer is already known.
+        let _asking = self.export_update(first);
+        if self.export_job.is_none() {
+            return Err("there is nothing to export".into());
+        }
+        self.export_running += 1;
+        Ok(self.export_update(ExportMsg::Target(Ok(Some(path)))))
     }
 
     /// The pages to export, the documents they come from, and a name for the files:

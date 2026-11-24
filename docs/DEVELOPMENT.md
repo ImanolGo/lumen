@@ -31,7 +31,7 @@ send a change. Check lint by its exit status: `cargo clippy --all-targets --lock
 |---|---|---|
 | Unit tests (`src/**`) | Models, geometry, PDF reading and writing, IPP encoding, decoders, trash, settings, i18n, and `src/app/tests.rs`: the app's message flows with no window | `cargo test` |
 | `tests/sandbox.rs` | Every picture format through the real sandboxed worker, damaged files, and that opening files, sockets, programs and file writes are all stopped | `cargo test` (runs by default) |
-| `tests/control.rs` | The real app, driven over D-Bus on a private bus: open, browse, go to page, zoom, search, passwords | `LUMEN_CONTROL_TESTS=1 cargo test --test control -- --test-threads=1` (opens real windows, so it is opt-in) |
+| `tests/control.rs` | The real app, driven over D-Bus on a private bus: open, browse, go to page, zoom, search, passwords, filling and saving a form, annotating and saving a PDF, editing and saving a picture, exporting | `LUMEN_CONTROL_TESTS=1 cargo test --test control -- --test-threads=1` (opens real windows, so it is opt-in) |
 
 `cargo test cups_live -- --ignored` asks the local CUPS server to validate a job (IPP
 Validate-Job); it never prints anything.
@@ -93,15 +93,26 @@ on the bus could otherwise open files in your viewer.
 
 | Method | Does |
 |---|---|
-| `GetState()` | JSON: `kind` (none, loading, picture, pdf, locked, failed), `file`, `index`, `count`, `page`, `pages`, `zoom`, `night`, `unsaved`, `search`, `busy` |
+| `GetState()` | JSON: `kind` (none, loading, picture, pdf, locked, failed), `file`, `index`, `count`, `page`, `pages`, `zoom`, `night`, `unsaved`, `search`, `markup_open`, `markup` (`annotations`, `dirty`), `form` (`fields`, `dirty`), `edit` (`dirty`, `width`, `height`, `original`; pictures), `notice` (the last message the window showed, with `error`), `busy` (opening, saving, exporting or an edit being drawn) |
 | `Open(paths, password)` | Opens files or folders; poll `GetState` until `busy` is false |
 | `Next()`, `Previous()`, `First()`, `Last()` | Move among the files |
 | `GotoPage(page)` | Pages count from 1 |
 | `Zoom(how)` | `in`, `out`, `fit`, `width`, `actual` |
 | `Search(text)` | Opens the search and runs it |
+| `GetForm()` | JSON list of the form's fields: `name`, `kind` (text, check, radio, choice, signature, button), `value`, `read_only`, `page`, `options` |
+| `SetField(name, value)` | Fills a field as typing or clicking would: text as it is; a check box with `on` / `off`; a radio group with the state to turn on (one of its `options`); a list with an option's text |
+| `SetMarkup(on)` | Turns the markup bar on or off (a PDF is prepared first: wait until `busy` is false) |
+| `Annotate(kind, page, x0, y0, x1, y1, text, color)` | Draws a `rectangle`, `ellipse`, `line`, `arrow`, `pen` stroke, `highlight` box or `text` box between two points, in document units from the page's top-left (points for a PDF, pixels for a picture), through the same editing code the pointer uses. `color` is `#rrggbb` or empty |
+| `GetAnnotations()` | JSON list: `page`, `id`, `kind`, `text`, `bounds`, `color` |
+| `Edit(op, arg)` | Picture edits: `rotate-right`, `rotate-left`, `flip-h`, `flip-v`, `undo`, `redo`, `reset`, `crop` (`x,y,w,h`), `resize` (`WxH` or `50%`), `adjust` (`exposure=0.5,contrast=-0.2,saturation=0.1`) |
+| `Save()` | Saves in place, as Ctrl+S does (refused when nothing changed, or for a picture that cannot be saved in place) |
+| `SaveCopy(path)` | Saves a copy at `path` without asking |
+| `Export(kind, path, dpi)` | `png` (72, 150 or 300 dpi; a folder for several pages), `pdf` (the page in view, or the organiser's selection) or `picture-pdf`, without asking where to |
 | `Quit()` | Exits |
 
-Every method answers with the state afterwards, or an error that says why.
+Every method answers with the state afterwards, or an error that says why (except the two that
+read something). The calls that start work return at once: poll `GetState` until `busy` is false,
+and read `notice` for what the window said.
 
 ## PDF rendering fidelity
 

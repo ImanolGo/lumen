@@ -79,8 +79,7 @@ pub struct Widget {
 
 #[derive(Debug, Clone)]
 pub struct Field {
-    /// The full name, such as `address.city`; kept for debugging and tests.
-    #[allow(dead_code)]
+    /// The full name, such as `address.city`.
     pub name: String,
     pub kind: Kind,
     pub read_only: bool,
