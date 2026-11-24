@@ -907,6 +907,18 @@ impl App {
                     MarkupMsg::SaveAs
                 }
                 ("m", false, false) => MarkupMsg::Toggle,
+                // With the markup bar open, letters pick the tool (as in the GTK Lumen).
+                (letter, false, _) if self.markup_open && !modifiers.alt() => MarkupMsg::Tool(match letter {
+                    "v" => Tool::Select,
+                    "h" => Tool::Highlight,
+                    "p" => Tool::Pen,
+                    "r" => Tool::Rectangle,
+                    "o" => Tool::Ellipse,
+                    "l" => Tool::Line,
+                    "a" => Tool::Arrow,
+                    "t" => Tool::Text,
+                    _ => return None,
+                }),
                 _ => return None,
             },
             // Delete is heard by the app whatever has focus (see `markup_delete_key`).

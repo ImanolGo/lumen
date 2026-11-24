@@ -400,6 +400,8 @@ pub struct PageText {
     items: Vec<TextItem>,
     /// Lower-cased characters; word and line breaks are a single space.
     chars: Vec<char>,
+    /// Whether each of `chars` was an upper-case letter in the document (for matching case).
+    upper: Vec<bool>,
     /// Box and writing direction of each character, in page points; `None` for inserted spaces.
     boxes: Vec<Option<(Rect, Dir)>>,
 }
@@ -411,17 +413,32 @@ impl PageText {
     }
 
     /// Every case-insensitive occurrence of `needle`, each as one box per line it covers.
+    #[cfg(test)]
     pub fn find(&self, needle: &str) -> Vec<Vec<Rect>> {
-        let needle: Vec<char> = normalise(needle);
+        self.find_with(needle, SearchOptions::default())
+    }
+
+    /// Like [`PageText::find`], optionally matching case and whole words only.
+    pub fn find_with(&self, needle: &str, options: SearchOptions) -> Vec<Vec<Rect>> {
+        let (needle, needle_upper) = normalise_cased(needle);
         if needle.is_empty() || needle.len() > self.chars.len() {
             return Vec::new();
         }
+        let word = |c: char| c.is_alphanumeric() || c == '_';
         let mut hits = Vec::new();
         let mut i = 0;
         while i + needle.len() <= self.chars.len() {
-            if self.chars[i..i + needle.len()] == needle[..] {
-                hits.push(merge_boxes(self.boxes[i..i + needle.len()].iter().flatten().copied()));
-                i += needle.len();
+            let end = i + needle.len();
+            let same = self.chars[i..end] == needle[..]
+                && (!options.match_case || self.upper[i..end] == needle_upper[..])
+                // A whole word is not touched by a letter or digit on either side (a side that
+                // is itself punctuation, like the `+` of `C++`, has no edge to check).
+                && (!options.whole_words
+                    || ((i == 0 || !word(self.chars[i - 1]) || !word(needle[0]))
+                        && (end == self.chars.len() || !word(self.chars[end]) || !word(needle[needle.len() - 1]))));
+            if same {
+                hits.push(merge_boxes(self.boxes[i..end].iter().flatten().copied()));
+                i = end;
             } else {
                 i += 1;
             }
@@ -500,24 +517,40 @@ impl PageText {
     }
 }
 
-fn normalise(s: &str) -> Vec<char> {
-    let mut out = Vec::new();
-    for c in s.chars().flat_map(char::to_lowercase) {
-        if c.is_whitespace() {
-            if out.last() != Some(&' ') {
-                out.push(' ');
+/// What a search looks for beyond the letters themselves.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SearchOptions {
+    pub match_case: bool,
+    pub whole_words: bool,
+}
+
+/// Lower-cases `s` and turns every run of whitespace into one space (none at the ends), also
+/// saying which of the characters were upper case in `s`.
+fn normalise_cased(s: &str) -> (Vec<char>, Vec<bool>) {
+    let mut chars = Vec::new();
+    let mut upper = Vec::new();
+    for original in s.chars() {
+        for c in original.to_lowercase() {
+            if c.is_whitespace() {
+                if chars.last() != Some(&' ') {
+                    chars.push(' ');
+                    upper.push(false);
+                }
+            } else {
+                chars.push(c);
+                upper.push(original.is_uppercase());
             }
-        } else {
-            out.push(c);
         }
     }
-    while out.last() == Some(&' ') {
-        out.pop();
+    while chars.last() == Some(&' ') {
+        chars.pop();
+        upper.pop();
     }
-    if out.first() == Some(&' ') {
-        out.remove(0);
+    if chars.first() == Some(&' ') {
+        chars.remove(0);
+        upper.remove(0);
     }
-    out
+    (chars, upper)
 }
 
 /// Whether `b` continues the line of `last`, both running in `dir`.
@@ -617,25 +650,31 @@ impl PageText {
     /// Builds the search copy (lower-cased, one space per break) from `items`.
     fn new(items: Vec<TextItem>) -> Self {
         let mut chars = Vec::new();
+        let mut upper = Vec::new();
         let mut boxes = Vec::new();
         for item in &items {
             if item.gap != Gap::None && chars.last().is_some_and(|c| *c != ' ') {
                 chars.push(' ');
+                upper.push(false);
                 boxes.push(None);
             }
-            for c in item.text.chars().flat_map(char::to_lowercase) {
-                if c.is_whitespace() {
-                    if chars.last().is_some_and(|c| *c != ' ') {
-                        chars.push(' ');
-                        boxes.push(None);
+            for original in item.text.chars() {
+                for c in original.to_lowercase() {
+                    if c.is_whitespace() {
+                        if chars.last().is_some_and(|c| *c != ' ') {
+                            chars.push(' ');
+                            upper.push(false);
+                            boxes.push(None);
+                        }
+                    } else {
+                        chars.push(c);
+                        upper.push(original.is_uppercase());
+                        boxes.push(Some((item.rect, item.dir)));
                     }
-                } else {
-                    chars.push(c);
-                    boxes.push(Some((item.rect, item.dir)));
                 }
             }
         }
-        Self { items, chars, boxes }
+        Self { items, chars, upper, boxes }
     }
 }
 
@@ -922,6 +961,30 @@ mod tests {
         assert_eq!(decode_text(b"Chapter 1"), "Chapter 1");
         assert_eq!(decode_text(&[0xFE, 0xFF, 0x00, 0x43, 0x00, 0xE9]), "Cé");
         assert_eq!(decode_text(&[0x93, b'n']), "ﬁn");
+    }
+
+    #[test]
+    fn matches_case_and_whole_words_when_asked() {
+        let mut device = TextDevice::default();
+        let mut x = 0.0;
+        for word in ["Cat", "concatenate", "cat", "C++", "C+++"] {
+            for c in word.chars() {
+                device.push(&c.to_string(), Rect::new(x, 0.0, x + 6.0, 12.0), Dir::Right);
+                x += 6.0;
+            }
+            x += 6.0;
+        }
+        let text = device.finish();
+        let any = SearchOptions::default();
+        let case = SearchOptions { match_case: true, ..any };
+        let whole = SearchOptions { whole_words: true, ..any };
+        assert_eq!(text.find_with("cat", any).len(), 3, "Cat, concatenate, cat");
+        assert_eq!(text.find_with("cat", case).len(), 2, "concatenate, cat");
+        assert_eq!(text.find_with("Cat", case).len(), 1);
+        assert_eq!(text.find_with("cat", whole).len(), 2, "Cat and cat, not concatenate");
+        assert_eq!(text.find_with("cat", SearchOptions { match_case: true, whole_words: true }).len(), 1);
+        // A word ending in punctuation still matches as a whole word.
+        assert_eq!(text.find_with("c++", whole).len(), 2, "C++ and the start of C+++");
     }
 
     #[test]

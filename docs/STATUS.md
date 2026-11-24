@@ -53,16 +53,11 @@ code):
 | Back and forward after following a PDF link (Alt+Left / Alt+Right) | yes |
 | Reload when another program changes the open file | yes |
 | Copy the picture to the clipboard (Ctrl+C on a picture) | yes |
-| Search: match case, whole words | yes |
 | Command palette (Ctrl+Shift+P) | yes |
 | Recent files on the empty window | yes |
-| Letter keys for the markup tools (V, R, O, A, L, P, T, H) | yes |
-| Space and Shift+Space scroll a screen in a PDF | yes |
-| "Wrap around" preference for ← / → | yes |
 | The desktop's thumbnail cache (`~/.cache/thumbnails`) | yes |
 | Remembering the window size and the last page of each PDF | yes |
 | An undo toast after deleting pages | yes |
-| Alt+Enter for Properties | yes |
 | Screen-reader support (accessible names) | yes (GTK) |
 | A control interface covering forms, annotation, editing and export | yes (this one covers opening, browsing, pages, zoom and search) |
 | HEIC and AVIF without a C library | via glycin (C-free here only with the optional `heif` feature, which links libheif) |

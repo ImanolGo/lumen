@@ -18,6 +18,7 @@ pub enum PrefMsg {
     FloatingControls(bool),
     Portals(bool),
     Sandbox(bool),
+    WrapAround(bool),
     NightMode(bool),
     CacheMb(u32),
     PreloadMegapixels(u32),
@@ -61,6 +62,7 @@ impl App {
                 self.prefs.sandbox = on;
                 crate::sandbox::set_enabled(on);
             }
+            PrefMsg::WrapAround(on) => self.prefs.wrap_around = on,
             PrefMsg::NightMode(on) => {
                 if on != self.night {
                     follow_up = self.update(Message::ToggleNight);
@@ -147,6 +149,7 @@ impl App {
             line(tr("Time for each picture"), seconds.into()),
             heading(tr("SECURITY")),
             toggle(tr("Decode pictures in a sandbox"), p.sandbox, PrefMsg::Sandbox),
+            toggle(tr("Wrap around at the first and last file"), p.wrap_around, PrefMsg::WrapAround),
             text(tr("Each picture is opened by a separate process that can do nothing but decode it. Costs a few milliseconds a picture. LUMEN_NO_SANDBOX=1 turns it off."))
                 .size(11)
                 .style(muted),

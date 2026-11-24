@@ -128,6 +128,8 @@ struct Search {
     scanned: usize,
     done: bool,
     seq: u64,
+    /// Kept when the query changes.
+    options: crate::structure::SearchOptions,
     /// Aborts the running scan when replaced or dropped.
     _scan: Option<iced::task::Handle>,
 }
@@ -482,6 +484,8 @@ pub enum Message {
     SearchClose,
     SearchInput(String),
     SearchSubmit,
+    SearchMatchCase,
+    SearchWholeWords,
     SearchNext,
     SearchPrev,
     SearchHits(u64, usize, Vec<Vec<Rect>>),
@@ -873,9 +877,11 @@ impl App {
                 if paths.is_empty() { Task::none() } else { expand(paths, true) }
             }
             Message::Select(i) => self.show(i),
+            Message::Next if self.prefs.wrap_around && self.current + 1 >= self.files.len() => self.show(0),
             Message::Next => self.show(self.current + 1),
             Message::Prev => match self.current.checked_sub(1) {
                 Some(i) => self.show(i),
+                None if self.prefs.wrap_around => self.show(self.files.len().saturating_sub(1)),
                 None => Task::none(),
             },
             Message::First => self.show(0),
@@ -1143,6 +1149,15 @@ impl App {
             Message::SearchInput(query) => {
                 let Some(search) = &mut self.search else { return Task::none() };
                 search.query = query;
+                self.start_search()
+            }
+            Message::SearchMatchCase | Message::SearchWholeWords => {
+                let Some(search) = &mut self.search else { return Task::none() };
+                if matches!(message, Message::SearchMatchCase) {
+                    search.options.match_case = !search.options.match_case;
+                } else {
+                    search.options.whole_words = !search.options.whole_words;
+                }
                 self.start_search()
             }
             Message::SearchSubmit => {
@@ -1580,6 +1595,13 @@ impl App {
                 Named::Space if self.slideshow.is_some() => Message::SlideshowPause,
                 Named::F5 => Message::Slideshow,
                 Named::Space if !is_pdf => Message::Next,
+                // A screen at a time, keeping a little of the last one in view.
+                Named::Space if is_pdf => {
+                    let screen = self.area.height * 0.9;
+                    let y = if modifiers.shift() { -screen } else { screen };
+                    return operation::scroll_by(scroll_id(), scrollable::AbsoluteOffset { x: 0.0, y });
+                }
+                Named::Enter if modifiers.alt() => Message::ShowProperties,
                 Named::Backspace if !is_pdf => Message::Prev,
                 Named::PageDown if is_pdf => Message::PageNext,
                 Named::PageUp if is_pdf => Message::PagePrev,
@@ -2269,9 +2291,11 @@ impl App {
         self.search_seq += 1;
         let seq = self.search_seq;
         let Some(search) = &mut self.search else { return Task::none() };
-        *search = Search { query: std::mem::take(&mut search.query), seq, ..Search::default() };
+        *search =
+            Search { query: std::mem::take(&mut search.query), options: search.options, seq, ..Search::default() };
         let Doc::Pdf(view) = &self.doc else { return Task::none() };
         let query = search.query.trim().to_string();
+        let options = search.options;
         if query.is_empty() {
             search.done = true;
             return Task::none();
@@ -2286,7 +2310,7 @@ impl App {
                     return None;
                 }
                 let page = (start + k) % n;
-                let found = doc.text(page).await.find(&query);
+                let found = doc.text(page).await.find_with(&query, options);
                 Some((Message::SearchHits(seq, page, found), k + 1))
             }
         });
@@ -2398,6 +2422,13 @@ fn tip<'a>(content: Element<'a, Message>, label: impl text::IntoFragment<'a>) ->
     tooltip(content, container(text(label).size(12)).padding([4, 8]).style(style::pill), tooltip::Position::Bottom)
         .gap(6)
         .into()
+}
+
+/// A small text button that is on or off, with a tooltip (the search bar's options).
+fn search_toggle<'a>(label: &'a str, tip_text: String, on: bool, message: Message) -> Element<'a, Message> {
+    let look = if on { style::tool_active } else { style::tool };
+    let b = button(center(text(label).size(12)).width(32).height(28)).padding(0).style(look).on_press(message);
+    tip(b.into(), tip_text)
 }
 
 fn separator<'a>() -> Element<'a, Message> {
@@ -2953,6 +2984,8 @@ impl App {
                     .size(14)
                     .padding([6, 8])
                     .width(210),
+                search_toggle("Aa", tr("Match case"), search.options.match_case, Message::SearchMatchCase),
+                search_toggle("[ab]", tr("Whole words"), search.options.whole_words, Message::SearchWholeWords),
                 text(status).size(12).style(muted).width(78).align_x(Alignment::Center),
                 icon_button(
                     icons::up(),
@@ -3216,8 +3249,9 @@ impl App {
             .align_y(Alignment::End)
             .padding(Padding { bottom: 22.0, ..Padding::ZERO });
         let multi = self.files.len() > 1;
-        let prev = (multi && self.current > 0).then_some(Message::Prev);
-        let next = (multi && self.current + 1 < self.files.len()).then_some(Message::Next);
+        let wrap = self.prefs.wrap_around;
+        let prev = (multi && (wrap || self.current > 0)).then_some(Message::Prev);
+        let next = (multi && (wrap || self.current + 1 < self.files.len())).then_some(Message::Next);
         let side = |msg: Option<Message>, icon: svg::Handle, label: String| -> Element<'a, Message> {
             if msg.is_none() {
                 return space().width(44).into();

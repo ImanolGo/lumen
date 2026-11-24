@@ -41,6 +41,7 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
             ("Ctrl+Shift+O", "Open a folder"),
             ("← →", "Previous / next file"),
             ("Home / End", "First / last file (page in a PDF)"),
+            ("Alt+Enter", "Properties"),
             ("Ctrl+P", "Print"),
             ("Ctrl+S", "Save (a copy of a picture)"),
             ("Ctrl+Shift+S", "Save a copy"),
@@ -66,6 +67,7 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
             ("Ctrl+G", "Go to page"),
             ("Ctrl+Shift+N", "Night mode"),
             ("Page Up / Down", "Previous / next page"),
+            ("Space, Shift+Space", "Scroll a screen down / up"),
             ("Ctrl+C, Ctrl+A", "Copy text, select all"),
             ("G", "Organise pages"),
         ],
@@ -74,6 +76,10 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
         "Editing",
         &[
             ("M", "Markup"),
+            (
+                "V H P R O L A T",
+                "Markup tools (with the bar open): select, highlight, pen, rectangle, ellipse, line, arrow, text",
+            ),
             ("E", "Edit the picture"),
             ("R, Shift+R", "Turn right / left"),
             ("Ctrl+Z, Ctrl+Shift+Z", "Undo, redo"),
@@ -181,7 +187,7 @@ impl App {
             items.push(Some((tr("Export as PDF…"), "", Some(Message::Export(ExportMsg::Picture)))));
         }
         items.push(None);
-        items.push(Some((tr("Properties…"), "", doc(Message::ShowProperties))));
+        items.push(Some((tr("Properties…"), "Alt+Enter", doc(Message::ShowProperties))));
         items.push(None);
         items.push(Some((tr("Show in Folder"), "", doc(Message::ShowInFolder))));
         items.push(Some((tr("Open With…"), "", doc(Message::OpenWith))));

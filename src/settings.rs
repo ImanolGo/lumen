@@ -45,6 +45,8 @@ pub struct Settings {
     pub night_mode: bool,
     /// Decode pictures in a sandboxed child process.
     pub sandbox: bool,
+    /// ← on the first file goes to the last, and → on the last goes to the first.
+    pub wrap_around: bool,
     /// Megabytes of decoded pictures kept for flipping back and forth.
     pub cache_mb: u32,
     /// Neighbouring pictures up to this many megapixels are decoded ahead (0 turns it off).
@@ -62,6 +64,7 @@ impl Default for Settings {
             portals: true,
             night_mode: false,
             sandbox: true,
+            wrap_around: false,
             cache_mb: 64,
             preload_megapixels: 4,
         }
@@ -114,6 +117,7 @@ impl Settings {
         get(&table, "portals", &mut out.portals);
         get(&table, "night_mode", &mut out.night_mode);
         get(&table, "sandbox", &mut out.sandbox);
+        get(&table, "wrap_around", &mut out.wrap_around);
         get(&table, "cache_mb", &mut out.cache_mb);
         get(&table, "preload_megapixels", &mut out.preload_megapixels);
         out.clamp();
@@ -202,6 +206,7 @@ mod tests {
             portals: false,
             night_mode: true,
             sandbox: false,
+            wrap_around: true,
             cache_mb: 128,
             preload_megapixels: 0,
         };

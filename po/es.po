@@ -127,6 +127,21 @@ msgstr "ESCRITORIO"
 msgid "Decode neighbours up to"
 msgstr "Decodificar vecinas hasta"
 
+msgid "Wrap around at the first and last file"
+msgstr "Dar la vuelta al llegar al primer o último archivo"
+
+msgid "Match case"
+msgstr "Distinguir mayúsculas"
+
+msgid "Whole words"
+msgstr "Palabras completas"
+
+msgid "Scroll a screen down / up"
+msgstr "Desplazar una pantalla hacia abajo / arriba"
+
+msgid "Markup tools (with the bar open): select, highlight, pen, rectangle, ellipse, line, arrow, text"
+msgstr "Herramientas de anotación (con la barra abierta): seleccionar, resaltar, lápiz, rectángulo, elipse, línea, flecha, texto"
+
 msgid "Decode pictures in a sandbox"
 msgstr "Decodificar imágenes en un entorno aislado"
 

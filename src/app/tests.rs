@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use super::prefs::PrefMsg;
 use super::*;
+use crate::annotate::editor::Tool;
 use crate::control::Command;
 use crate::settings::Theme as ThemePref;
 
@@ -202,6 +203,79 @@ fn browsing_files_stays_inside_the_list() {
     let _ = app.update(Message::Expanded { files: Vec::new(), start: 0, append: false });
     assert!(app.toast.as_ref().is_some_and(|(_, _, error)| *error));
     assert_eq!(app.files.len(), 3);
+}
+
+#[test]
+fn wrap_around_joins_the_ends_of_the_list_when_asked() {
+    let _inside = runtime().enter();
+    let mut app = app();
+    let pictures = fixture("pictures");
+    let files: Vec<PathBuf> = ["g.png", "g.jpg", "g.gif"].iter().map(|n| pictures.join(n)).collect();
+    let _ = app.update(Message::Expanded { files, start: 2, append: false });
+    let _ = app.update(Message::Next);
+    assert_eq!(app.current, 2, "off by default: the end is the end");
+    let _ = app.update(Message::Pref(PrefMsg::WrapAround(true)));
+    let _ = app.update(Message::Next);
+    assert_eq!(app.current, 0, "next after the last is the first");
+    let _ = app.update(Message::Prev);
+    assert_eq!(app.current, 2, "previous before the first is the last");
+}
+
+fn key(app: &mut App, key: iced::keyboard::Key, modifiers: iced::keyboard::Modifiers) {
+    let _ = app.update(Message::Key(iced::keyboard::Event::KeyPressed {
+        key: key.clone(),
+        modified_key: key,
+        physical_key: iced::keyboard::key::Physical::Unidentified(iced::keyboard::key::NativeCode::Unidentified),
+        location: iced::keyboard::Location::Standard,
+        modifiers,
+        text: None,
+        repeat: false,
+    }));
+}
+
+#[test]
+fn alt_enter_opens_properties_and_letters_pick_markup_tools() {
+    use iced::keyboard::{Key, Modifiers, key::Named};
+    let _inside = runtime().enter();
+    let mut app = pdf_app();
+    key(&mut app, Key::Named(Named::Enter), Modifiers::ALT);
+    assert_eq!(app.dialog, Some(Dialog::Properties));
+    app.dialog = None;
+    // Without the markup bar a letter keeps its usual job (R turns the page)...
+    key(&mut app, Key::Character("r".into()), Modifiers::empty());
+    assert_ne!(app.editor.tool, Tool::Rectangle);
+    // ...and with it open, letters pick the tools.
+    key(&mut app, Key::Character("m".into()), Modifiers::empty());
+    assert!(app.markup_open);
+    for (letter, tool) in [
+        ("p", Tool::Pen),
+        ("r", Tool::Rectangle),
+        ("o", Tool::Ellipse),
+        ("a", Tool::Arrow),
+        ("l", Tool::Line),
+        ("t", Tool::Text),
+        ("h", Tool::Highlight),
+        ("v", Tool::Select),
+    ] {
+        key(&mut app, Key::Character(letter.into()), Modifiers::empty());
+        assert_eq!(app.editor.tool, tool, "key {letter}");
+    }
+}
+
+#[test]
+fn search_options_survive_a_new_query_and_are_remembered_by_the_bar() {
+    let _inside = runtime().enter();
+    let mut app = pdf_app();
+    let _ = app.update(Message::SearchOpen);
+    let _ = app.update(Message::SearchMatchCase);
+    let _ = app.update(Message::SearchWholeWords);
+    let _ = app.update(Message::SearchInput("page".into()));
+    let search = app.search.as_ref().unwrap();
+    assert!(search.options.match_case && search.options.whole_words);
+    let _ = app.update(Message::SearchMatchCase);
+    let search = app.search.as_ref().unwrap();
+    assert!(!search.options.match_case && search.options.whole_words);
+    assert_eq!(search.query, "page", "the query is kept when an option changes");
 }
 
 #[test]
