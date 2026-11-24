@@ -376,6 +376,43 @@ fn the_recent_list_can_be_opened_from_and_cleared() {
 }
 
 #[test]
+fn the_command_palette_finds_and_runs_commands() {
+    use commands::PaletteMsg;
+    use iced::keyboard::{Key, Modifiers, key::Named};
+    let _inside = runtime().enter();
+    // With nothing open, only what makes sense is offered.
+    let mut empty = app();
+    key(&mut empty, Key::Character("p".into()), Modifiers::CTRL | Modifiers::SHIFT);
+    assert!(empty.palette.is_some());
+    let names: Vec<String> = empty.palette_matches().into_iter().map(|c| c.0).collect();
+    assert!(names.iter().any(|n| n.starts_with("Open Files")) && !names.iter().any(|n| n.starts_with("Print")));
+    key(&mut empty, Key::Named(Named::Escape), Modifiers::empty());
+    let _ = empty.update(Message::Escape);
+    assert!(empty.palette.is_none());
+
+    let mut app = pdf_app();
+    let _ = app.update(Message::Palette(PaletteMsg::Open));
+    let _ = app.update(Message::Palette(PaletteMsg::Input("organise".into())));
+    assert_eq!(app.palette_matches().len(), 1);
+    let _ = app.update(Message::Palette(PaletteMsg::Run));
+    assert!(app.palette.is_none(), "running a command closes the palette");
+    assert!(app.organizer.is_some());
+    // The highlight wraps round the matches.
+    let _ = app.update(Message::Palette(PaletteMsg::Open));
+    let _ = app.update(Message::Palette(PaletteMsg::Input("page".into())));
+    let n = app.palette_matches().len().min(8);
+    assert!(n > 1);
+    let _ = app.update(Message::Palette(PaletteMsg::Move(-1)));
+    assert_eq!(app.palette.as_ref().unwrap().selected, n - 1);
+    let _ = app.update(Message::Palette(PaletteMsg::Move(1)));
+    assert_eq!(app.palette.as_ref().unwrap().selected, 0);
+    // Nothing matching runs nothing.
+    let _ = app.update(Message::Palette(PaletteMsg::Input("qqqq".into())));
+    let _ = app.update(Message::Palette(PaletteMsg::Run));
+    assert!(app.palette.is_none());
+}
+
+#[test]
 fn search_options_survive_a_new_query_and_are_remembered_by_the_bar() {
     let _inside = runtime().enter();
     let mut app = pdf_app();

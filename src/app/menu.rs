@@ -42,6 +42,7 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
             ("← →", "Previous / next file"),
             ("Home / End", "First / last file (page in a PDF)"),
             ("Alt+Enter", "Properties"),
+            ("Ctrl+Shift+P", "Command palette: find a command by name"),
             ("Ctrl+P", "Print"),
             ("Ctrl+S", "Save (a copy of a picture)"),
             ("Ctrl+Shift+S", "Save a copy"),
@@ -107,7 +108,7 @@ impl App {
         self.menu.take().is_some() || self.dialog.take().is_some()
     }
 
-    fn main_items(&self) -> Vec<Option<Item>> {
+    pub(super) fn main_items(&self) -> Vec<Option<Item>> {
         let has_doc = matches!(self.doc, Doc::Image(_) | Doc::Pdf(_));
         let is_pdf = matches!(self.doc, Doc::Pdf(_));
         let is_image = matches!(self.doc, Doc::Image(_));
@@ -200,7 +201,7 @@ impl App {
         items
     }
 
-    fn open_items() -> Vec<Option<Item>> {
+    pub(super) fn open_items() -> Vec<Option<Item>> {
         vec![
             Some((tr("Open Files…"), "Ctrl+O", Some(Message::Open { folder: false }))),
             Some((tr("Open Folder…"), "Ctrl+Shift+O", Some(Message::Open { folder: true }))),

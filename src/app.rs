@@ -19,6 +19,7 @@ use iced::{
 
 mod anim;
 mod chooser;
+mod commands;
 mod control;
 mod edit;
 mod export;
@@ -282,6 +283,8 @@ pub struct App {
     trash_undo: Option<(u64, usize, crate::trash::Trashed)>,
     /// The toast that offers to undo deleting pages in the organiser.
     pages_undo: Option<u64>,
+    /// The command palette, while it is open.
+    palette: Option<commands::Palette>,
     /// Lumen's own file chooser and print dialog, when the desktop has no portal for them.
     chooser: Option<Chooser>,
     print_dialog: Option<PrintDialog>,
@@ -539,6 +542,7 @@ pub enum Message {
 
     LinkBack,
     LinkForward,
+    Palette(commands::PaletteMsg),
     /// Time to see whether another program changed the open file.
     CheckFile,
     FileStat(PathBuf, Option<Stamp>),
@@ -772,6 +776,7 @@ impl App {
             control_opening: false,
             trash_undo: None,
             pages_undo: None,
+            palette: None,
             slideshow: None,
             chooser: None,
             print_dialog: None,
@@ -1107,6 +1112,7 @@ impl App {
                 )
             }
             Message::FileStat(path, stamp) => self.file_stat(path, stamp),
+            Message::Palette(msg) => self.palette_update(msg),
             Message::SaveState => {
                 self.state_save_pending = false;
                 self.state.save();
@@ -1244,6 +1250,7 @@ impl App {
             Message::Escape => {
                 if self.chooser.take().is_some()
                     || self.print_dialog.take().is_some()
+                    || self.palette.take().is_some()
                     || self.menu_escape()
                     || self.sign_escape()
                     || self.pages_escape()
@@ -1685,6 +1692,9 @@ impl App {
         if self.confirm_quit || self.pad.is_some() || self.print_dialog.is_some() {
             return Task::none();
         }
+        if let Some(task) = self.palette_key(&key) {
+            return task;
+        }
         if let Some(task) = self.pages_key(&key, modifiers) {
             return task;
         }
@@ -1700,6 +1710,7 @@ impl App {
             Key::Character(c) => match (c.to_lowercase().as_str(), ctrl, modifiers.shift()) {
                 ("o", true, false) => Message::Open { folder: false },
                 ("o", true, true) => Message::Open { folder: true },
+                ("p", true, true) => Message::Palette(commands::PaletteMsg::Open),
                 ("p", true, _) => Message::Print,
                 ("f", true, _) if is_pdf => Message::SearchOpen,
                 ("c", true, _) if is_pdf => Message::Copy,
@@ -2742,6 +2753,9 @@ impl App {
         }
         if self.sign_menu {
             layers = layers.push(self.sign_menu_view());
+        }
+        if let Some(palette) = self.palette_view() {
+            layers = layers.push(palette);
         }
         if let Some(menu) = self.menu_view() {
             layers = layers.push(menu);

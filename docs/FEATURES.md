@@ -62,6 +62,7 @@ Everything Lumen does, in detail. The [README](../README.md) has the short versi
 | M | Markup on or off |
 | V H P R O L A T | With the markup bar open: select, highlight, pen, rectangle, ellipse, line, arrow, text |
 | Alt+Enter | Properties |
+| Ctrl+Shift+P | Command palette: type a few words, Up / Down to choose, Enter to run, Esc to close |
 | Ctrl+Z / Ctrl+Shift+Z | Undo / redo markup |
 | Delete, arrow keys | Delete / nudge the selected annotation (Shift moves further) |
 | Ctrl+S / Ctrl+Shift+S | Save markup and form values into the PDF, or an edited JPEG/PNG/WebP over its file / save a copy |

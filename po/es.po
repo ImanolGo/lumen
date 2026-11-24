@@ -148,6 +148,36 @@ msgstr "1 página eliminada"
 msgid "Deleted {} pages"
 msgstr "{} páginas eliminadas"
 
+msgid "Command palette: find a command by name"
+msgstr "Paleta de comandos: buscar un comando por su nombre"
+
+msgid "Type a command"
+msgstr "Escribe un comando"
+
+msgid "No matching command"
+msgstr "Ningún comando coincide"
+
+msgid "Zoom In"
+msgstr "Acercar"
+
+msgid "Zoom Out"
+msgstr "Alejar"
+
+msgid "Next File"
+msgstr "Archivo siguiente"
+
+msgid "Previous File"
+msgstr "Archivo anterior"
+
+msgid "Go to Page…"
+msgstr "Ir a la página…"
+
+msgid "Next Page"
+msgstr "Página siguiente"
+
+msgid "Previous Page"
+msgstr "Página anterior"
+
 msgid "Match case"
 msgstr "Distinguir mayúsculas"
 
