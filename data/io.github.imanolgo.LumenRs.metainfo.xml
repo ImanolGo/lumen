@@ -38,6 +38,11 @@
     <control>touch</control>
   </supports>
   <releases>
+    <release version="0.7.0" date="2026-11-25">
+      <description>
+        <p>Windows that fit the picture they open on, and Open in New Window on Linux and Windows.</p>
+      </description>
+    </release>
     <release version="0.6.0" date="2026-11-25">
       <description>
         <p>A toolbar joined to the header, with one row of tools under it, and files that open by themselves instead of with their whole folder.</p>
