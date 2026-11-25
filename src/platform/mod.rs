@@ -12,7 +12,7 @@ mod other;
 use other as system;
 
 #[cfg(unix)]
-mod unix_fs;
+pub mod unix_fs;
 
 pub use system::{clipboard, confine, control, dialogs, dirs, fs, print, shell, startup, thumbs, trash, watch};
 
