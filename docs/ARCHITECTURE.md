@@ -100,6 +100,8 @@ dependencies (touchpad pinch); see `vendor/README.md`.
 | File | What it does |
 |---|---|
 | `src/app/menu.rs` | The header's menus, and the keyboard shortcuts, properties and about dialogs |
+| `src/app/scroller.rs` | The scrolled view of a picture or PDF, at the position the app says |
+| `src/app/region.rs` | Selecting a part of a picture: copy, crop |
 | `src/app/slideshow.rs` | The slideshow |
 | `src/app/chooser.rs`, `src/app/printing.rs` | Lumen's own file chooser and print dialog, for desktops without a portal |
 | `src/platform/mod.rs` | The operating system behind the same functions everywhere (`dirs`, `dialogs`, `shell`, `clipboard`, `watch`, `trash`, `print`, `confine`, `startup`, `thumbs`, `control`, `fs`), and `caps()`: what this system can do |

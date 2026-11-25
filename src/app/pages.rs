@@ -611,7 +611,8 @@ impl App {
             ),
         ]
         .spacing(4)
-        .align_y(Alignment::Center);
+        .align_y(Alignment::Center)
+        .wrap();
         container(content).padding([4, 6]).style(style::panel).into()
     }
 

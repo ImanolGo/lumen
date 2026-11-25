@@ -38,6 +38,8 @@ SCENES = {
     "sign": (PDF, ["sign"]),
     "pad": (PDF, ["pad"]),
     "edit": (PICTURE, ["edit"]),
+    "region": (PICTURE, ["region"]),
+    "discard": (PDF, ["discard"]),
     "crop": (PICTURE, ["edit", "crop"]),
     "resize": (PICTURE, ["edit", "resize"]),
     "adjust": (PICTURE, ["edit", "adjust"]),

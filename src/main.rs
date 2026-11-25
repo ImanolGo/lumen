@@ -62,6 +62,17 @@ Options:
   -h, --help       Show this help
   -V, --version    Show the version";
 
+/// The window's size the first time.
+pub const WINDOW: (f32, f32) = (1180.0, 800.0);
+
+/// The window's icon, where windows have one of their own (Windows, X11).
+fn window_icon() -> Option<iced::window::Icon> {
+    let png = include_bytes!("../data/icons/64x64/apps/io.github.imanolgo.LumenRs.png");
+    let icon = image::load_from_memory_with_format(png, image::ImageFormat::Png).ok()?.into_rgba8();
+    let (w, h) = icon.dimensions();
+    iced::window::icon::from_rgba(icon.into_raw(), w, h).ok()
+}
+
 fn main() -> iced::Result {
     STARTED.get_or_init(Instant::now);
     // The sandboxed decoder: a separate, tiny job that must not start the app.
@@ -101,12 +112,16 @@ fn main() -> iced::Result {
         .theme(app::App::theme)
         .subscription(app::App::subscription)
         .window(iced::window::Settings {
-            size: state::State::load()
-                .window_size()
-                .map_or(iced::Size::new(1180.0, 800.0), |(w, h)| iced::Size::new(w, h)),
+            size: state::State::load().window_size().map_or(iced::Size::from(WINDOW), iced::Size::from),
             min_size: Some(iced::Size::new(520.0, 360.0)),
+            icon: window_icon(),
             // Closing asks first while there is unsaved markup.
             exit_on_close_request: false,
+            position: if platform::caps().frameless {
+                iced::window::Position::Default
+            } else {
+                iced::window::Position::Centered
+            },
             decorations: !platform::caps().frameless,
             platform_specific: platform::startup::window(),
             ..Default::default()

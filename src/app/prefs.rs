@@ -20,6 +20,8 @@ pub enum PrefMsg {
     Sandbox(bool),
     WrapAround(bool),
     WindowButtons(bool),
+    SelectOnDrag(bool),
+    Language(&'static str),
     ThumbnailCache(bool),
     NightMode(bool),
     CacheMb(u32),
@@ -65,6 +67,17 @@ impl App {
                 crate::sandbox::set_enabled(on);
             }
             PrefMsg::WrapAround(on) => self.prefs.wrap_around = on,
+            PrefMsg::SelectOnDrag(on) => {
+                self.prefs.select_on_drag = on;
+                self.region = None;
+            }
+            PrefMsg::Language(code) => {
+                crate::i18n::set_language(code);
+                self.prefs.language = code.into();
+                if crate::platform::caps().menu_bar && !cfg!(test) {
+                    crate::platform::menu_bar::install(&Self::menu_bar());
+                }
+            }
             PrefMsg::WindowButtons(on) => self.prefs.window_buttons = on,
             PrefMsg::ThumbnailCache(on) => self.prefs.thumbnail_cache = on,
             PrefMsg::NightMode(on) => {
@@ -79,6 +92,7 @@ impl App {
                 let night = self.prefs.night_mode;
                 self.prefs = Settings { night_mode: night, ..Settings::default() };
                 settings::set_portals(true);
+                crate::i18n::set_language("");
                 crate::sandbox::set_enabled(true);
                 self.apply_theme();
             }
@@ -118,6 +132,21 @@ impl App {
             (tr("System"), p.theme == Theme::System, PrefMsg::Theme(Theme::System)),
             (tr("Light"), p.theme == Theme::Light, PrefMsg::Theme(Theme::Light)),
             (tr("Dark"), p.theme == Theme::Dark, PrefMsg::Theme(Theme::Dark)),
+        ]);
+        // Languages are called what they call themselves.
+        let in_use = p.language.as_str();
+        let language = choices(
+            std::iter::once((tr("System"), in_use.is_empty(), PrefMsg::Language("")))
+                .chain(
+                    crate::i18n::LANGUAGES
+                        .iter()
+                        .map(|&(code, name)| (name.to_string(), in_use == code, PrefMsg::Language(code))),
+                )
+                .collect(),
+        );
+        let drag = choices(vec![
+            (tr("Selects a part"), p.select_on_drag, PrefMsg::SelectOnDrag(true)),
+            (tr("Moves it"), !p.select_on_drag, PrefMsg::SelectOnDrag(false)),
         ]);
         let fit = choices(vec![
             (tr("Fit width"), p.pdf_fit == PdfFit::Width, PrefMsg::PdfFit(PdfFit::Width)),
@@ -176,10 +205,13 @@ impl App {
         let body = column![
             heading(tr("APPEARANCE")),
             line(tr("Theme"), theme.into()),
+            line(tr("Language"), language.into()),
             toggle(tr("Show the sidebar when Lumen starts"), p.sidebar_open, PrefMsg::SidebarOpen),
             toggle(tr("Zoom control and arrows over the picture"), p.floating_controls, PrefMsg::FloatingControls),
             caps.frameless
                 .then(|| { toggle(tr("Minimise and maximise buttons"), p.window_buttons, PrefMsg::WindowButtons) }),
+            heading(tr("PICTURES")),
+            line(tr("Dragging over a picture"), drag.into()),
             heading(tr("PDFS")),
             line(tr("When a PDF opens"), fit.into()),
             toggle(tr("Night mode"), self.night, PrefMsg::NightMode),

@@ -844,3 +844,40 @@ fn every_item_of_the_menu_bar_does_something() {
     asked.confirm_quit = true;
     assert!(asked.menu_bar_message("open").is_none());
 }
+
+#[test]
+fn unsaved_markup_can_be_discarded_by_button_or_escape() {
+    let _inside = runtime().enter();
+    let mut app = pdf_app();
+    let mark = |app: &mut App| {
+        app.marks = Some(DocMarkup::new(Default::default(), vec![Vec::new(); 5], 1.0));
+        let layers = &mut app.marks.as_mut().unwrap().store.pages.layers;
+        let shape = annotate::Shape::Rect(annotate::Rect::new(1.0, 1.0, 9.0, 9.0));
+        layers.entry(0).or_default().add(shape, Default::default());
+    };
+    mark(&mut app);
+    let _ = app.update(Message::Discard);
+    assert_eq!(app.confirm, Some(Confirm::Discard), "it asks");
+    assert!(app.has_unsaved_changes());
+    let _ = app.update(Message::Discard);
+    assert!(!app.has_unsaved_changes() && app.confirm.is_none());
+    // Escape closes the bar first, and then asks; a further one is no.
+    mark(&mut app);
+    app.markup_open = true;
+    let _ = app.update(Message::Escape);
+    assert!(!app.markup_open && app.confirm.is_none());
+    let _ = app.update(Message::Escape);
+    assert_eq!(app.confirm, Some(Confirm::Discard));
+    let _ = app.update(Message::Escape);
+    assert!(app.confirm.is_none() && app.has_unsaved_changes());
+}
+
+#[test]
+fn a_window_larger_than_the_screen_is_brought_down() {
+    let _inside = runtime().enter();
+    let mut app = app();
+    app.state.window = Some((1180, 800));
+    assert_eq!(app.fitted_to(iced::Size::new(1920.0, 1080.0)), None);
+    let fitted = app.fitted_to(iced::Size::new(1280.0, 800.0)).unwrap();
+    assert_eq!((fitted.width, fitted.height), (1180.0, 690.0));
+}

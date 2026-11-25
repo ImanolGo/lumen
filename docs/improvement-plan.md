@@ -658,6 +658,24 @@ Each is its own piece of work; ask the user which to do. Verified absent by sear
 | Open several documents | Tabs or windows; today opening a file replaces the list. iced 0.14 supports several windows (`window::open`). |
 | Remember zoom and scroll per file, not only the PDF page | `state.rs` already keeps per-file data. |
 
+**From macOS Preview** (asked for on 25 November 2026; the rectangular selection with Copy and Crop is
+done). Offered, for the user to pick:
+
+| Feature | Notes |
+|---|---|
+| More ways to select a picture's part | Lasso; "instant alpha" (pick by colour, for cutting out backgrounds); invert the selection; delete what is selected (to transparent); paste it as a new picture |
+| Rectangular selection on PDF pages | Copy a part of a page as a picture, crop the page to it |
+| Sketch tool that recognises shapes | A roughly drawn circle, arrow or rectangle becomes a clean one |
+| More shapes | Rounded rectangle, star, polygon, speech bubble; dashed and double-ended lines |
+| Loupe and mask | A magnifier placed on the picture; everything but a region dimmed |
+| Text style | Font, bold, italic, alignment and colour in text boxes |
+| Notes, underline, strike-out | As in the table above |
+| Redact | Removes the text under the box, not only covers it |
+| Open the clipboard as a new picture | File → New from Clipboard |
+| Contact sheet | Every open file as thumbnails over the whole window |
+| Adjust Colour: levels, tint, sepia, sharpness | More sliders beside exposure, contrast and saturation |
+| Bookmarks in PDFs | Marks of your own, listed in the sidebar |
+
 **Good to have:**
 
 - Histogram, levels and curves; white balance; sharpen. Auto-enhance.
@@ -745,7 +763,7 @@ say exactly which systems those are.
 | 8 | Keys, menus and file opening per system | Done in code; compiled, not seen on a Mac yet. Shortcut signs are applied in `tr()` rather than in each string. The ☰ button stays on macOS until package 14 gives the menu bar every command. Quit from the Dock icon, or logging out, still ends Lumen without asking: that needs `applicationShouldTerminate:` in winit, which decision 4 does not cover. |
 | 9 | End-to-end tests on every system | The ten scenarios pass over stdio and D-Bus on Linux; CI runs them on macOS and Windows too. |
 | 10 | Packages and releases | The workflow builds all packages. Not done: an installer for Windows, the two ways to build a Windows binary from Linux (they need system packages). |
-| 11 | Checked by hand on macOS and Windows | **Open:** needs a person with each machine. The checklist is in `STATUS.md`. |
+| 11 | Checked by hand on macOS and Windows | Done by the author on 0.2.0, except copying a picture and Spanish (see `STATUS.md`); what it found is fixed but not tried by hand again. |
 | 12 | Window frame per system | Done. Looked at on an X display without a window manager; GNOME, KDE, macOS and Windows not seen (package 11). Moving and resizing with the pointer were not tried. |
 | 13 | A complete set of controls; tokens for size and space | |
 | 14 | One table of commands; a menu that fits; context menu | |

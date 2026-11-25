@@ -4,10 +4,19 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Added
+- Drag over a picture to select a part of it: copy it (Ctrl+C), crop to it (Ctrl+K), or select everything (Ctrl+A). A preference makes dragging move the picture, as before; the middle button and the wheel always do.
+- Discard: unsaved markup, form values and edits can be thrown away with a button beside Save, or with Escape once nothing else is open. It asks first.
+- The language can be chosen in Preferences.
+
 ### Changed
 - On Linux the header is the window's title bar: drag it to move the window, double-click to maximise, right-click for the system's menu, and drag the edges to resize. GNOME and KDE no longer draw a second title bar above it. Minimise and maximise buttons are a preference, off by default. On macOS the header is inside the title bar; on Windows it is a toolbar under the system's.
 
 ### Fixed
+- Zooming no longer flickers: the picture or page and its position always change together, and a sharper page takes the old one's place only once it is on the GPU (animations and edits too).
+- The pen no longer draws a line from the top of the page when the view is scrolled (nor does the crop frame jump), and what it draws is smooth.
+- In a narrow window the tools wrap onto more lines: Save, Undo and the rest are no longer cut off.
+- On Windows the window has Lumen's icon; on Windows and macOS it never opens larger than the screen.
 - With the software renderer (`ICED_BACKEND=tiny-skia`) pages no longer turn grey and menus black, and everything is much faster: shadows are left out there.
 
 ## [0.2.0] - 2026-11-25

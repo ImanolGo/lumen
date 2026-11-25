@@ -696,16 +696,24 @@ fn appearance(a: &Annotation, to_view: Affine, font: &TextFont) -> Stream {
         } else if alpha < 1.0 {
             c.push_str("/A gs\n");
         }
+        let mut at = kurbo::Point::ZERO;
         for el in prim.path.elements() {
             let _ = match el {
                 PathEl::MoveTo(p) => writeln!(c, "{:.2} {:.2} m", p.x, p.y),
                 PathEl::LineTo(p) => writeln!(c, "{:.2} {:.2} l", p.x, p.y),
-                PathEl::QuadTo(p1, p2) => writeln!(c, "{:.2} {:.2} {:.2} {:.2} v", p1.x, p1.y, p2.x, p2.y),
+                // A PDF has cubic curves only.
+                PathEl::QuadTo(q, p2) => {
+                    let c1 = at + (*q - at) * (2.0 / 3.0);
+                    let c2 = *p2 + (*q - *p2) * (2.0 / 3.0);
+                    let (x1, y1, x2, y2) = (c1.x, c1.y, c2.x, c2.y);
+                    writeln!(c, "{x1:.2} {y1:.2} {x2:.2} {y2:.2} {:.2} {:.2} c", p2.x, p2.y)
+                }
                 PathEl::CurveTo(p1, p2, p3) => {
                     writeln!(c, "{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c", p1.x, p1.y, p2.x, p2.y, p3.x, p3.y)
                 }
                 PathEl::ClosePath => writeln!(c, "h"),
             };
+            at = el.end_point().unwrap_or(at);
         }
         if let Some(f) = prim.fill {
             let _ = writeln!(c, "{:.3} {:.3} {:.3} rg", f.r, f.g, f.b);

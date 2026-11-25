@@ -70,28 +70,31 @@ code):
 
 ## macOS and Windows
 
-As of 25 November 2026 **nobody has used Lumen on either by hand.** What CI does on a real machine of
+The author went through the checklist below by hand on a MacBook Pro and on Windows 11 (in a virtual
+machine) with 0.2.0 on 25 November 2026, all but the two rows marked. It brought up the flicker while
+zooming, the pen's vertical lines, the missing way to discard markup, Windows' generic window icon and a
+window larger than the screen, all fixed since; **the fixes have not been tried by hand.** What CI does on a real machine of
 each, on every push: the unit tests; a file moved to the real trash (and back, on Windows); noticing
 changes to a file; and the app itself with a window (software rendering), driven over standard
 input: opening and browsing files, searching, passwords, filling in and saving a form, annotating
 and saving a PDF, editing and saving a picture, exporting, reloading a changed file. The release
 workflow builds the `.dmg` and the `.zip` and starts the program with `--version`.
 
-The checklist for a person (package 11 of [improvement-plan.md](improvement-plan.md)), none of it tried
-on either system:
+The checklist for a person (package 11 of [improvement-plan.md](improvement-plan.md)), as reported by the author:
 
 | To check | macOS | Windows |
 |---|---|---|
-| Open a picture, a folder and a PDF from the dialog, and by dropping | not tried | not tried |
-| Open from the file manager (double click, Open With), with Lumen closed and running | not tried | not tried |
-| Arrows; zoom with the wheel and the touchpad; fullscreen and back | not tried | not tried |
-| Markup and Ctrl/⌘+S on a PDF, reopened in another program | not tried | not tried |
-| Crop a JPEG and save; fill `tests/fixtures/form.pdf`; unlock `encrypted.pdf` (`secret`) | not tried | not tried |
-| Trash, and undo (Windows) | not tried | not tried |
-| Copy a picture and paste it elsewhere | not tried | not tried |
-| Print to a PDF printer | not tried (CUPS's socket path is unverified) | not tried |
-| Switch the system between light and dark; a second screen with another scale | not tried | not tried |
-| Spanish; the menu bar, ⌘ labels and ⌘Q with unsaved changes (macOS) | not tried | not tried |
+| Open a picture, a folder and a PDF from the dialog, and by dropping | tried | tried |
+| Open from the file manager (double click, Open With), with Lumen closed and running | tried | tried |
+| Arrows; zoom with the wheel and the touchpad; fullscreen and back | tried | tried |
+| Markup and Ctrl/⌘+S on a PDF, reopened in another program | tried | tried |
+| Crop a JPEG and save; fill `tests/fixtures/form.pdf`; unlock `encrypted.pdf` (`secret`) | tried | tried |
+| Trash, and undo (Windows) | tried | tried |
+| Copy a picture and paste it elsewhere | **not tried** | **not tried** |
+| Print to a PDF printer | tried | tried |
+| Switch the system between light and dark; a second screen with another scale | tried | tried |
+| The menu bar, ⌘ labels and ⌘Q with unsaved changes (macOS) | tried | |
+| Spanish (the language is in Preferences from 0.3 on) | **not tried** | **not tried** |
 
 ## Known issues
 

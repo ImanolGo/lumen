@@ -39,6 +39,12 @@ impl PicEdit {
         self.edits != self.saved
     }
 
+    /// Back to what is saved.
+    pub fn revert(&mut self) {
+        let (saved, seq, rendering, again) = (self.saved, self.seq, self.rendering, self.again);
+        *self = Self { edits: saved, saved, seq, rendering, again, ..Self::default() };
+    }
+
     pub fn is_busy(&self) -> bool {
         self.rendering || self.again
     }
@@ -79,6 +85,8 @@ pub enum EditMsg {
     Redo,
     Reset,
     Rendered(u64, u64, Result<Picture, String>),
+    /// The result is on the GPU: it can be shown.
+    Shown(u64, u64, Box<super::Loaded>),
     CropStart,
     CropAspect(usize),
     CropPress(f64, f64),
@@ -178,11 +186,28 @@ impl App {
         ASPECTS[index].1.map(|a| if a == 0.0 { view.shown.width as f64 / view.shown.height.max(1) as f64 } else { a })
     }
 
+    /// Crops the picture on screen to `r`, in its pixels.
+    pub(super) fn crop_to(&mut self, r: crop::Rect) -> Task<Message> {
+        let Some(size) = self.base_size() else { return Task::none() };
+        let Doc::Image(view) = &self.doc else { return Task::none() };
+        let edits = view.edit.edits;
+        let (x, y) = (r.x.round().max(0.0) as u32, r.y.round().max(0.0) as u32);
+        let rect = CropRect { x, y, w: (r.w.round() as u32).max(1), h: (r.h.round() as u32).max(1) };
+        let (w, h) = edits.size(size);
+        if rect.x == 0 && rect.y == 0 && rect.w >= w && rect.h >= h {
+            return Task::none();
+        }
+        let rect = CropRect { w: rect.w.min(w - x.min(w - 1)), h: rect.h.min(h - y.min(h - 1)), ..rect };
+        self.apply_step(edits.crop(size, rect))
+    }
+
     /// Records `step` and shows its result; markup follows it.
     fn apply_step(&mut self, step: Step) -> Task<Message> {
         if step.before == step.after {
             return Task::none();
         }
+        // What was selected is elsewhere now.
+        self.region = None;
         if let Some(marks) = &mut self.marks {
             step.forward.iter().for_each(|c| marks.apply(*c));
         }
@@ -266,12 +291,34 @@ impl App {
                     return Task::none();
                 }
                 let Doc::Image(view) = &mut self.doc else { return Task::none() };
-                view.edit.rendering = false;
                 if seq == view.edit.seq {
                     match result {
-                        Ok(picture) => view.shown = picture.into(),
-                        Err(e) => return self.toast(trf!("Could not edit the picture: {}", e)),
+                        Ok(picture) => {
+                            let loaded: super::Loaded = picture.into();
+                            let handle = loaded.handle.clone();
+                            return self.uploaded(handle, move |gpu| {
+                                let shown = super::Loaded { gpu, ..loaded };
+                                Message::Edit(EditMsg::Shown(generation, seq, Box::new(shown)))
+                            });
+                        }
+                        Err(e) => {
+                            view.edit.rendering = false;
+                            return self.toast(trf!("Could not edit the picture: {}", e));
+                        }
                     }
+                }
+                let Doc::Image(view) = &mut self.doc else { return Task::none() };
+                view.edit.rendering = false;
+                if std::mem::take(&mut view.edit.again) { self.render_edits() } else { Task::none() }
+            }
+            EditMsg::Shown(generation, seq, loaded) => {
+                if generation != self.generation {
+                    return Task::none();
+                }
+                let Doc::Image(view) = &mut self.doc else { return Task::none() };
+                view.edit.rendering = false;
+                if seq == view.edit.seq {
+                    view.shown = *loaded;
                 }
                 if std::mem::take(&mut view.edit.again) { self.render_edits() } else { Task::none() }
             }
@@ -324,15 +371,7 @@ impl App {
             }
             EditMsg::CropApply => {
                 let Some(state) = self.crop.take() else { return Task::none() };
-                let r = state.rect;
-                let (x, y) = (r.x.round().max(0.0) as u32, r.y.round().max(0.0) as u32);
-                let rect = CropRect { x, y, w: (r.w.round() as u32).max(1), h: (r.h.round() as u32).max(1) };
-                let (w, h) = edits.size(size);
-                if rect.x == 0 && rect.y == 0 && rect.w >= w && rect.h >= h {
-                    return Task::none();
-                }
-                let rect = CropRect { w: rect.w.min(w - x.min(w - 1)), h: rect.h.min(h - y.min(h - 1)), ..rect };
-                self.apply_step(edits.crop(size, rect))
+                self.crop_to(state.rect)
             }
             EditMsg::AdjustOpen => {
                 self.adjust_open = !self.adjust_open;
@@ -508,6 +547,7 @@ impl App {
             ]
             .spacing(8)
             .align_y(Alignment::Center)
+            .wrap()
             .into()
         } else {
             let edit = &view.edit;
@@ -576,6 +616,7 @@ impl App {
             ]
             .spacing(4)
             .align_y(Alignment::Center)
+            .wrap()
             .into()
         };
         container(content).padding([4, 6]).style(style::panel).into()
@@ -722,8 +763,10 @@ impl canvas::Program<Message> for CropOverlay {
                 state.down = true;
                 Some(canvas::Action::publish(Message::Edit(EditMsg::CropPress(x, y))).and_capture())
             }
-            mouse::Event::CursorMoved { position } if state.down => {
-                let (x, y) = self.to_doc(*position - Vector::new(bounds.x, bounds.y));
+            mouse::Event::CursorMoved { .. } if state.down => {
+                // Not the event's position: that does not know how far the view is scrolled.
+                let position = cursor.land().position()?;
+                let (x, y) = self.to_doc(position - Vector::new(bounds.x, bounds.y));
                 Some(canvas::Action::publish(Message::Edit(EditMsg::CropDrag(x, y))))
             }
             mouse::Event::ButtonReleased(mouse::Button::Left) if state.down => {

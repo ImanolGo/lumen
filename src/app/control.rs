@@ -144,6 +144,7 @@ impl App {
         use super::edit::EditMsg;
         use super::menu::{Dialog, Menu};
         use super::pages::PagesMsg;
+        use super::region::RegionMsg;
         use super::signature::SignMsg;
         use super::{Confirm, ExportMsg, SidebarTab, chooser::Purpose};
         let message = match what {
@@ -169,6 +170,16 @@ impl App {
             "resize" => Message::Edit(EditMsg::ResizeOpen),
             "adjust" => Message::Edit(EditMsg::AdjustOpen),
             "organise" => Message::Pages(PagesMsg::Open),
+            "region" => {
+                let drag = [(60.0, 40.0), (260.0, 190.0)];
+                let _ = self.region_update(RegionMsg::Press(drag[0].0, drag[0].1));
+                let _ = self.region_update(RegionMsg::Drag(drag[1].0, drag[1].1));
+                return Some(self.region_update(RegionMsg::Release));
+            }
+            "discard" => {
+                self.confirm = Some(Confirm::Discard);
+                return Some(Task::none());
+            }
             "pages-tab" => Message::SidebarTab(SidebarTab::Pages),
             "chooser" => return Some(App::ask_for_files(Purpose::OpenFiles, None)),
             "print" => {

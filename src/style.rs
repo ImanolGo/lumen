@@ -520,6 +520,11 @@ pub fn menu_item(theme: &Theme, status: button::Status) -> button::Style {
     }
 }
 
+/// The thumb of the main view's scrollbars.
+pub fn scroll_thumb(theme: &Theme, active: bool) -> Color {
+    wash(theme, if active { 0.35 } else { 0.18 })
+}
+
 /// A thin, quiet scrollbar that shows itself more when used.
 pub fn scrollbar(theme: &Theme, status: iced::widget::scrollable::Status) -> iced::widget::scrollable::Style {
     use iced::widget::scrollable::{AutoScroll, Rail, Scroller, Status, Style};

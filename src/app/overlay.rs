@@ -183,13 +183,15 @@ impl canvas::Program<Message> for Overlay<'_> {
                         .and_capture(),
                 )
             }
-            mouse::Event::CursorMoved { position } if state.dragging => {
-                let (x, y) = self.to_doc(*position - Vector::new(bounds.x, bounds.y));
+            mouse::Event::CursorMoved { .. } if state.dragging => {
+                // Not the event's position: that does not know how far the view is scrolled.
+                let position = cursor.land().position()?;
+                let (x, y) = self.to_doc(position - Vector::new(bounds.x, bounds.y));
                 Some(canvas::Action::publish(Message::Markup(MarkupMsg::Drag { x, y })))
             }
             mouse::Event::ButtonReleased(mouse::Button::Left) if state.dragging => {
                 state.dragging = false;
-                let position = cursor.position()?;
+                let position = cursor.land().position()?;
                 let (x, y) = self.to_doc(position - Vector::new(bounds.x, bounds.y));
                 Some(canvas::Action::publish(Message::Markup(MarkupMsg::Release { x, y })))
             }
@@ -241,6 +243,40 @@ impl canvas::Program<Message> for Overlay<'_> {
                 None if self.hits(x, y) => mouse::Interaction::Grab,
                 None => mouse::Interaction::None,
             },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iced::widget::canvas::Program;
+
+    #[test]
+    fn a_stroke_on_a_scrolled_page_follows_the_pointer() {
+        let overlay = Overlay {
+            page: 0,
+            zoom: 2.0,
+            layer: None,
+            draft: None,
+            selected: None,
+            hidden: None,
+            capture: Capture::All,
+            over_text: false,
+            text_tool: false,
+        };
+        // A page 3000 px down a document scrolled by 2900: its top is 100 px down the window.
+        let bounds = Rectangle::new(Point::new(50.0, 3000.0), Size::new(400.0, 600.0));
+        let seen = |y: f32| Cursor::Available(Point::new(150.0, y + 2900.0));
+        let mut state = State::default();
+        let press = mouse::Event::ButtonPressed(mouse::Button::Left);
+        overlay.update(&mut state, &canvas::Event::Mouse(press), bounds, seen(200.0)).unwrap();
+        // The event says where the pointer is in the window, which is not where it is on the page.
+        let moved = mouse::Event::CursorMoved { position: Point::new(150.0, 260.0) };
+        let action = overlay.update(&mut state, &canvas::Event::Mouse(moved), bounds, seen(260.0)).unwrap();
+        match action.into_inner().0 {
+            Some(Message::Markup(MarkupMsg::Drag { x, y })) => assert_eq!((x, y), (50.0, 80.0)),
+            other => panic!("{other:?}"),
         }
     }
 }

@@ -2789,6 +2789,7 @@ dependencies = [
  "hayro",
  "hayro-jpeg2000",
  "iced",
+ "iced_runtime",
  "image",
  "jiff",
  "jpeg-decoder",

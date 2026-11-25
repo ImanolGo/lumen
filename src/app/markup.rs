@@ -462,7 +462,7 @@ impl App {
         let Doc::Pdf(view) = &mut self.doc else { return Task::none() };
         view.doc = doc;
         for slot in &mut view.slots {
-            if let Some((_, scale)) = &mut slot.shown {
+            if let Some((_, scale, _)) = &mut slot.shown {
                 *scale = -1.0;
             }
             slot.pending = None;
@@ -899,12 +899,48 @@ impl App {
         }
     }
 
-    /// What to write into the PDF on screen: unsaved markup and form values.
+    /// Puts the file on screen back to what is saved of it.
+    pub(super) fn discard_changes(&mut self) -> Task<Message> {
+        if self.markup_busy.is_some() {
+            return Task::none();
+        }
+        self.editing = None;
+        self.region = None;
+        if let Some(form) = self.form.take() {
+            let pages = match &self.doc {
+                Doc::Pdf(view) => view.doc.page_count(),
+                _ => 0,
+            };
+            if let Some(path) = self.form_path.take() {
+                self.attach_form(&path, form.form.clone(), pages);
+            }
+        }
+        if let Some(marks) = &mut self.marks {
+            self.editor.cancel(&mut marks.store);
+            let saved = marks.saved.clone();
+            marks.store.selection = None;
+            marks.store.set_pages(saved.clone());
+            marks.history = History::new(saved);
+        }
+        let reverted = match &mut self.doc {
+            Doc::Image(view) if view.edit.is_dirty() => {
+                view.edit.revert();
+                // The markup was measured on the picture as it was edited.
+                self.marks = None;
+                self.render_edits()
+            }
+            _ => Task::none(),
+        };
+        let attached = if self.markup_open { self.attach_markup() } else { Task::none() };
+        Task::batch([reverted, attached, self.notice(tr("The changes were discarded"))])
+    }
+
     /// Whether the file a place to save was asked for is not the one on screen any more.
     pub(super) fn asked_for_another(&mut self) -> bool {
         self.save_asked_for.take().is_some_and(|asked| self.current_path() != Some(asked.as_path()))
     }
 
+    /// What to write into the PDF on screen: unsaved markup and form values.
     pub(super) fn pdf_changes(&self) -> Pending {
         let (layers, refs, pages) = match &self.marks {
             Some(m) => (m.store.pages.layers.clone(), m.refs.clone(), m.dirty_pages()),
@@ -1265,7 +1301,12 @@ impl App {
             )
         };
         let save = button(text(save_label).size(13)).padding([6, 14]).style(style::primary).on_press_maybe(save_msg);
-        let mut end = row![text(status).size(12).style(muted), super::tip(save.into(), save_tip)]
+        let discard = button(text(tr("Discard")).size(13))
+            .padding([6, 12])
+            .style(style::secondary)
+            .on_press_maybe((ready && dirty).then_some(Message::Discard));
+        let discard = super::tip(discard.into(), tr("Throw away what is not saved"));
+        let mut end = row![text(status).size(12).style(muted), discard, super::tip(save.into(), save_tip)]
             .spacing(6)
             .align_y(Alignment::Center);
         if is_pdf || self.picture_in_place().is_some() {
@@ -1281,9 +1322,8 @@ impl App {
         // something selected, a second one for colour and size.
         let main = iced::widget::opaque(
             container(
-                row![tools, separator(), self.style_button(), edit, separator(), end]
-                    .spacing(4)
-                    .align_y(Alignment::Center),
+                // In a narrow window the groups go under each other: nothing is cut off.
+                row![tools, self.style_button(), edit, separator(), end].spacing(4).align_y(Alignment::Center).wrap(),
             )
             .padding([4, 6])
             .style(style::panel),
@@ -1300,6 +1340,13 @@ impl App {
         use super::Confirm;
         let name = self.current_path().map(file_name).unwrap_or_default();
         let (title, body, yes, go, copy) = match confirm {
+            Confirm::Discard => (
+                trf!("Discard the changes to “{}”?", name),
+                tr("What you drew, typed or changed since it was last saved will be gone."),
+                tr("Discard"),
+                Message::Discard,
+                None,
+            ),
             Confirm::Trash => (
                 trf!("Move “{}” to the trash?", name),
                 tr("It has changes that are not saved. They come back only if you undo at once."),

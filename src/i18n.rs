@@ -6,16 +6,30 @@
 //! gettext's; a string with no translation shows in English.
 
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::RwLock;
 
 /// The catalogues Lumen ships: language code and its `.po` text.
 const CATALOGUES: &[(&str, &str)] = &[("es", include_str!("../po/es.po"))];
 
-static CATALOGUE: OnceLock<HashMap<String, String>> = OnceLock::new();
+/// The languages that can be chosen, and what each calls itself.
+pub const LANGUAGES: [(&str, &str); 2] = [("en", "English"), ("es", "Español")];
+
+/// The catalogue in use; none until it is first needed.
+static CATALOGUE: RwLock<Option<HashMap<String, String>>> = RwLock::new(None);
+
+/// Chooses the language (one of [`LANGUAGES`]); empty follows the system.
+pub fn set_language(code: &str) {
+    let catalogue = if code.is_empty() { load() } else { catalogue_for(&[code.to_string()]) };
+    *CATALOGUE.write().unwrap_or_else(|e| e.into_inner()) = Some(catalogue);
+}
 
 /// Translates `text` (English) into the user's language, or returns it as it is.
 pub fn tr(text: &str) -> String {
-    let text = CATALOGUE.get_or_init(load).get(text).map_or(text, String::as_str);
+    if CATALOGUE.read().unwrap_or_else(|e| e.into_inner()).is_none() {
+        set_language("");
+    }
+    let catalogue = CATALOGUE.read().unwrap_or_else(|e| e.into_inner());
+    let text = catalogue.as_ref().and_then(|c| c.get(text)).map_or(text, String::as_str);
     // Labels name their shortcuts.
     crate::platform::keys::show(text)
 }

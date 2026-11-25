@@ -50,6 +50,10 @@ pub struct Settings {
     pub wrap_around: bool,
     /// Minimise and maximise buttons in the header, where the window has no frame.
     pub window_buttons: bool,
+    /// Dragging over a picture selects a part of it (else it moves the picture).
+    pub select_on_drag: bool,
+    /// The interface's language ("en", "es"); empty follows the system.
+    pub language: String,
     /// Use the desktop's thumbnail cache (`~/.cache/thumbnails`) and add to it.
     pub thumbnail_cache: bool,
     /// Megabytes of decoded pictures kept for flipping back and forth.
@@ -71,6 +75,8 @@ impl Default for Settings {
             sandbox: true,
             wrap_around: false,
             window_buttons: false,
+            select_on_drag: true,
+            language: String::new(),
             thumbnail_cache: true,
             cache_mb: 64,
             preload_megapixels: 4,
@@ -129,6 +135,8 @@ impl Settings {
         get(&table, "sandbox", &mut out.sandbox);
         get(&table, "wrap_around", &mut out.wrap_around);
         get(&table, "window_buttons", &mut out.window_buttons);
+        get(&table, "select_on_drag", &mut out.select_on_drag);
+        get(&table, "language", &mut out.language);
         get(&table, "thumbnail_cache", &mut out.thumbnail_cache);
         get(&table, "cache_mb", &mut out.cache_mb);
         get(&table, "preload_megapixels", &mut out.preload_megapixels);
@@ -230,6 +238,8 @@ mod tests {
             sandbox: false,
             wrap_around: true,
             window_buttons: true,
+            select_on_drag: false,
+            language: "es".into(),
             thumbnail_cache: false,
             cache_mb: 128,
             preload_megapixels: 0,

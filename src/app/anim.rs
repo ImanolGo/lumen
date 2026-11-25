@@ -24,6 +24,8 @@ pub struct Anim {
     /// Which cached frame is up, when replaying.
     index: usize,
     current: Option<(image::Handle, Duration)>,
+    /// The frame on screen: the current one once it is on the GPU.
+    shown: Option<(image::Handle, Option<super::Gpu>)>,
     /// Its frames are too large to play.
     too_big: bool,
     /// The next frame was not there in time.
@@ -45,6 +47,7 @@ impl Anim {
             seen: 0,
             index: 0,
             current: None,
+            shown: None,
             too_big: false,
             waiting: false,
             passes: 0,
@@ -55,7 +58,7 @@ impl Anim {
 
     /// The frame to show, if one has arrived.
     pub fn frame(&self) -> Option<&image::Handle> {
-        self.current.as_ref().map(|(h, _)| h)
+        self.shown.as_ref().map(|(h, _)| h)
     }
 
     /// How long until the next look; `None` once it has been played as often as it asks.
@@ -182,7 +185,23 @@ impl App {
                 return self.notice(tr("This animation is too large to play: only its first frame is shown"));
             }
         }
-        Task::none()
+        let Doc::Image(view) = &self.doc else { return Task::none() };
+        let Some(anim) = &view.anim else { return Task::none() };
+        let Some((handle, _)) = anim.current.clone() else { return Task::none() };
+        if anim.shown.as_ref().is_some_and(|(h, _)| h.id() == handle.id()) {
+            return Task::none();
+        }
+        let generation = self.generation;
+        self.uploaded(handle.clone(), move |gpu| Message::FrameReady(generation, handle, gpu))
+    }
+
+    pub(super) fn frame_ready(&mut self, generation: u64, handle: image::Handle, gpu: Option<super::Gpu>) {
+        if generation == self.generation
+            && let Doc::Image(view) = &mut self.doc
+            && let Some(anim) = &mut view.anim
+        {
+            anim.shown = Some((handle, gpu));
+        }
     }
 
     pub(super) fn anim_subscription(&self) -> Subscription<Message> {
@@ -224,6 +243,7 @@ mod tests {
             seen: 0,
             index: 0,
             current: None,
+            shown: None,
             too_big: false,
             waiting: false,
             passes: 0,
@@ -259,7 +279,7 @@ mod tests {
         }
         // The last tick only ends it, with the last frame left on screen.
         assert_eq!(seen, [Some(40), Some(50), Some(40), Some(50), None]);
-        assert!(a.advance() && a.frame().is_some());
+        assert!(a.advance() && a.current.is_some());
         let mut once = anim(vec![frame(40), frame(50), Item::LoopEnd(Some(1)), frame(40)]);
         for _ in 0..5 {
             assert!(once.advance());
@@ -287,7 +307,7 @@ mod tests {
         assert!(a.advance());
         assert!(a.advance()); // nothing new yet
         assert_eq!(a.period(), Some(POLL), "looked for again soon");
-        assert!(a.frame().is_some());
+        assert!(a.current.is_some());
     }
 
     #[test]

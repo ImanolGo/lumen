@@ -55,6 +55,22 @@ fn polyline(points: &[Point]) -> BezPath {
     path
 }
 
+/// A smooth line through drawn points: from the middle of one step to the middle of the next, bent
+/// towards the point between them. It stays inside the points' hull.
+fn smooth(points: &[Point]) -> BezPath {
+    if points.len() < 3 {
+        return polyline(points);
+    }
+    let mut path = BezPath::new();
+    path.move_to(pt(points[0]));
+    path.line_to(pt(points[0]).midpoint(pt(points[1])));
+    for pair in points[1..].windows(2) {
+        path.quad_to(pt(pair[0]), pt(pair[0]).midpoint(pt(pair[1])));
+    }
+    path.line_to(pt(points[points.len() - 1]));
+    path
+}
+
 /// The paths of `a`. Text annotations have none (see [`text`]) unless they have a background.
 pub fn prims(a: &Annotation) -> Vec<Prim> {
     let style = &a.style;
@@ -72,8 +88,8 @@ pub fn prims(a: &Annotation) -> Vec<Prim> {
             let [h1, h2] = arrow_head(*p, *q, style.width);
             vec![line(polyline(&[*p, *q])), line(polyline(&[h1, *q, h2]))]
         }
-        Shape::Freehand(points) => vec![line(polyline(points))],
-        Shape::Ink(strokes) => strokes.iter().map(|s| line(polyline(s))).collect(),
+        Shape::Freehand(points) => vec![line(smooth(points))],
+        Shape::Ink(strokes) => strokes.iter().map(|s| line(smooth(s))).collect(),
         Shape::Highlight(rects) => {
             let mut path = BezPath::new();
             for r in rects {
@@ -118,6 +134,18 @@ pub fn outer_bounds(a: &Annotation) -> Rect {
 mod tests {
     use super::*;
     use crate::annotate::model::Style;
+
+    #[test]
+    fn a_drawn_line_is_smooth_and_keeps_its_ends() {
+        let points = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (20.0, 10.0)].map(|(x, y)| Point::new(x, y));
+        let path = smooth(&points);
+        let els = path.elements();
+        assert!(matches!(els[0], kurbo::PathEl::MoveTo(p) if p == kurbo::Point::ZERO));
+        assert_eq!(els.iter().filter(|e| matches!(e, kurbo::PathEl::QuadTo(..))).count(), 2);
+        assert!(matches!(els.last(), Some(kurbo::PathEl::LineTo(p)) if *p == kurbo::Point::new(20.0, 10.0)));
+        let b = path.bounding_box();
+        assert!(b.x0 >= 0.0 && b.y0 >= 0.0 && b.x1 <= 20.0 && b.y1 <= 10.0, "{b:?}");
+    }
 
     #[test]
     fn every_shape_has_something_to_draw() {

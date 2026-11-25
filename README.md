@@ -52,8 +52,8 @@ The [latest release](https://github.com/ImanolGo/lumen-rs/releases/latest) has t
 | From source | below | works |
 | Arch Linux (AUR) | [`build-aux/aur/`](build-aux/aur/): `lumen-rs` (a release) and `lumen-rs-git` (the latest commit). Try one with `makepkg -si` inside its folder | `lumen-rs-git` builds; not on the AUR yet |
 | Debian and Ubuntu (`.deb`) | on the release page | works |
-| macOS 11 or newer (`.dmg`, Apple silicon and Intel) | on the release page from 0.2 on | new, tried by nobody yet. It is not signed: macOS says it cannot check it. Right-click Lumen → Open, or System Settings → Privacy & Security → Open Anyway |
-| Windows 10 or newer (`.zip`, unpack and run `Lumen.exe`) | on the release page from 0.2 on | new, tried by nobody yet. It is not signed: SmartScreen warns; More info → Run anyway |
+| macOS 11 or newer (`.dmg`, Apple silicon and Intel) | on the release page from 0.2 on | new. It is not signed, so macOS says it could not verify it: click Done, then System Settings → Privacy & Security → Open Anyway (or `xattr -dr com.apple.quarantine /Applications/Lumen.app`) |
+| Windows 10 or newer (`.zip`, unpack and run `Lumen.exe`) | on the release page from 0.2 on | new. It is not signed: SmartScreen warns; More info → Run anyway |
 | Flatpak | [`build-aux/flatpak/`](build-aux/flatpak/) | manifest only, never built |
 
 What works where:

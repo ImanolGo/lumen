@@ -32,6 +32,8 @@ mod pages;
 mod palette;
 mod prefs;
 mod printing;
+mod region;
+mod scroller;
 mod signature;
 mod slideshow;
 #[cfg(test)]
@@ -96,9 +98,6 @@ const MIN_ZOOM: f32 = 0.05;
 const MAX_ZOOM: f32 = 32.0;
 const ZOOM_STEP: f32 = 1.25;
 
-fn scroll_id() -> Id {
-    Id::new("content")
-}
 fn sidebar_id() -> Id {
     Id::new("sidebar")
 }
@@ -275,6 +274,8 @@ pub struct App {
     disk_gone: bool,
     /// The page organiser of the open PDF.
     organizer: Option<Organizer>,
+    /// The part of the picture that is selected.
+    region: Option<region::Region>,
     /// The floating zoom and previous/next controls fade in while the pointer moves over the view.
     controls: iced::Animation<bool>,
     now: Instant,
@@ -335,6 +336,8 @@ pub(crate) enum Confirm {
     Overwrite,
     /// The same, for rearranged pages.
     OverwritePages,
+    /// Throw unsaved changes away.
+    Discard,
 }
 
 /// A zoom change easing in: from one zoom to another, and what to settle on.
@@ -409,9 +412,15 @@ pub struct Viewport {
     height: f32,
 }
 
+/// Keeps a picture on the GPU for as long as it is held.
+#[derive(Debug, Clone)]
+pub(crate) struct Gpu(#[allow(dead_code, reason = "held, not read")] iced_runtime::image::Allocation);
+
 /// A decoded picture plus its GPU-ready handle (kept so re-showing it is free).
 #[derive(Debug, Clone)]
-struct Loaded {
+pub(crate) struct Loaded {
+    #[allow(dead_code, reason = "held, not read")]
+    gpu: Option<Gpu>,
     handle: image::Handle,
     width: u32,
     height: u32,
@@ -421,7 +430,7 @@ struct Loaded {
 impl From<Picture> for Loaded {
     fn from(p: Picture) -> Self {
         let handle = image::Handle::from_rgba(p.width, p.height, p.rgba.clone());
-        Self { handle, width: p.width, height: p.height, picture: p }
+        Self { gpu: None, handle, width: p.width, height: p.height, picture: p }
     }
 }
 
@@ -475,7 +484,8 @@ struct PdfView {
 
 #[derive(Default)]
 struct Slot {
-    shown: Option<(image::Handle, f32)>,
+    /// The page as drawn, the scale it was drawn at, and its place on the GPU.
+    shown: Option<(image::Handle, f32, Option<Gpu>)>,
     pending: Option<f32>,
     /// It could not be rendered: not asked for again.
     failed: bool,
@@ -580,6 +590,10 @@ pub enum Message {
     Unlock,
     /// A rendered page: generation, page, scale, night mode it was drawn for, bitmap.
     PageRendered(u64, usize, f32, bool, Result<Picture, String>),
+    /// A rendered page is on the GPU and can be shown without a flash.
+    PageReady(u64, usize, f32, bool, image::Handle, Option<Gpu>),
+    /// The same for a picture that was opened.
+    PictureReady(u64, PathBuf, Loaded),
     ToggleNight,
     /// A thumbnail, or none; `true` when the file is password-protected and its password not known.
     Thumb(PathBuf, Option<Picture>, bool),
@@ -655,7 +669,11 @@ pub enum Message {
     SlideshowPause,
     SlideshowTick(Instant),
     AnimTick(Instant),
+    /// A frame of an animation is on the GPU.
+    FrameReady(u64, image::Handle, Option<Gpu>),
     OpenWith,
+    /// The size of the screen the window opened on.
+    MonitorSize(Option<iced::Size>),
     DragWindow,
     ToggleMaximise,
     Minimise,
@@ -673,6 +691,9 @@ pub enum Message {
     Form(FormMsg),
     Sign(SignMsg),
     Edit(EditMsg),
+    Region(region::RegionMsg),
+    /// Throw the unsaved changes of the file on screen away (asks first).
+    Discard,
     Pages(PagesMsg),
     /// The pointer moved over the view, or left it.
     Pointer(Point),
@@ -837,6 +858,7 @@ impl App {
             save_asked_for: None,
             disk_gone: false,
             organizer: None,
+            region: None,
             controls: iced::Animation::new(false).duration(Duration::from_millis(180)),
             now: Instant::now(),
             last_pointer: Instant::now(),
@@ -862,6 +884,7 @@ impl App {
         let mut app = app;
         app.prefs = if cfg!(test) { crate::settings::Settings::default() } else { crate::settings::Settings::load() };
         crate::settings::set_portals(app.prefs.portals);
+        crate::i18n::set_language(&app.prefs.language);
         crate::sandbox::set_enabled(app.prefs.sandbox);
         app.show_sidebar = app.prefs.sidebar_open;
         app.night = app.prefs.night_mode;
@@ -1025,16 +1048,12 @@ impl App {
             }
             Message::AreaResized(size) => {
                 self.area = size;
+                self.viewport.height = size.height;
                 self.refit()
             }
             Message::Scrolled(vp) => {
                 self.viewport = vp;
-                let mut page_changed = false;
-                if let Doc::Pdf(view) = &mut self.doc {
-                    let page = view.page_at(vp.y + vp.height * 0.4);
-                    page_changed = page != view.current_page;
-                    view.current_page = page;
-                }
+                let page_changed = self.note_page();
                 let follow = if page_changed { self.follow_in_sidebar() } else { Task::none() };
                 Task::batch([self.request_pages(), follow])
             }
@@ -1075,22 +1094,31 @@ impl App {
                     }
                     return Task::none();
                 }
-                // The picture before it may have been worked on while this one loaded.
-                self.put_aside();
                 match result {
                     Ok(p) => {
                         self.log_opened(&path, "picture");
                         let loaded: Loaded = p.into();
                         self.remember(path.clone(), loaded.clone());
-                        let shown = self.show_picture(path, loaded);
-                        Task::batch([shown, self.attach_markup(), self.preload_neighbours()])
+                        self.show_when_ready(generation, path, loaded)
                     }
                     Err(error) => {
+                        self.put_aside();
                         self.state.forget(&path);
                         self.doc = Doc::Failed { path, error };
                         Task::none()
                     }
                 }
+            }
+            Message::PictureReady(generation, path, loaded) => {
+                if generation != self.generation {
+                    return Task::none();
+                }
+                // The picture before it may have been worked on while this one loaded.
+                self.put_aside();
+                self.viewport.x = 0.0;
+                self.viewport.y = 0.0;
+                let shown = self.show_picture(path, loaded);
+                Task::batch([shown, self.attach_markup(), self.preload_neighbours()])
             }
             Message::Preloaded(path, result) => {
                 self.preloading.remove(&path);
@@ -1134,22 +1162,37 @@ impl App {
                 }
                 let Doc::Pdf(view) = &mut self.doc else { return Task::none() };
                 let Some(slot) = view.slots.get_mut(page) else { return Task::none() };
-                if slot.pending == Some(scale) {
-                    slot.pending = None;
-                }
                 match result {
                     Ok(p) => {
                         if !self.first_view_logged {
                             self.first_view_logged = true;
                             tracing::info!(ms = crate::since_start(), page = page + 1, "first view on screen");
                         }
-                        slot.shown = Some((image::Handle::from_rgba(p.width, p.height, p.rgba.clone()), scale))
+                        // Shown once it is on the GPU; the page as it was stays until then.
+                        let handle = image::Handle::from_rgba(p.width, p.height, p.rgba.clone());
+                        let ready = handle.clone();
+                        return self.uploaded(handle, move |gpu| {
+                            Message::PageReady(generation, page, scale, night, ready, gpu)
+                        });
                     }
                     Err(e) => {
                         tracing::warn!("page {}: {e}", page + 1);
                         slot.failed = true;
+                        slot.pending = None;
                     }
                 }
+                self.request_pages()
+            }
+            Message::PageReady(generation, page, scale, night, handle, gpu) => {
+                if generation != self.generation || night != self.night {
+                    return Task::none();
+                }
+                let Doc::Pdf(view) = &mut self.doc else { return Task::none() };
+                let Some(slot) = view.slots.get_mut(page) else { return Task::none() };
+                if slot.pending == Some(scale) {
+                    slot.pending = None;
+                }
+                slot.shown = Some((handle, scale, gpu));
                 self.request_pages()
             }
             Message::Thumb(path, picture, locked) => {
@@ -1230,8 +1273,13 @@ impl App {
             Message::CopyPicture => {
                 let Doc::Image(view) = &self.doc else { return Task::none() };
                 let picture = view.shown.picture.clone();
+                let part = self.region_pixels();
                 Task::perform(
                     blocking(move || {
+                        let picture = match part {
+                            Some(part) => picture.part(part).ok_or("the selection is not in the picture")?,
+                            None => picture,
+                        };
                         let png = crate::clipboard::encode_png(picture.width, picture.height, &picture.rgba)?;
                         crate::platform::clipboard::copy_png(png)
                     }),
@@ -1388,6 +1436,7 @@ impl App {
                     || self.sign_escape()
                     || self.pages_escape()
                     || self.edit_escape()
+                    || self.region.take().is_some()
                 {
                     Task::none()
                 } else if let Some(task) = self.markup_escape() {
@@ -1404,7 +1453,8 @@ impl App {
                 } else if self.fullscreen {
                     self.set_fullscreen(false)
                 } else {
-                    Task::none()
+                    // Nothing left to close: the markup itself, if it is not saved (asks first).
+                    self.update(Message::Discard)
                 }
             }
             Message::SearchInput(query) => {
@@ -1500,15 +1550,9 @@ impl App {
             }
             Message::PanMove(p) => {
                 let Some(last) = &mut self.pan else { return Task::none() };
-                let task = match *last {
-                    Some(prev) => operation::scroll_by(
-                        scroll_id(),
-                        scrollable::AbsoluteOffset { x: prev.x - p.x, y: prev.y - p.y },
-                    ),
-                    None => Task::none(),
-                };
+                let task = last.map(|prev| (prev.x - p.x, prev.y - p.y));
                 *last = Some(p);
-                task
+                task.map_or_else(Task::none, |(dx, dy)| self.scroll_by(dx, dy))
             }
             Message::PanEnd => {
                 self.pan = None;
@@ -1572,6 +1616,10 @@ impl App {
             Message::SlideshowPause => self.slideshow_pause(),
             Message::SlideshowTick(now) => self.slideshow_tick(now),
             Message::AnimTick(now) => self.anim_tick(now),
+            Message::FrameReady(generation, handle, gpu) => {
+                self.frame_ready(generation, handle, gpu);
+                Task::none()
+            }
             Message::ShowInFolder => {
                 self.menu = None;
                 let Some(path) = self.current_file() else { return Task::none() };
@@ -1589,6 +1637,19 @@ impl App {
             }
             Message::FileActionDone(Ok(())) => Task::none(),
             Message::FileActionDone(Err(e)) => self.toast(e),
+            Message::MonitorSize(size) => match (self.window, size) {
+                // A window larger than the screen would hang over its edge.
+                (Some(id), Some(screen)) => match self.fitted_to(screen) {
+                    Some(size) => {
+                        let left = (screen.width - size.width) / 2.0;
+                        let top = (screen.height - size.height) / 2.0;
+                        let place = window::move_to(id, Point::new(left, top.max(0.0)));
+                        Task::batch([window::resize(id, size), place])
+                    }
+                    None => Task::none(),
+                },
+                _ => Task::none(),
+            },
             Message::DragWindow => self.window.map_or_else(Task::none, window::drag),
             Message::ToggleMaximise => self.window.map_or_else(Task::none, window::toggle_maximize),
             Message::Minimise => self.window.map_or_else(Task::none, |id| window::minimize(id, true)),
@@ -1709,6 +1770,17 @@ impl App {
             Message::Markup(msg) => self.markup_update(msg),
             Message::Form(msg) => self.form_update(msg),
             Message::Sign(msg) => self.sign_update(msg),
+            Message::Region(msg) => self.region_update(msg),
+            Message::Discard => {
+                if self.confirm.take() == Some(Confirm::Discard) {
+                    return self.discard_changes();
+                }
+                let done = self.finish_text();
+                if self.has_unsaved_changes() {
+                    self.confirm = Some(Confirm::Discard);
+                }
+                done
+            }
             Message::Edit(msg) => self.edit_update(msg),
             Message::Pages(msg) => self.pages_update(msg),
             Message::Export(msg) => self.export_update(msg),
@@ -1814,7 +1886,13 @@ impl App {
                     None => Task::none(),
                 };
                 let scale = window::scale_factor(id).map(Message::ScaleFactor);
-                Task::batch([scale, problem])
+                // Where the system places windows itself, it knows best.
+                let monitor = if crate::platform::caps().frameless {
+                    Task::none()
+                } else {
+                    window::monitor_size(id).map(Message::MonitorSize)
+                };
+                Task::batch([scale, problem, monitor])
             }
             window::Event::CloseRequested => self.update(Message::Quit),
             window::Event::Resized(size) if !self.fullscreen => {
@@ -1894,6 +1972,8 @@ impl App {
                 ("c", true, _) if is_pdf => Message::Copy,
                 ("c", true, _) if matches!(self.doc, Doc::Image(_)) => Message::CopyPicture,
                 ("a", true, _) if is_pdf => Message::SelectAll,
+                ("a", true, _) if matches!(self.doc, Doc::Image(_)) => Message::Region(region::RegionMsg::All),
+                ("k", true, _) if self.region.is_some() => Message::Region(region::RegionMsg::Crop),
                 ("g", true, _) if is_pdf => Message::GoToOpen,
                 ("n", true, true) if is_pdf => Message::ToggleNight,
                 ("q" | "w", true, _) => Message::Quit,
@@ -1921,7 +2001,7 @@ impl App {
                 Named::Space if is_pdf => {
                     let screen = self.area.height * 0.9;
                     let y = if modifiers.shift() { -screen } else { screen };
-                    return operation::scroll_by(scroll_id(), scrollable::AbsoluteOffset { x: 0.0, y });
+                    return self.scroll_by(0.0, y);
                 }
                 Named::Enter if modifiers.alt() => Message::ShowProperties,
                 Named::Backspace if !is_pdf => Message::Prev,
@@ -1937,10 +2017,10 @@ impl App {
                 Named::Home => Message::First,
                 Named::End => Message::Last,
                 Named::ArrowDown => {
-                    return operation::scroll_by(scroll_id(), scrollable::AbsoluteOffset { x: 0.0, y: 64.0 });
+                    return self.scroll_by(0.0, 64.0);
                 }
                 Named::ArrowUp => {
-                    return operation::scroll_by(scroll_id(), scrollable::AbsoluteOffset { x: 0.0, y: -64.0 });
+                    return self.scroll_by(0.0, -64.0);
                 }
                 Named::F11 => Message::ToggleFullscreen,
                 Named::F3 if is_pdf => {
@@ -1955,6 +2035,14 @@ impl App {
             _ => return Task::none(),
         };
         self.update(msg)
+    }
+
+    /// The window's size brought down to fit `screen` with its frame and a panel; none if it fits.
+    fn fitted_to(&self, screen: iced::Size) -> Option<iced::Size> {
+        let (w, h) = self.state.window_size().unwrap_or(crate::WINDOW);
+        let (most_w, most_h) = (screen.width - 40.0, screen.height - 110.0);
+        let size = iced::Size::new(w.min(most_w).max(520.0), h.min(most_h).max(360.0));
+        (size.width < w || size.height < h).then_some(size)
     }
 
     fn set_fullscreen(&mut self, on: bool) -> Task<Message> {
@@ -2016,6 +2104,7 @@ impl App {
         self.disk_conflict = false;
         self.disk_gone = false;
         self.crop = None;
+        self.region = None;
         self.resize_form = None;
         self.pending_sign = None;
         self.sign_target = None;
@@ -2043,8 +2132,7 @@ impl App {
             _ => {
                 if let Some(loaded) = self.cached(&path) {
                     self.log_opened(&path, "cached");
-                    let shown = self.show_picture(path, loaded);
-                    Task::batch([shown, self.attach_markup(), self.preload_neighbours()])
+                    self.show_when_ready(generation, path, loaded)
                 } else {
                     // Keep showing the previous picture until the next one is ready, unless
                     // it takes a while; avoids a flash of the spinner when flipping quickly.
@@ -2061,8 +2149,7 @@ impl App {
                 }
             }
         };
-        let reset = operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 });
-        Task::batch([load, reset, self.request_thumbs(), self.reveal_in_sidebar(), self.state_changed()])
+        Task::batch([load, self.request_thumbs(), self.reveal_in_sidebar(), self.state_changed()])
     }
 
     /// Puts what is not saved of the file on screen aside, to be found again when it is shown again.
@@ -2163,7 +2250,6 @@ impl App {
             _ => Task::none(),
         };
         Task::batch([
-            operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 }),
             operation::scroll_to(contents_id(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 }),
             operation::scroll_to(pagelist::list_id(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 }),
             restored,
@@ -2171,6 +2257,11 @@ impl App {
             self.request_pages(),
             self.start_search(),
         ])
+    }
+
+    fn show_when_ready(&mut self, generation: u64, path: PathBuf, loaded: Loaded) -> Task<Message> {
+        let handle = loaded.handle.clone();
+        self.uploaded(handle, move |gpu| Message::PictureReady(generation, path, Loaded { gpu, ..loaded }))
     }
 
     /// Shows a decoded picture, with any edits it had when it was left.
@@ -2500,6 +2591,45 @@ impl App {
         }
     }
 
+    /// Which page is in view now; whether that is another one than before.
+    fn note_page(&mut self) -> bool {
+        let vp = self.viewport;
+        let Doc::Pdf(view) = &mut self.doc else { return false };
+        let page = view.page_at(vp.y + vp.height * 0.4);
+        std::mem::replace(&mut view.current_page, page) != page
+    }
+
+    /// Scrolls the picture or the PDF.
+    fn scroll_by(&mut self, dx: f32, dy: f32) -> Task<Message> {
+        let content = match &self.doc {
+            Doc::Image(v) => {
+                let zoom = v.zoom.unwrap_or_else(|| self.image_fit_zoom(v));
+                iced::Size::new(v.shown.width as f32 * zoom, v.shown.height as f32 * zoom)
+            }
+            Doc::Pdf(v) => iced::Size::new(v.content_width(), v.tops.last().copied().unwrap_or(0.0)),
+            _ => return Task::none(),
+        };
+        let to = iced::Vector::new(self.viewport.x + dx, self.viewport.y + dy);
+        let to = scroller::clamped(to, content, self.area);
+        self.update(Message::Scrolled(Viewport { x: to.x, y: to.y, ..self.viewport }))
+    }
+
+    /// Has `handle` put on the GPU, and then sends `then`: what is drawn before it is there is drawn
+    /// as nothing at all, which shows as a flash. Without a window there is nothing to wait for.
+    fn uploaded(
+        &mut self,
+        handle: image::Handle,
+        then: impl FnOnce(Option<Gpu>) -> Message + Send + 'static,
+    ) -> Task<Message> {
+        if self.window.is_none() {
+            return self.update(then(None));
+        }
+        let mut then = Some(then);
+        iced_runtime::image::allocate(handle)
+            .map(move |r| then.take().map(|then| then(r.ok().map(Gpu))))
+            .and_then(Task::done)
+    }
+
     fn set_image_zoom(&mut self, zoom: Option<f32>) -> Task<Message> {
         self.set_image_zoom_at(zoom, None)
     }
@@ -2536,7 +2666,7 @@ impl App {
         let y = (py * new + top - a.y).clamp(0.0, (h * new - area.height).max(0.0));
         self.viewport.x = x;
         self.viewport.y = y;
-        operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x, y })
+        Task::none()
     }
 
     fn set_pdf_zoom(&mut self, zoom: f32, fit: PdfFit) -> Task<Message> {
@@ -2565,7 +2695,8 @@ impl App {
         self.viewport.y = y;
         self.viewport.x = x;
         let pages = if render { self.request_pages() } else { Task::none() };
-        Task::batch([operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x, y }), pages])
+        self.note_page();
+        pages
     }
 
     /// Re-applies "fit" zoom after the window or the chrome changed size.
@@ -2586,11 +2717,7 @@ impl App {
         view.current_page = page;
         let y = (view.tops[page] - PAGE_GAP / 2.0).max(0.0);
         self.viewport.y = y;
-        Task::batch([
-            operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x: None, y: Some(y) }),
-            self.request_pages(),
-            self.follow_in_sidebar(),
-        ])
+        Task::batch([self.request_pages(), self.follow_in_sidebar()])
     }
 
     /// Keeps the sidebar's contents or page list on the page in view.
@@ -2678,11 +2805,7 @@ impl App {
         let x = (to.across * view.zoom).max(0.0);
         self.viewport.y = y;
         self.viewport.x = x;
-        Task::batch([
-            operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x, y }),
-            self.request_pages(),
-            self.follow_in_sidebar(),
-        ])
+        Task::batch([self.request_pages(), self.follow_in_sidebar()])
     }
 
     fn go_to_point(&mut self, page: usize, point: Option<(f32, f32)>) -> Task<Message> {
@@ -2696,11 +2819,7 @@ impl App {
         let x = (left + x * view.zoom - area.width / 2.0).max(0.0);
         self.viewport.y = y;
         self.viewport.x = x;
-        Task::batch([
-            operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x, y }),
-            self.request_pages(),
-            self.follow_in_sidebar(),
-        ])
+        Task::batch([self.request_pages(), self.follow_in_sidebar()])
     }
 
     /// Copies the selected text to the clipboard (or the primary selection). Pages whose text
@@ -2782,7 +2901,7 @@ impl App {
         let x = if x0 < vp.x || x1 > vp.x + area.width { ((x0 + x1) / 2.0 - area.width / 2.0).max(0.0) } else { vp.x };
         self.viewport.y = y;
         self.viewport.x = x;
-        Task::batch([operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x, y }), self.request_pages()])
+        self.request_pages()
     }
 
     /// Asks the render threads for the visible pages (and one either side) at
@@ -2805,7 +2924,7 @@ impl App {
         let order = visible.clone().chain([lo, hi].into_iter().filter(|i| !visible.contains(i)));
         for i in order {
             let slot = &mut view.slots[i];
-            let good = slot.shown.as_ref().is_some_and(|(_, s)| (s / wanted - 1.0).abs() < 0.02);
+            let good = slot.shown.as_ref().is_some_and(|(_, s, _)| (s / wanted - 1.0).abs() < 0.02);
             if good || slot.failed || slot.pending == Some(wanted) {
                 continue;
             }
@@ -2830,6 +2949,12 @@ impl App {
         for (i, slot) in view.slots.iter_mut().enumerate() {
             if (i + 6 < lo || i > hi + 6) && slot.shown.is_some() {
                 slot.shown = None;
+            }
+            // Only what is drawn needs its place on the GPU.
+            if (i + 2 < lo || i > hi + 2)
+                && let Some((.., gpu)) = &mut slot.shown
+            {
+                *gpu = None;
             }
         }
         Task::batch(tasks)
@@ -2925,6 +3050,10 @@ impl App {
             Some(self.markup_bar())
         } else {
             None
+        };
+        let island = match (island, self.region_bar()) {
+            (Some(tools), Some(region)) => Some(column![tools, region].spacing(8).align_x(Alignment::Center).into()),
+            (tools, region) => tools.or(region),
         };
         if let Some(island) = island.filter(|_| !self.fullscreen) {
             view_area =
@@ -3100,12 +3229,22 @@ impl App {
         }
 
         let mut right = row![].spacing(2).align_y(Alignment::Center);
-        if is_pdf && self.has_unsaved_changes() && !self.markup_open {
+        let saves = is_pdf || self.picture_in_place().is_some();
+        if saves && self.has_unsaved_changes() && !self.markup_open && !self.edit_open {
+            let free = self.markup_busy.is_none();
+            let discard = button(text(tr("Discard")).size(13))
+                .padding([6, 12])
+                .style(style::secondary)
+                .on_press_maybe(free.then_some(Message::Discard));
             let save = button(text(tr("Save")).size(13))
                 .padding([6, 14])
                 .style(style::primary)
-                .on_press_maybe(self.markup_busy.is_none().then_some(Message::Markup(MarkupMsg::Save)));
-            right = right.push(tip(save.into(), tr("Save into the PDF (Ctrl+S)"))).push(space().width(6));
+                .on_press_maybe(free.then_some(Message::Markup(MarkupMsg::Save)));
+            right = right
+                .push(tip(discard.into(), tr("Throw away what is not saved")))
+                .push(space().width(4))
+                .push(tip(save.into(), tr("Save (Ctrl+S)")))
+                .push(space().width(6));
         }
         if is_pdf {
             right = right.push(icon_button(
@@ -3233,15 +3372,16 @@ impl App {
     }
 
     fn pannable<'a>(&self, content: Element<'a, Message>, can_pan: bool) -> Element<'a, Message> {
-        if !can_pan {
-            return content;
+        // Always wrapped: the view keeps its state when there comes to be something to pan.
+        let mut area = mouse_area(content);
+        if can_pan {
+            area = area
+                .on_press(Message::PanStart)
+                .on_release(Message::PanEnd)
+                .on_middle_press(Message::PanStart)
+                .on_middle_release(Message::PanEnd)
+                .interaction(if self.pan.is_some() { mouse::Interaction::Grabbing } else { mouse::Interaction::Grab });
         }
-        let mut area = mouse_area(content)
-            .on_press(Message::PanStart)
-            .on_release(Message::PanEnd)
-            .on_middle_press(Message::PanStart)
-            .on_middle_release(Message::PanEnd)
-            .interaction(if self.pan.is_some() { mouse::Interaction::Grabbing } else { mouse::Interaction::Grab });
         if self.pan.is_some() {
             area = area.on_move(Message::PanMove).on_exit(Message::PanEnd);
         }
@@ -3260,6 +3400,11 @@ impl App {
         let mut layers = stack![picture].width(w).height(h);
         if let Some(crop) = self.crop_layer(zoom, w, h) {
             layers = layers.push(crop);
+        } else if let Some(region) = self.region_layer(zoom, w, h) {
+            for layer in self.markup_layers(0, zoom, w, h) {
+                layers = layers.push(layer);
+            }
+            layers = layers.push(region);
         } else {
             for layer in self.markup_layers(0, zoom, w, h) {
                 layers = layers.push(layer);
@@ -3273,16 +3418,8 @@ impl App {
             .height(h.max(self.area.height))
             .center_x(w.max(self.area.width))
             .center_y(h.max(self.area.height));
-        let scroller = scrollable(canvas)
-            .id(scroll_id())
-            .direction(scrollable::Direction::Both {
-                vertical: scrollable::Scrollbar::new().width(8).scroller_width(6),
-                horizontal: scrollable::Scrollbar::new().width(8).scroller_width(6),
-            })
-            .on_scroll(on_scroll)
-            .style(style::scrollbar)
-            .width(Length::Fill)
-            .height(Length::Fill);
+        let offset = iced::Vector::new(self.viewport.x, self.viewport.y);
+        let scroller = scroller::scroller(canvas, offset, on_scroll);
         let can_pan = w > self.area.width || h > self.area.height;
         self.pannable(scroller.into(), can_pan)
     }
@@ -3301,7 +3438,7 @@ impl App {
             let (pw, ph) = view.doc.page_size(i);
             let (w, h) = (pw * view.zoom, ph * view.zoom);
             let inner: Element<'_, Message> = match &view.slots[i].shown {
-                Some((handle, _)) => image(handle.clone())
+                Some((handle, ..)) => image(handle.clone())
                     .width(w)
                     .height(h)
                     .content_fit(ContentFit::Fill)
@@ -3392,22 +3529,8 @@ impl App {
         let rest = view.tops[n] - (view.tops[hi] + view.doc.page_size(hi).1 * view.zoom);
         pages = pages.push(space().height(rest.max(0.0)));
 
-        let wide = view.content_width() > self.area.width + 1.0;
-        let direction = if wide {
-            scrollable::Direction::Both {
-                vertical: scrollable::Scrollbar::new().width(8).scroller_width(6),
-                horizontal: scrollable::Scrollbar::new().width(8).scroller_width(6),
-            }
-        } else {
-            scrollable::Direction::Vertical(scrollable::Scrollbar::new().width(8).scroller_width(6))
-        };
-        let scroller = scrollable(pages)
-            .id(scroll_id())
-            .direction(direction)
-            .on_scroll(on_scroll)
-            .style(style::scrollbar)
-            .width(Length::Fill)
-            .height(Length::Fill);
+        let offset = iced::Vector::new(self.viewport.x, self.viewport.y);
+        let scroller = scroller::scroller(pages, offset, on_scroll);
         self.pannable(scroller.into(), true)
     }
 
@@ -3871,10 +3994,8 @@ fn placed<'a>(rect: &Rect, zoom: f32, inner: Element<'a, Message>) -> Element<'a
         .into()
 }
 
-fn on_scroll(vp: scrollable::Viewport) -> Message {
-    let offset = vp.absolute_offset();
-    let bounds = vp.bounds();
-    Message::Scrolled(Viewport { x: offset.x, y: offset.y, height: bounds.height })
+fn on_scroll(offset: iced::Vector, view: iced::Size) -> Message {
+    Message::Scrolled(Viewport { x: offset.x, y: offset.y, height: view.height })
 }
 
 fn muted(theme: &Theme) -> text::Style {

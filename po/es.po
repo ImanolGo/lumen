@@ -948,3 +948,48 @@ msgstr "Minimizar"
 
 msgid "Maximise"
 msgstr "Maximizar"
+
+msgid "Copy"
+msgstr "Copiar"
+
+msgid "Clear the selection (Esc)"
+msgstr "Quitar la selección (Esc)"
+
+msgid "Discard"
+msgstr "Descartar"
+
+msgid "Throw away what is not saved"
+msgstr "Descartar lo que no está guardado"
+
+msgid "Save (Ctrl+S)"
+msgstr "Guardar (Ctrl+S)"
+
+msgid "Discard the changes to “{}”?"
+msgstr "¿Descartar los cambios de «{}»?"
+
+msgid "What you drew, typed or changed since it was last saved will be gone."
+msgstr "Se perderá lo que hayas dibujado, escrito o cambiado desde la última vez que se guardó."
+
+msgid "The changes were discarded"
+msgstr "Se han descartado los cambios"
+
+msgid "Language"
+msgstr "Idioma"
+
+msgid "PICTURES"
+msgstr "IMÁGENES"
+
+msgid "Dragging over a picture"
+msgstr "Arrastrar sobre una imagen"
+
+msgid "Selects a part"
+msgstr "Selecciona una parte"
+
+msgid "Moves it"
+msgstr "La mueve"
+
+msgid "Copy the picture, or the selected part"
+msgstr "Copiar la imagen, o la parte seleccionada"
+
+msgid "Select the whole picture, crop to the selection"
+msgstr "Seleccionar toda la imagen, recortar a la selección"
