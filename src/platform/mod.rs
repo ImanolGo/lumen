@@ -7,12 +7,14 @@ mod linux;
 use linux as system;
 
 #[cfg(not(target_os = "linux"))]
-mod other;
+mod desktop;
 #[cfg(not(target_os = "linux"))]
-use other as system;
+use desktop as system;
 
 #[cfg(unix)]
 pub mod unix_fs;
+#[cfg(unix)]
+pub mod unix_print;
 
 pub use system::{clipboard, confine, control, dialogs, dirs, fs, print, shell, startup, thumbs, trash, watch};
 
@@ -30,6 +32,8 @@ pub struct Caps {
     pub direct_print: bool,
     /// A thumbnail cache shared with other programs.
     pub shared_thumbnails: bool,
+    /// Whether to use the desktop's file and print dialogs is the person's choice.
+    pub desktop_dialogs_optional: bool,
     /// Selecting text copies it for a middle click.
     pub primary_selection: bool,
     /// Lumen's header is the window's title bar.

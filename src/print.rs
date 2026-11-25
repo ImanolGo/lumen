@@ -62,12 +62,14 @@ pub fn delete_copies() {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(not(target_os = "linux"), allow(dead_code, reason = "until docs/improvement-plan.md package 7"))]
+#[allow(dead_code, reason = "each system has its own")]
 pub enum Outcome {
     Sent,
     Cancelled,
     /// No print portal answered: print with Lumen's own dialog instead.
     NoPortal,
+    /// Opened in another program, to be printed from there.
+    Opened,
 }
 
 pub const MM_TO_PT: f32 = 72.0 / 25.4;

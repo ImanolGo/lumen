@@ -24,3 +24,8 @@ pub fn window() -> iced::window::settings::PlatformSpecific {
         ..Default::default()
     }
 }
+
+/// The environment says it all here.
+pub fn language() -> Option<String> {
+    None
+}

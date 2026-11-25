@@ -49,6 +49,14 @@ libc = "0.2"
 zbus = { version = "6", default-features = false, features = ["tokio"] }
 wl-clipboard-rs = "0.9.5"
 
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+arboard = { version = "3.7.0", default-features = false, features = ["image-data"] }
+directories = "6.0.0"
+notify = { version = "9.0.0", default-features = false, features = ["macos_fsevent"] }
+rfd = { version = "0.18.0", default-features = false }
+sys-locale = "0.3.2"
+trash = { version = "5.4.0", default-features = false, features = ["coinit_apartmentthreaded"] }
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

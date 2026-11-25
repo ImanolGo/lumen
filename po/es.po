@@ -921,3 +921,9 @@ msgstr "Descodificar las imágenes en un proceso aparte"
 
 msgid "A picture that crashes the decoder costs only that picture. On this system the process is not shut in: it could still reach your files."
 msgstr "Una imagen que haga fallar el descodificador solo se pierde ella. En este sistema el proceso no está aislado: aún podría llegar a tus archivos."
+
+msgid "Opened in another program: print it from there"
+msgstr "Abierto en otro programa: imprímelo desde allí"
+
+msgid "Keep thumbnails for the next time"
+msgstr "Conservar las miniaturas para la próxima vez"

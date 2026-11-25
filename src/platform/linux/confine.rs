@@ -12,6 +12,8 @@ pub fn worker_exe() -> std::io::Result<PathBuf> {
     Ok("/proc/self/exe".into())
 }
 
+pub fn prepare(_command: &mut std::process::Command) {}
+
 /// What a worker's end says about the sandbox, if anything.
 pub fn explain(status: &ExitStatus) -> Option<&'static str> {
     use std::os::unix::process::ExitStatusExt;

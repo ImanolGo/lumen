@@ -118,6 +118,7 @@ fn failed(why: &'static str) -> Failure {
 fn worker_command(mode: &str, path: &Path) -> Result<std::process::Command, Failure> {
     let exe = confine::worker_exe().map_err(|e| Failure::Unavailable(format!("cannot find the decoder: {e}")))?;
     let mut command = std::process::Command::new(exe);
+    confine::prepare(&mut command);
     command.arg("--decode-worker").arg(mode).arg(raster::extension(path));
     Ok(command)
 }

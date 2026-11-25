@@ -52,14 +52,19 @@ fn fill(template: &str, args: &[&str]) -> String {
 }
 
 fn load() -> HashMap<String, String> {
-    let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+    // "SYSTEM" stands for what the system itself says, where programs have no such variables.
+    let env = |k: &str| match k {
+        "SYSTEM" => crate::platform::startup::language(),
+        _ => std::env::var(k).ok().filter(|v| !v.is_empty()),
+    };
     catalogue_for(&languages(env))
 }
 
 /// The languages asked for, best first, the way gettext works it out: the locale is the first of
 /// `LC_ALL`, `LC_MESSAGES` and `LANG` that is set; unless that is "C", `LANGUAGE` overrides it.
 fn languages(env: impl Fn(&str) -> Option<String>) -> Vec<String> {
-    let locale = ["LC_ALL", "LC_MESSAGES", "LANG"].into_iter().find_map(&env).unwrap_or_default();
+    let locale = ["LC_ALL", "LC_MESSAGES", "LANG"].into_iter().find_map(&env);
+    let locale = locale.or_else(|| env("SYSTEM")).unwrap_or_default();
     if is_c(&locale) {
         return Vec::new();
     }
@@ -252,6 +257,7 @@ msgstr "Después"
             assert!(!spanish(&[("LANG", no)]), "{no}");
         }
         assert!(!spanish(&[]));
+        assert!(spanish(&[("SYSTEM", "es_ES")]) && !spanish(&[("SYSTEM", "es_ES"), ("LANG", "en_GB")]));
         // LANGUAGE says it all, unless the locale is C.
         assert!(!spanish(&[("LANGUAGE", "en"), ("LANG", "es_ES.UTF-8")]));
         assert!(spanish(&[("LANGUAGE", "fr:es"), ("LANG", "de_DE.UTF-8")]));

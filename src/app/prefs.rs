@@ -156,6 +156,21 @@ impl App {
                 ),
             )
         };
+        let desktop = caps.desktop_dialogs_optional.then(|| {
+            column![
+            heading(tr("DESKTOP")),
+            toggle(tr("Use the desktop's file and print dialogs"), p.portals, PrefMsg::Portals),
+            text(tr("Without them (or without a portal) Lumen shows its own. LUMEN_THEME and LUMEN_NO_PORTAL in the environment win over these."))
+                .size(11)
+                .style(muted)
+            ]
+            .spacing(8)
+        });
+        let thumbnails = if caps.shared_thumbnails {
+            tr("Share thumbnails with the desktop's cache")
+        } else {
+            tr("Keep thumbnails for the next time")
+        };
         let body = column![
             heading(tr("APPEARANCE")),
             line(tr("Theme"), theme.into()),
@@ -169,20 +184,12 @@ impl App {
             heading(tr("SECURITY")),
             toggle(sandbox, p.sandbox, PrefMsg::Sandbox),
             toggle(tr("Wrap around at the first and last file"), p.wrap_around, PrefMsg::WrapAround),
-            caps.shared_thumbnails.then(|| {
-                toggle(tr("Share thumbnails with the desktop's cache"), p.thumbnail_cache, PrefMsg::ThumbnailCache)
-            }),
-            text(sandbox_note)
-                .size(11)
-                .style(muted),
+            toggle(thumbnails, p.thumbnail_cache, PrefMsg::ThumbnailCache),
+            text(sandbox_note).size(11).style(muted),
             heading(tr("MEMORY AND SPEED")),
             line(tr("Pictures kept decoded"), cache.into()),
             line(tr("Decode neighbours up to"), preload.into()),
-            heading(tr("DESKTOP")),
-            toggle(tr("Use the desktop's file and print dialogs"), p.portals, PrefMsg::Portals),
-            text(tr("Without them (or without a portal) Lumen shows its own. LUMEN_THEME and LUMEN_NO_PORTAL in the environment win over these."))
-                .size(11)
-                .style(muted),
+            desktop,
         ]
         .spacing(8);
         column![

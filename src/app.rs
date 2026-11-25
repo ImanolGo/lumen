@@ -1523,6 +1523,7 @@ impl App {
                 self.printing = false;
                 match result {
                     Ok(Outcome::Sent) => self.notice(tr("Sent to the printer")),
+                    Ok(Outcome::Opened) => self.notice(tr("Opened in another program: print it from there")),
                     Ok(Outcome::Cancelled) => Task::none(),
                     Ok(Outcome::NoPortal) => self.open_print_dialog(job),
                     Err(e) => self.toast(trf!("Could not print: {}", e)),

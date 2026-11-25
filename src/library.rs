@@ -16,6 +16,12 @@ const RASTER: &[&str] = &[
     "ppm", "pam", "jxl", "jp2", "j2k", "j2c", "jpx", "exr",
 ];
 
+/// The endings of every file Lumen opens.
+#[cfg_attr(target_os = "linux", allow(dead_code))]
+pub fn extensions() -> Vec<&'static str> {
+    ["pdf", "svg", "svgz"].iter().chain(RASTER).copied().collect()
+}
+
 impl Kind {
     pub fn of(path: &Path) -> Option<Self> {
         let ext = path.extension()?.to_str()?.to_ascii_lowercase();

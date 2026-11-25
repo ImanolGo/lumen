@@ -28,6 +28,7 @@ pub const CAPS: super::Caps = super::Caps {
     open_with: true,
     direct_print: true,
     shared_thumbnails: true,
+    desktop_dialogs_optional: true,
     primary_selection: true,
     own_title_bar: false,
 };

@@ -5,7 +5,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 ## [Unreleased]
 
 ### Added
-- Lumen compiles on macOS and Windows. There it shows files given on the command line or dropped on it; its dialogs, trash, clipboard, printing and file watching come next.
+- Lumen runs on macOS and Windows, with each system's own file dialogs, trash (with Undo on Windows), clipboard, file watching, folders and language. Printing goes through Lumen's dialog and CUPS on macOS, and through the program that prints PDFs on Windows. The decoder there is a separate process that is not shut in. Nobody has tried these builds by hand yet.
 
 ## [0.1.1] - 2026-11-25
 

@@ -2,7 +2,6 @@
 
 use std::fs::File;
 use std::os::fd::AsFd;
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -10,18 +9,12 @@ use ashpd::desktop::ResponseError;
 use ashpd::desktop::print::{Orientation, PageSetup, PreparePrintOptions, PrintOptions, PrintProxy, Settings};
 
 use crate::library::Kind;
-use crate::print::{Connection, Job, MARGIN, MM_TO_PT, Outcome, Paper, picture_to_pdf, title_of};
+use crate::print::{Job, MARGIN, MM_TO_PT, Outcome, Paper, picture_to_pdf, title_of};
+
+pub use crate::platform::unix_print::connect;
 
 /// Where CUPS listens.
 pub const SOCKETS: [&str; 2] = ["/run/cups/cups.sock", "/var/run/cups/cups.sock"];
-
-/// Connects to a printing service's socket.
-pub fn connect(socket: &Path) -> Result<Box<dyn Connection>> {
-    let s = UnixStream::connect(socket).with_context(|| format!("no printing service at {}", socket.display()))?;
-    s.set_read_timeout(Some(crate::cups::TIMEOUT))?;
-    s.set_write_timeout(Some(crate::cups::TIMEOUT))?;
-    Ok(Box::new(s))
-}
 
 fn cancelled(e: &ashpd::Error) -> bool {
     matches!(e, ashpd::Error::Response(ResponseError::Cancelled))

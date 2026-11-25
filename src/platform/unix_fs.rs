@@ -48,3 +48,8 @@ pub fn sync_dir(dir: &Path) {
 pub(super) fn bytes(path: &Path) -> &[u8] {
     std::os::unix::ffi::OsStrExt::as_bytes(path.as_os_str())
 }
+
+/// Whether a file could not be replaced because another program has it open: never here.
+pub fn in_use(_e: &io::Error) -> bool {
+    false
+}

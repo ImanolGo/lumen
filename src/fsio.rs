@@ -43,7 +43,13 @@ fn replace(path: &Path, durable: bool, fill: impl FnOnce(&mut BufWriter<File>) -
             file.sync_all()?;
         }
         drop(file);
-        std::fs::rename(&temp, &target)?;
+        std::fs::rename(&temp, &target).map_err(|e| {
+            if crate::platform::fs::in_use(&e) {
+                anyhow::Error::new(e).context("another program has it open: close it there")
+            } else {
+                e.into()
+            }
+        })?;
         Ok(())
     })();
     match result {

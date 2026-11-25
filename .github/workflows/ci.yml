@@ -39,6 +39,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked --no-fail-fast
+      - name: The real trash
+        run: cargo test --locked --bin lumen-rs trash -- --ignored
       - run: cargo build --release --locked
       - run: ./target/release/lumen-rs --version
 
