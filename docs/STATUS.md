@@ -1,6 +1,6 @@
 # Status
 
-Where Lumen (Rust/iced) stands, as of 25 November 2026 (version 0.2.0). It is a
+Where Lumen (Rust/iced) stands, as of 25 November 2026 (version 0.3.0). It is a
 ground-up rewrite of the [GTK Lumen](https://github.com/ImanolGo/lumen) 0.4.2, and
 [parity-plan.md](parity-plan.md) is the plan that closes the gap.
 
@@ -8,7 +8,7 @@ ground-up rewrite of the [GTK Lumen](https://github.com/ImanolGo/lumen) 0.4.2, a
 
 Everything on the GTK Lumen's feature list works in some form, except the items under
 [Not there yet](#not-there-yet). It is faster to open files than the GTK Lumen, uses no C library in
-the document path, and decodes pictures in a sandbox. Version 0.2.0 is tagged and published on
+the document path, and decodes pictures in a sandbox. Version 0.3.0 is tagged and published on
 GitHub; it is in no distribution's packages, has been used by no one but its author, and a number of things have only been checked in tests and screenshots, not by
 a person clicking (see [What has not been checked](#what-has-not-been-checked)).
 
@@ -71,9 +71,9 @@ code):
 ## macOS and Windows
 
 The author went through the checklist below by hand on a MacBook Pro and on Windows 11 (in a virtual
-machine) with 0.2.0 on 25 November 2026, all but the two rows marked. It brought up the flicker while
+machine) with 0.2.0 on 25 November 2026, and the last two rows with the build that became 0.3.0. It brought up the flicker while
 zooming, the pen's vertical lines, the missing way to discard markup, Windows' generic window icon and a
-window larger than the screen, all fixed since; **the fixes have not been tried by hand.** What CI does on a real machine of
+window larger than the screen, all were fixed in 0.3.0, and the author confirmed the fixes. What CI does on a real machine of
 each, on every push: the unit tests; a file moved to the real trash (and back, on Windows); noticing
 changes to a file; and the app itself with a window (software rendering), driven over standard
 input: opening and browsing files, searching, passwords, filling in and saving a form, annotating
@@ -90,11 +90,11 @@ The checklist for a person (package 11 of [improvement-plan.md](improvement-plan
 | Markup and Ctrl/⌘+S on a PDF, reopened in another program | tried | tried |
 | Crop a JPEG and save; fill `tests/fixtures/form.pdf`; unlock `encrypted.pdf` (`secret`) | tried | tried |
 | Trash, and undo (Windows) | tried | tried |
-| Copy a picture and paste it elsewhere | **not tried** | **not tried** |
+| Copy a picture and paste it elsewhere | tried | tried |
 | Print to a PDF printer | tried | tried |
 | Switch the system between light and dark; a second screen with another scale | tried | tried |
 | The menu bar, ⌘ labels and ⌘Q with unsaved changes (macOS) | tried | |
-| Spanish (the language is in Preferences from 0.3 on) | **not tried** | **not tried** |
+| Spanish (the language is in Preferences from 0.3 on) | tried | tried |
 
 ## Known issues
 

@@ -3,7 +3,7 @@
 # Builds a tagged release. Before submitting: tag the release (vX.Y.Z), then run
 # `updpkgsums` here and `makepkg --printsrcinfo > .SRCINFO`.
 pkgname=lumen-rs
-pkgver=0.2.0
+pkgver=0.3.0
 pkgrel=1
 pkgdesc='A fast, safe viewer and editor for pictures and PDFs, in pure Rust with iced'
 arch=('x86_64')
