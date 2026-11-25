@@ -1,6 +1,6 @@
 # Status
 
-Where Lumen (Rust/iced) stands, as of 25 November 2026 (version 0.4.0). It is a
+Where Lumen (Rust/iced) stands, as of 25 November 2026 (version 0.5.0). It is a
 ground-up rewrite of the [GTK Lumen](https://github.com/ImanolGo/lumen) 0.4.2, and
 [parity-plan.md](parity-plan.md) is the plan that closes the gap.
 
@@ -8,7 +8,7 @@ ground-up rewrite of the [GTK Lumen](https://github.com/ImanolGo/lumen) 0.4.2, a
 
 Everything on the GTK Lumen's feature list works in some form, except the items under
 [Not there yet](#not-there-yet). It is faster to open files than the GTK Lumen, uses no C library in
-the document path, and decodes pictures in a sandbox. Version 0.4.0 is tagged and published on
+the document path, and decodes pictures in a sandbox. Version 0.5.0 is tagged and published on
 GitHub; it is in no distribution's packages, has been used by no one but its author, and a number of things have only been checked in tests and screenshots, not by
 a person clicking (see [What has not been checked](#what-has-not-been-checked)).
 

@@ -38,6 +38,11 @@
     <control>touch</control>
   </supports>
   <releases>
+    <release version="0.5.0" date="2026-11-25">
+      <description>
+        <p>Tools no longer cover the page, the sidebar can be resized, contents can be folded, a zoom menu, and a Reduce motion preference.</p>
+      </description>
+    </release>
     <release version="0.4.0" date="2026-11-25">
       <description>
         <p>Dialogs whose buttons are always in view, right-click menus, a shorter main menu, one set of controls, page ranges when printing, and hints that go away.</p>
