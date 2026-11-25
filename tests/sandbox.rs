@@ -1,6 +1,8 @@
 //! The sandboxed decoder, tried through the real binary: every format decodes inside it, and
 //! what the sandbox must stop is stopped.
 
+#![cfg(target_os = "linux")]
+
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};

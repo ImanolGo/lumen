@@ -313,7 +313,7 @@ pub struct App {
 struct TrashUndo {
     toast: u64,
     at: usize,
-    item: crate::trash::Trashed,
+    item: crate::platform::trash::Trashed,
     kept: Kept,
 }
 
@@ -657,7 +657,7 @@ pub enum Message {
     /// The question on screen was answered: no.
     ConfirmNo,
     Trash,
-    Trashed(usize, Result<crate::trash::Trashed, String>),
+    Trashed(usize, Result<crate::platform::trash::Trashed, String>),
     UndoTrash,
     Restored(usize, Result<PathBuf, String>),
     FileActionDone(Result<(), String>),
@@ -887,7 +887,7 @@ impl App {
             self.slideshow_subscription(),
             self.anim_subscription(),
             if crate::control::enabled() {
-                Subscription::run(crate::control::requests).map(Message::Control)
+                Subscription::run(crate::platform::control::requests).map(Message::Control)
             } else {
                 Subscription::none()
             },
@@ -897,7 +897,8 @@ impl App {
             // Another program may change the open file: inotify tells us (nothing is polled).
             match self.current_path().map(Path::to_path_buf) {
                 Some(path) if matches!(self.doc, Doc::Image(_) | Doc::Pdf(_)) => {
-                    Subscription::run_with(path, |path| crate::watch::changes(path.clone())).map(Message::FileEvent)
+                    Subscription::run_with(path, |path| crate::platform::watch::changes(path.clone()))
+                        .map(Message::FileEvent)
                 }
                 _ => Subscription::none(),
             },
@@ -1214,7 +1215,7 @@ impl App {
                 Task::perform(
                     blocking(move || {
                         let png = crate::clipboard::encode_png(picture.width, picture.height, &picture.rgba)?;
-                        crate::clipboard::copy_png(png)
+                        crate::platform::clipboard::copy_png(png)
                     }),
                     |r| Message::PictureCopied(r.and_then(|r| r)),
                 )
@@ -1243,7 +1244,7 @@ impl App {
                 }
             }
             Message::GoTo(Target::Uri(uri)) => Task::perform(
-                async move { crate::portal::open_uri(uri).await.map_err(err_string) },
+                async move { crate::platform::shell::open_uri(uri).await.map_err(err_string) },
                 Message::LinkOpened,
             ),
             Message::LinkOpened(Ok(())) => Task::none(),
@@ -1337,6 +1338,9 @@ impl App {
             }
             Message::Copied(text, primary) => {
                 if primary {
+                    if !crate::platform::caps().primary_selection {
+                        return Task::none();
+                    }
                     iced::clipboard::write_primary(text)
                 } else {
                     iced::clipboard::write(text)
@@ -1501,9 +1505,10 @@ impl App {
                 self.printing = true;
                 fn send(job: print::Job) -> Task<Message> {
                     let path = job.path.clone();
-                    Task::perform(async move { print::print(path).await.map_err(err_string) }, move |r| {
-                        Message::Printed(job.clone(), r)
-                    })
+                    Task::perform(
+                        async move { crate::platform::print::print(path).await.map_err(err_string) },
+                        move |r| Message::Printed(job.clone(), r),
+                    )
                 }
                 if let Some(copy) = self.printable_copy() {
                     // Print what is on screen, unsaved markup included.
@@ -1551,14 +1556,15 @@ impl App {
             Message::ShowInFolder => {
                 self.menu = None;
                 let Some(path) = self.current_file() else { return Task::none() };
-                Task::perform(async move { crate::portal::show_in_folder(path).await.map_err(err_string) }, |r| {
-                    Message::FileActionDone(r)
-                })
+                Task::perform(
+                    async move { crate::platform::shell::show_in_folder(path).await.map_err(err_string) },
+                    Message::FileActionDone,
+                )
             }
             Message::OpenWith => {
                 self.menu = None;
                 let Some(path) = self.current_file() else { return Task::none() };
-                Task::perform(async move { crate::portal::open_with(path).await.map_err(err_string) }, |r| {
+                Task::perform(async move { crate::platform::shell::open_with(path).await.map_err(err_string) }, |r| {
                     Message::FileActionDone(r)
                 })
             }
@@ -1578,7 +1584,7 @@ impl App {
                 }
                 let Some(path) = self.current_file() else { return Task::none() };
                 let index = self.current;
-                Task::perform(blocking(move || crate::trash::trash(&path).map_err(err_string)), move |r| {
+                Task::perform(blocking(move || crate::platform::trash::trash(&path).map_err(err_string)), move |r| {
                     Message::Trashed(index, r.and_then(|r| r))
                 })
             }
@@ -1634,7 +1640,9 @@ impl App {
                 self.stash_edits.extend(kept.edit.map(|e| (path.clone(), e)));
                 self.stash_pages.extend(kept.pages.map(|p| (path.clone(), p)));
                 Task::perform(
-                    blocking(move || crate::trash::restore(&item).map(|()| item.original).map_err(err_string)),
+                    blocking(move || {
+                        crate::platform::trash::restore(&item).map(|()| item.original).map_err(err_string)
+                    }),
                     move |r| Message::Restored(index, r.and_then(|r| r)),
                 )
             }
@@ -2229,7 +2237,8 @@ impl App {
             self.thumbs.insert(path.clone(), None);
             self.thumbs_running += 1;
             let password = self.passwords.get(&path).cloned();
-            let cache = if self.prefs.thumbnail_cache && !cfg!(test) { crate::thumbcache::base_dir() } else { None };
+            let cache =
+                if self.prefs.thumbnail_cache && !cfg!(test) { crate::platform::thumbs::shared_cache() } else { None };
             tasks.push(Task::perform(
                 {
                     let path = path.clone();
@@ -2842,7 +2851,7 @@ fn cached_thumbnail(cache: Option<&Path>, path: &Path) -> Option<raster::Picture
 
 /// A folder as shown in the recent list: the home folder is written `~`.
 fn shorten_home(dir: &Path) -> String {
-    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let home = crate::platform::dirs::home();
     match home.as_deref().and_then(|h| dir.strip_prefix(h).ok()) {
         Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
         Some(rest) => format!("~/{}", rest.display()),
@@ -2956,7 +2965,7 @@ impl App {
         if let Some((id, msg, error)) = &self.toast {
             let look = if *error { style::toast_error } else { style::panel };
             let mut line = row![text(msg.as_str()).size(13)].spacing(12).align_y(Alignment::Center);
-            if self.trash_undo.as_ref().is_some_and(|t| t.toast == *id) {
+            if self.trash_undo.as_ref().is_some_and(|t| t.toast == *id && crate::platform::caps().trash_undo) {
                 line = line.push(
                     button(text(tr("Undo")).size(13))
                         .padding([3, 10])

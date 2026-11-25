@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, anyhow};
 
 use crate::animation::{self, Item};
+use crate::platform::confine;
 use crate::raster::{self, Picture};
 
 /// What the worker is asked to do with the picture.
@@ -81,7 +82,7 @@ pub fn run(mode: Mode, path: &Path) -> Result<Picture> {
     if !enabled() || !raster::sandboxable(path) {
         return raster::run_in_process(mode, path);
     }
-    finish(run_worker(worker_command(mode.name(), path), path), mode, path)
+    finish(worker_command(mode.name(), path).and_then(|c| run_worker(c, path)), mode, path)
 }
 
 /// Decodes in the app only when no worker could be shut in at all; never after one has seen the picture.
@@ -114,16 +115,11 @@ fn failed(why: &'static str) -> Failure {
     Failure::Failed(anyhow!(why))
 }
 
-/// The program to start as the worker. `current_exe()` names a deleted file once a package
-/// upgrade has replaced the binary; this link still leads to the running one.
-fn worker_exe() -> &'static Path {
-    Path::new("/proc/self/exe")
-}
-
-fn worker_command(mode: &str, path: &Path) -> std::process::Command {
-    let mut command = std::process::Command::new(worker_exe());
+fn worker_command(mode: &str, path: &Path) -> Result<std::process::Command, Failure> {
+    let exe = confine::worker_exe().map_err(|e| Failure::Unavailable(format!("cannot find the decoder: {e}")))?;
+    let mut command = std::process::Command::new(exe);
     command.arg("--decode-worker").arg(mode).arg(raster::extension(path));
-    command
+    Ok(command)
 }
 
 /// A running worker. A watchdog thread ends it when a deadline passes; dropping this ends it too.
@@ -207,17 +203,15 @@ impl Worker {
         if lock(&self.watch.0).timed_out {
             return failed("the picture took too long to decode");
         }
-        use std::os::unix::process::ExitStatusExt;
-        match (status.signal(), status.code()) {
-            // A system call the sandbox does not allow. That is the sandbox doing its job (or a
-            // bug); either way the picture is not decoded here.
-            (Some(libc::SIGSYS), _) => {
-                failed("the picture tried something the decoder's sandbox does not allow, so it was not opened")
-            }
-            // Only a worker that never got as far as the picture can say that there is no sandbox.
-            (None, Some(EXIT_NO_SANDBOX)) if !ready => Failure::Unavailable("the kernel refused the sandbox".into()),
-            _ => failed("the decoder crashed on this picture"),
+        // Stopped by the sandbox: either way the picture is not decoded here.
+        if let Some(why) = confine::explain(&status) {
+            return failed(why);
         }
+        // Only a worker that never got as far as the picture can say that there is no sandbox.
+        if status.code() == Some(EXIT_NO_SANDBOX) && !ready {
+            return Failure::Unavailable("the kernel refused the sandbox".into());
+        }
+        failed("the decoder crashed on this picture")
     }
 }
 
@@ -256,7 +250,7 @@ fn run_worker(command: std::process::Command, path: &Path) -> Result<Picture, Fa
 /// Decodes the frames of the animation at `path` in the sandbox, over and over, until `emit`
 /// refuses one. False: there is no sandbox here and nothing was decoded.
 pub fn run_frames(path: &Path, emit: &mut dyn FnMut(Item) -> Result<(), ()>) -> bool {
-    match frames_worker(worker_command(FRAMES, path), path, emit) {
+    match worker_command(FRAMES, path).and_then(|c| frames_worker(c, path, emit)) {
         Ok(()) => true,
         Err(Failure::Failed(e)) => {
             tracing::info!("the animation stopped: {e}");
@@ -420,7 +414,7 @@ pub fn worker_main(args: &[String]) -> ! {
     // Only for looking at what the worker does with `gdb`/`strace`.
     let unsandboxed = cfg!(debug_assertions) && args.iter().any(|a| a == "--unsandboxed");
 
-    if !unsandboxed && let Err(e) = enter() {
+    if !unsandboxed && let Err(e) = confine::enter(MAX_MEMORY) {
         let _ = writeln!(std::io::stderr(), "lumen-rs worker: {e}");
         std::process::exit(EXIT_NO_SANDBOX);
     }
@@ -466,10 +460,6 @@ fn self_test(test: &str) -> ! {
         "open" => drop(std::fs::File::open("/etc/hostname")),
         "list" => drop(std::fs::read_dir("/")),
         "socket" => drop(std::net::TcpStream::connect("127.0.0.1:9")),
-        "exec" => drop(std::process::Command::new("/bin/true").status()),
-        "stat" => drop(rustix::fs::stat("/etc/hostname")),
-        "read-other" => drop(rustix::io::read(std::io::stdout(), &mut [0u8; 1])),
-        "dumpable" => drop(rustix::process::dumpable_behavior()),
         // Not for the sandbox to stop: a decoder that panics, hangs, or uses threads.
         "panic" => panic!("selftest"),
         "thread" => {
@@ -481,112 +471,12 @@ fn self_test(test: &str) -> ! {
             std::process::exit(if big.is_err() { 0 } else { 1 });
         }
         "write-file" => drop(std::fs::write("/tmp/lumen-rs-sandbox-escape", b"x")),
+        other if confine::escape(other) => {}
         _ => std::process::exit(2),
     }
     // Still alive: report that, loudly.
     let _ = writeln!(std::io::stderr(), "NOT SANDBOXED");
     std::process::exit(42)
-}
-
-/// Shuts the process in. Landlock removes every file system right (best effort: older
-/// kernels lack it); seccomp then allows only what decoding needs. Seccomp is required.
-fn enter() -> Result<()> {
-    use landlock::{ABI, Access, AccessFs, CompatLevel, Compatible, Ruleset, RulesetAttr};
-    // No file system rights at all, whatever the kernel's ABI knows about.
-    let landlock = Ruleset::default()
-        .set_compatibility(CompatLevel::BestEffort)
-        .handle_access(AccessFs::from_all(ABI::V5))
-        .and_then(|r| r.create())
-        .and_then(|r| r.restrict_self());
-    if let Err(e) = landlock {
-        // Seccomp below still stops file access; Landlock is a second wall.
-        let _ = writeln!(std::io::stderr(), "lumen-rs worker: no Landlock ({e})");
-    }
-    // Best effort: the decoders check sizes themselves, this catches what they miss.
-    let memory = rustix::process::Rlimit { current: Some(MAX_MEMORY), maximum: Some(MAX_MEMORY) };
-    let _ = rustix::process::setrlimit(rustix::process::Resource::As, memory);
-    seccomp()
-}
-
-/// The system calls a decoder needs, found by watching real decodes (see `tests/sandbox.rs`).
-fn allowed_syscalls() -> Vec<i64> {
-    use libc::*;
-    vec![
-        // memory
-        SYS_mmap,
-        SYS_munmap,
-        SYS_mprotect,
-        SYS_mremap,
-        SYS_madvise,
-        SYS_brk,
-        // leaving descriptors alone but for their size and place
-        SYS_close,
-        SYS_fstat,
-        SYS_lseek,
-        // threads and waiting
-        SYS_futex,
-        // answered with ENOSYS, see `seccomp`
-        SYS_clone3,
-        SYS_set_robust_list,
-        SYS_rseq,
-        SYS_sched_yield,
-        SYS_sched_getaffinity,
-        SYS_nanosleep,
-        SYS_clock_nanosleep,
-        SYS_gettid,
-        SYS_getpid,
-        SYS_set_tid_address,
-        // signals (Rust's runtime, panics)
-        SYS_rt_sigaction,
-        SYS_rt_sigprocmask,
-        SYS_rt_sigreturn,
-        SYS_sigaltstack,
-        // time, randomness
-        SYS_clock_gettime,
-        SYS_getrandom,
-        // leaving
-        SYS_exit,
-        SYS_exit_group,
-    ]
-}
-
-fn seccomp() -> Result<()> {
-    use seccompiler::SeccompCmpArgLen::{Dword, Qword};
-    use seccompiler::{BpfProgram, SeccompAction, SeccompCmpOp, SeccompCondition, SeccompFilter, SeccompRule};
-    use std::collections::BTreeMap;
-    let arch: seccompiler::TargetArch =
-        std::env::consts::ARCH.try_into().map_err(|_| anyhow!("no sandbox for this processor"))?;
-    let first = |len, op, value: u64| -> Result<SeccompRule> {
-        Ok(SeccompRule::new(vec![SeccompCondition::new(0, len, op, value)?])?)
-    };
-    let is = |value: u64| first(Dword, SeccompCmpOp::Eq, value);
-
-    let mut rules: BTreeMap<i64, Vec<SeccompRule>> = allowed_syscalls().into_iter().map(|n| (n, vec![])).collect();
-    // Reading is only for the picture, writing for the answer (and a last word on standard error).
-    rules.insert(libc::SYS_read, vec![is(0)?]);
-    rules.insert(libc::SYS_write, vec![is(1)?, is(2)?]);
-    // Threads only: no new processes.
-    let thread = libc::CLONE_THREAD as u64;
-    rules.insert(libc::SYS_clone, vec![first(Qword, SeccompCmpOp::MaskedEq(thread), thread)?]);
-    // Signals only to itself (`abort`).
-    rules.insert(libc::SYS_tgkill, vec![is(u64::from(std::process::id()))?]);
-    // Naming threads, and (newer C libraries) mappings.
-    rules.insert(libc::SYS_prctl, vec![is(libc::PR_SET_NAME as u64)?, is(libc::PR_SET_VMA as u64)?]);
-    let filter: BpfProgram =
-        SeccompFilter::new(rules, SeccompAction::KillProcess, SeccompAction::Allow, arch)?.try_into()?;
-
-    // `clone3` takes its flags in memory, where a filter cannot look. "Not implemented" makes
-    // the C library use `clone`. Of two filters, the kernel takes the stricter answer.
-    let no_clone3: BpfProgram = SeccompFilter::new(
-        BTreeMap::from([(libc::SYS_clone3, vec![])]),
-        SeccompAction::Allow,
-        SeccompAction::Errno(libc::ENOSYS as u32),
-        arch,
-    )?
-    .try_into()?;
-    seccompiler::apply_filter(&no_clone3)?;
-    seccompiler::apply_filter(&filter)?;
-    Ok(())
 }
 
 #[cfg(test)]
@@ -641,6 +531,7 @@ mod tests {
     }
 
     /// A picture that decodes fine, and what comes of it when the worker behaves like `script`.
+    #[cfg(unix)]
     fn with_fake_worker(name: &str, script: &str) -> Result<Picture> {
         let dir = std::env::temp_dir().join(format!("lumen-rs-sandbox-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -654,6 +545,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn only_a_worker_that_could_not_be_shut_in_means_decoding_here() {
         assert_eq!(with_fake_worker("none", "exit 3").unwrap().width, 5);
         // A panic, a cut-off answer, a lie after the sandbox was on, a signal, nonsense: all errors.
@@ -672,6 +564,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_worker_whose_answer_is_refused_does_not_hold_anyone_up() {
         // Sizes over the limit, and then more bytes than the pipe holds.
         let start = Instant::now();
@@ -702,11 +595,5 @@ mod tests {
         let mut huge = vec![ITEM_FRAME];
         huge.extend([0xFF; 12]);
         assert!(matches!(read_item(&mut &huge[..]), Err(ReplyError::Said(_))));
-    }
-
-    #[test]
-    fn the_worker_is_the_running_program_even_if_its_file_was_replaced() {
-        assert_eq!(worker_exe(), Path::new("/proc/self/exe"));
-        assert_eq!(std::fs::canonicalize(worker_exe()).unwrap(), std::env::current_exe().unwrap());
     }
 }

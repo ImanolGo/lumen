@@ -8,6 +8,7 @@ mod animation;
 mod annotate;
 mod app;
 mod clipboard;
+#[cfg_attr(not(target_os = "linux"), allow(dead_code, reason = "until docs/improvement-plan.md package 9"))]
 mod control;
 mod cups;
 mod edit;
@@ -23,7 +24,7 @@ mod merge;
 mod metadata;
 mod pages;
 mod pdf;
-mod portal;
+mod platform;
 mod print;
 mod properties;
 mod raster;
@@ -36,8 +37,6 @@ mod structure;
 mod style;
 mod textfont;
 mod thumbcache;
-mod trash;
-mod watch;
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -62,23 +61,6 @@ Options:
   -h, --help       Show this help
   -V, --version    Show the version";
 
-/// iced asks wgpu for the "high performance" GPU unless `WGPU_POWER_PREF` says otherwise, which on
-/// a laptop means waking the discrete one: measured on the author's machine, that costs about
-/// 140 ms of start-up and 65 to 150 MB more memory for no visible gain in a viewer. The variable
-/// can only be set before the process starts (setting it later needs `unsafe`, which is forbidden),
-/// so Lumen starts itself again once with it set. Set `WGPU_POWER_PREF` (to `high`, say) or
-/// `LUMEN_NO_REEXEC=1` to keep the default.
-fn prefer_integrated_gpu() {
-    use std::os::unix::process::CommandExt;
-    if std::env::var_os("WGPU_POWER_PREF").is_some() || std::env::var_os("LUMEN_NO_REEXEC").is_some() {
-        return;
-    }
-    let Ok(exe) = std::env::current_exe() else { return };
-    // Only returns if the new process could not be started: carry on as we are.
-    let error = std::process::Command::new(exe).args(std::env::args_os().skip(1)).env("WGPU_POWER_PREF", "low").exec();
-    eprintln!("could not restart with the integrated GPU: {error}");
-}
-
 fn main() -> iced::Result {
     STARTED.get_or_init(Instant::now);
     // The sandboxed decoder: a separate, tiny job that must not start the app.
@@ -86,7 +68,7 @@ fn main() -> iced::Result {
         let args: Vec<String> = std::env::args_os().skip(2).map(|a| a.to_string_lossy().into_owned()).collect();
         sandbox::worker_main(&args);
     }
-    prefer_integrated_gpu();
+    platform::startup::before_window();
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -120,10 +102,7 @@ fn main() -> iced::Result {
             min_size: Some(iced::Size::new(520.0, 360.0)),
             // Closing asks first while there is unsaved markup.
             exit_on_close_request: false,
-            platform_specific: iced::window::settings::PlatformSpecific {
-                application_id: "io.github.imanolgo.LumenRs".into(),
-                ..Default::default()
-            },
+            platform_specific: platform::startup::window(),
             ..Default::default()
         })
         .font(include_bytes!("../assets/fonts/Inter-Regular.ttf").as_slice())

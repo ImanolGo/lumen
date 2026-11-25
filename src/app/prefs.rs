@@ -139,6 +139,23 @@ impl App {
                 })
                 .collect(),
         );
+        let caps = crate::platform::caps();
+        // What is said is what is true on this system.
+        let (sandbox, sandbox_note) = if caps.sandbox {
+            (
+                tr("Decode pictures in a sandbox"),
+                tr(
+                    "Each picture is opened by a separate process that can do nothing but decode it. Costs a few milliseconds a picture. LUMEN_NO_SANDBOX=1 turns it off.",
+                ),
+            )
+        } else {
+            (
+                tr("Decode pictures in a separate process"),
+                tr(
+                    "A picture that crashes the decoder costs only that picture. On this system the process is not shut in: it could still reach your files.",
+                ),
+            )
+        };
         let body = column![
             heading(tr("APPEARANCE")),
             line(tr("Theme"), theme.into()),
@@ -150,10 +167,12 @@ impl App {
             heading(tr("SLIDESHOW")),
             line(tr("Time for each picture"), seconds.into()),
             heading(tr("SECURITY")),
-            toggle(tr("Decode pictures in a sandbox"), p.sandbox, PrefMsg::Sandbox),
+            toggle(sandbox, p.sandbox, PrefMsg::Sandbox),
             toggle(tr("Wrap around at the first and last file"), p.wrap_around, PrefMsg::WrapAround),
-            toggle(tr("Share thumbnails with the desktop's cache"), p.thumbnail_cache, PrefMsg::ThumbnailCache),
-            text(tr("Each picture is opened by a separate process that can do nothing but decode it. Costs a few milliseconds a picture. LUMEN_NO_SANDBOX=1 turns it off."))
+            caps.shared_thumbnails.then(|| {
+                toggle(tr("Share thumbnails with the desktop's cache"), p.thumbnail_cache, PrefMsg::ThumbnailCache)
+            }),
+            text(sandbox_note)
                 .size(11)
                 .style(muted),
             heading(tr("MEMORY AND SPEED")),

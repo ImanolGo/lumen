@@ -196,7 +196,9 @@ impl App {
         items.push(Some((tr("Properties…"), "Alt+Enter", doc(Message::ShowProperties))));
         items.push(None);
         items.push(Some((tr("Show in Folder"), "", doc(Message::ShowInFolder))));
-        items.push(Some((tr("Open With…"), "", doc(Message::OpenWith))));
+        if crate::platform::caps().open_with {
+            items.push(Some((tr("Open With…"), "", doc(Message::OpenWith))));
+        }
         items.push(Some((tr("Move to Trash"), "", doc(Message::Trash))));
         items.push(None);
         items.push(Some((tr("Preferences"), "", Some(Message::Dialog(Some(Dialog::Preferences))))));

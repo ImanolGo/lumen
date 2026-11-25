@@ -737,7 +737,7 @@ pub(crate) mod tests {
         let Ok(path) = std::env::var("LUMEN_PDF") else { return };
         let doc = Document::open(Path::new(&path)).unwrap();
         let rss = || {
-            let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+            let status = std::fs::read_to_string(Path::new("/").join("proc/self/status")).unwrap_or_default();
             status.lines().find(|l| l.starts_with("VmRSS")).unwrap_or_default().to_owned()
         };
         for step in 0..120 {

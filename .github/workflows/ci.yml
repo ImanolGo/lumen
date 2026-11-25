@@ -24,6 +24,24 @@ jobs:
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
 
+  # The other systems: it builds, starts and passes its tests there.
+  portable:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked --no-fail-fast
+      - run: cargo build --release --locked
+      - run: ./target/release/lumen-rs --version
+
   # The oldest Rust the crate says it supports (rust-version in Cargo.toml).
   msrv:
     runs-on: ubuntu-latest

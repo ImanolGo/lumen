@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 
 use crate::i18n::tr;
+use crate::platform::NoDialog;
 use anyhow::{Context, Result};
 use ashpd::desktop::ResponseError;
 use ashpd::desktop::file_chooser::{FileFilter, SelectedFiles};
@@ -14,23 +15,11 @@ pub fn disabled() -> bool {
         || !crate::settings::portals_allowed()
 }
 
-/// No portal answered: Lumen shows its own dialog instead.
-#[derive(Debug, Clone, Copy)]
-pub struct NoPortal;
-
-impl std::fmt::Display for NoPortal {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("no file chooser portal is available")
-    }
-}
-
-impl std::error::Error for NoPortal {}
-
-/// Asks the user for files (or one folder). `Ok(empty)` means cancelled; a [`NoPortal`]
+/// Asks the user for files (or one folder). `Ok(empty)` means cancelled; a [`NoDialog`]
 /// error means there is no portal to ask.
 pub async fn choose(folder: bool) -> Result<Vec<PathBuf>> {
     if disabled() {
-        return Err(NoPortal.into());
+        return Err(NoDialog.into());
     }
     let title = if folder { tr("Open Folder") } else { tr("Open Files") };
     let open = tr("Open");
@@ -77,7 +66,7 @@ pub async fn choose(folder: bool) -> Result<Vec<PathBuf>> {
         Err(ashpd::Error::Response(ResponseError::Cancelled)) => return Ok(Vec::new()),
         Err(e) => {
             tracing::info!("the file chooser portal failed ({e}); using Lumen's own");
-            return Err(NoPortal.into());
+            return Err(NoDialog.into());
         }
     };
     Ok(files.uris().iter().filter_map(|uri| uri_to_path(uri.as_str())).collect())
@@ -86,7 +75,7 @@ pub async fn choose(folder: bool) -> Result<Vec<PathBuf>> {
 /// Asks where to save a file, suggesting `suggested` (its folder and name). `Ok(None)` means cancelled.
 pub async fn save_as(suggested: PathBuf) -> Result<Option<PathBuf>> {
     if disabled() {
-        return Err(NoPortal.into());
+        return Err(NoDialog.into());
     }
     let name = suggested.file_name().map(|n| n.to_string_lossy().into_owned());
     let (title, save) = (tr("Save a Copy"), tr("Save"));
@@ -106,7 +95,7 @@ pub async fn save_as(suggested: PathBuf) -> Result<Option<PathBuf>> {
         Err(ashpd::Error::Response(ResponseError::Cancelled)) => Ok(None),
         Err(e) => {
             tracing::info!("the file chooser portal failed ({e}); using Lumen's own");
-            Err(NoPortal.into())
+            Err(NoDialog.into())
         }
     }
 }
@@ -145,7 +134,7 @@ pub async fn open_uri(uri: String) -> Result<()> {
 /// Shows `path` selected in the file manager (`org.freedesktop.FileManager1`), or else opens its
 /// folder with `xdg-open`.
 pub async fn show_in_folder(path: PathBuf) -> Result<()> {
-    let uri = format!("file://{}", crate::trash::encode(std::os::unix::ffi::OsStrExt::as_bytes(path.as_os_str())));
+    let uri = format!("file://{}", super::trash::encode(super::fs::bytes(&path)));
     let asked = async {
         let connection = ashpd::zbus::Connection::session().await?;
         connection

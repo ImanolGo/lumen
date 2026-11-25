@@ -92,6 +92,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(unix)]
     fn a_link_is_browsed_where_it_is() {
         let dir = std::env::temp_dir().join(format!("lumen-rs-links-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);

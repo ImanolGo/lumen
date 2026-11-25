@@ -19,6 +19,7 @@ dependencies (touchpad pinch); see `vendor/README.md`.
 ## Rules the code follows
 
 - **No C in the document path.** New dependencies must be pure Rust. The one exception, libheif for AVIF and HEIC, is an optional cargo feature that is off by default.
+- **Only `src/platform/` names a system.** The rest of the code calls it, and asks `platform::caps()` what to show.
 - **Never block the interface.** Decoding, rendering, searching, saving and exporting run on worker threads or in the decoder process; the UI thread only reacts to messages.
 - **Logic lives outside the widgets.** Geometry, edit operations, the annotation model, page plans and PDF reading and writing are plain modules with unit tests. The `app/` files turn them into messages and views.
 - **One look.** Design tokens are in `src/style.rs`: one surface, floating panels, the amber accent only for what is active, Inter bundled. New UI uses `icon_button`, `tip` and floats its tools as islands.
@@ -50,9 +51,8 @@ dependencies (touchpad pinch); see `vendor/README.md`.
 | `src/style.rs`, `src/icons.rs` | Design tokens, widget styles, symbolic icons |
 | `src/settings.rs`, `src/app/prefs.rs` | Preferences: the settings file, and the dialog |
 | `src/app/commands.rs` | The command palette (Ctrl+Shift+P): the menus' commands, filtered by name |
-| `src/clipboard.rs` | Copying a picture to the clipboard (Wayland data-control, `wl-clipboard-rs`) |
-| `src/thumbcache.rs` | The desktop's thumbnail cache (freedesktop standard): read, write, MD5 naming |
-| `src/watch.rs` | Notices another program changing the open file (inotify on its folder) |
+| `src/clipboard.rs` | Pictures as PNGs for the clipboard |
+| `src/thumbcache.rs` | A shared thumbnail cache (freedesktop standard): read, write, MD5 naming |
 | `src/fsio.rs` | Writing files all at once, private folders and files |
 | `src/state.rs` | What Lumen remembers between runs: window size, recent files, each PDF's page |
 | `src/i18n.rs`, `po/` | Translations: the `.po` reader, `tr()`, the catalogues |
@@ -102,9 +102,10 @@ dependencies (touchpad pinch); see `vendor/README.md`.
 | `src/app/menu.rs` | The header's menus, and the keyboard shortcuts, properties and about dialogs |
 | `src/app/slideshow.rs` | The slideshow |
 | `src/app/chooser.rs`, `src/app/printing.rs` | Lumen's own file chooser and print dialog, for desktops without a portal |
-| `src/portal.rs` | File and folder choosers, opening links, show in folder, open with (XDG portals, D-Bus) |
-| `src/print.rs`, `src/cups.rs` | Printing through the portal; turning pictures into PDFs; printing straight to CUPS (IPP) |
-| `src/trash.rs` | Moving files to the trash and back (freedesktop Trash spec) |
+| `src/platform/mod.rs` | The operating system behind the same functions everywhere (`dirs`, `dialogs`, `shell`, `clipboard`, `watch`, `trash`, `print`, `confine`, `startup`, `thumbs`, `control`, `fs`), and `caps()`: what this system can do |
+| `src/platform/linux/` | Linux: XDG folders, portals, freedesktop trash and thumbnails, inotify, Wayland clipboard, CUPS socket, Landlock and seccomp, D-Bus |
+| `src/platform/other.rs` | macOS and Windows for now: everything answers "not available on this system yet" |
+| `src/print.rs`, `src/cups.rs` | Turning pictures into PDFs to print; printing straight to CUPS (IPP) |
 | `src/control.rs`, `src/app/control.rs` | The control interface on the session bus, and running its commands |
 
 ### Tests and tools

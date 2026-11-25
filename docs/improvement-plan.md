@@ -77,6 +77,9 @@ Ask these in one `AskUserQuestion` call before starting part 2. Part 1 needs non
    needs an Apple Developer account (99 USD a year) and a Windows certificate. Recommended: ship
    unsigned first and document how to open it.
 
+**Answered on 25 November 2026:** 1 allowed (on macOS and Windows only); 2 and 5 the first builds are
+unconfined and unsigned, and say so; 3 one frame per system, as above; 4 the patch is allowed.
+
 ---
 
 # Part 1: fix what is wrong
@@ -736,7 +739,7 @@ say exactly which systems those are.
 | 2 | Saving does not lose or expose data | Done. 2.4's suspected case (recovery without `/Prev`) was not reproduced; the new bytes are checked before writing anyway. Article threads are dropped whole when pages are removed. The new questions (overwrite, trash) were tested by message; the overwrite one was looked at. |
 | 3 | PDF writing keeps what other programs wrote | Done. Embedded text is not shaped (Arabic and Indic scripts come out unjoined). A merged outline goes after the document's own. |
 | 4 | Smaller defects, things that disagree, finish the review | Done, with what the review found added (organiser changes lost silently, late answers, Delete in text boxes, clicks through questions). Render caches measured on the 477-page manual: 311 MB and growing after 120 zoom levels before, 205 MB and flat after. Page rearranging on 200 000 objects: 0.5 s, with as many inserted 1 s (not measured before). Review: the update logic of `app.rs` and the files in `app/` were read for the points listed; the view code was not read line by line. `CLAUDE.md`'s `Co-Authored-By` line is left to the user. |
-| 5 | Platform layer (Linux only) | |
+| 5 | Platform layer (Linux only) | Done. `tools/bench.py` was not run again. |
 | 6 | Compiles on Linux, macOS and Windows; CI on all three | |
 | 7 | Each system's own services | |
 | 8 | Keys, menus and file opening per system | |

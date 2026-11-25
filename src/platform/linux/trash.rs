@@ -58,11 +58,7 @@ fn disk_trash(top: &Path, uid: u32) -> PathBuf {
 
 /// `~/.local/share/Trash` (or under `$XDG_DATA_HOME`).
 fn home_trash() -> Option<PathBuf> {
-    let data = std::env::var_os("XDG_DATA_HOME")
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))?;
-    Some(data.join("Trash"))
+    Some(super::dirs::shared_data()?.join("Trash"))
 }
 
 /// The highest folder on the same disk as `path`.

@@ -49,8 +49,8 @@ fn replace(path: &Path, durable: bool, fill: impl FnOnce(&mut BufWriter<File>) -
     match result {
         Ok(()) => {
             // The rename itself is on the disk only once the folder is.
-            if durable && let Some(Ok(dir)) = folder_of(&target).map(File::open) {
-                let _ = dir.sync_all();
+            if durable && let Some(dir) = folder_of(&target) {
+                crate::platform::fs::sync_dir(dir);
             }
             Ok(())
         }
@@ -82,13 +82,7 @@ fn behind_links(path: &Path) -> PathBuf {
 fn create_beside(target: &Path, mode: Option<&std::fs::Permissions>) -> Result<(PathBuf, File)> {
     for _ in 0..100 {
         let temp = target.with_file_name(format!(".lumen-{}.tmp", unique()));
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        if let Some(mode) = mode {
-            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-            options.mode(mode.mode() & 0o777);
-        }
-        match options.open(&temp) {
+        match crate::platform::fs::new_file(&temp, mode) {
             Ok(file) => return Ok((temp, file)),
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
             Err(e) => return Err(e).context("cannot write there"),
@@ -110,20 +104,14 @@ pub fn unique() -> String {
 
 /// A folder only this user can look into, made new.
 pub fn private_dir(name: &str) -> std::io::Result<PathBuf> {
-    use std::os::unix::fs::DirBuilderExt;
-    let base = std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .filter(|p| p.is_dir())
-        .unwrap_or_else(std::env::temp_dir);
-    let dir = base.join(format!("{name}-{}", unique()));
-    std::fs::DirBuilder::new().mode(0o700).create(&dir)?;
+    let dir = crate::platform::fs::private_temp().join(format!("{name}-{}", unique()));
+    crate::platform::fs::new_private_dir(&dir)?;
     Ok(dir)
 }
 
 /// Writes a file that must not exist yet, for this user only.
 pub fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::os::unix::fs::OpenOptionsExt;
-    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)?;
+    let mut file = crate::platform::fs::new_private_file(path)?;
     file.write_all(bytes)?;
     file.sync_all()
 }
@@ -131,6 +119,7 @@ pub fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use std::os::unix::fs::{PermissionsExt, symlink};
 
     fn temp(name: &str) -> PathBuf {
@@ -148,6 +137,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_linked_file_is_replaced_behind_its_link_and_keeps_its_permissions() {
         let dir = temp("link");
         std::fs::create_dir(dir.join("real")).unwrap();
@@ -200,6 +190,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_private_folder_is_private() {
         let dir = private_dir("lumen-rs-test").unwrap();
         assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);

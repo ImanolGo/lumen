@@ -4,6 +4,9 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Added
+- Lumen compiles on macOS and Windows. There it shows files given on the command line or dropped on it; its dialogs, trash, clipboard, printing and file watching come next.
+
 ## [0.1.1] - 2026-11-25
 
 ### Security

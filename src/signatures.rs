@@ -72,12 +72,8 @@ pub struct Signatures {
 
 impl Signatures {
     pub fn user() -> Self {
-        let data = std::env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .filter(|p| p.is_absolute())
-            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
-            .unwrap_or_else(std::env::temp_dir);
-        Self::load(data.join("lumen").join("signatures.toml"))
+        let data = crate::platform::dirs::data().unwrap_or_else(std::env::temp_dir);
+        Self::load(data.join("signatures.toml"))
     }
 
     pub fn load(path: PathBuf) -> Self {

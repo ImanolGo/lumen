@@ -3,7 +3,7 @@ DESTDIR ?=
 APP_ID := io.github.imanolgo.LumenRs
 BIN := target/release/lumen-rs
 
-.PHONY: all build test lint install uninstall clean
+.PHONY: all build test lint check-all install uninstall clean
 
 all: build
 
@@ -16,6 +16,12 @@ test:
 lint:
 	cargo fmt --check
 	cargo clippy --all-targets --locked -- -D warnings
+
+# The code compiles for every system (no SDK or linker is needed for this).
+check-all:
+	cargo check --locked --all-targets
+	cargo check --locked --all-targets --target x86_64-pc-windows-msvc
+	cargo check --locked --all-targets --target aarch64-apple-darwin
 
 install: build
 	install -Dm755 $(BIN) $(DESTDIR)$(PREFIX)/bin/lumen-rs

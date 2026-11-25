@@ -3,6 +3,8 @@
 //! These open real windows on your desktop, so they only run when asked:
 //! `LUMEN_CONTROL_TESTS=1 cargo test --test control`. (CI has no display to open them on.)
 
+#![cfg(target_os = "linux")]
+
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};

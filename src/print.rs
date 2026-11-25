@@ -6,19 +6,19 @@
 //! itself (see `cups.rs`). PDFs are sent as they are; pictures are first wrapped
 //! into a one-page PDF sized to the paper chosen.
 
-use std::fs::File;
-use std::os::fd::AsFd;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
-use ashpd::desktop::ResponseError;
-use ashpd::desktop::print::{Orientation, PageSetup, PreparePrintOptions, PrintOptions, PrintProxy, Settings};
 use image::codecs::jpeg::JpegEncoder;
 use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref};
 
 use crate::library::Kind;
 use crate::raster;
+
+/// A connection to a printing service.
+pub trait Connection: std::io::Read + std::io::Write {}
+impl<T: std::io::Read + std::io::Write> Connection for T {}
 
 /// What is printed: a file, or a copy made for printing that is deleted when nothing uses it any more.
 #[derive(Debug, Clone)]
@@ -62,6 +62,7 @@ pub fn delete_copies() {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code, reason = "until docs/improvement-plan.md package 7"))]
 pub enum Outcome {
     Sent,
     Cancelled,
@@ -69,65 +70,12 @@ pub enum Outcome {
     NoPortal,
 }
 
-const MM_TO_PT: f32 = 72.0 / 25.4;
+pub const MM_TO_PT: f32 = 72.0 / 25.4;
 /// Pictures are resampled to at most this resolution on paper.
 const PRINT_DPI: f32 = 300.0;
 
-fn cancelled(e: &ashpd::Error) -> bool {
-    matches!(e, ashpd::Error::Response(ResponseError::Cancelled))
-}
-
-fn title_of(path: &Path) -> String {
+pub fn title_of(path: &Path) -> String {
     path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "Document".into())
-}
-
-/// Shows the desktop's print dialog for `path` and, if confirmed, prints it.
-pub async fn print(path: PathBuf) -> Result<Outcome> {
-    if crate::portal::disabled() {
-        return Ok(Outcome::NoPortal);
-    }
-    let title = title_of(&path);
-    let Ok(proxy) = PrintProxy::new().await else { return Ok(Outcome::NoPortal) };
-    let has_pages = Kind::of(&path) == Some(Kind::Pdf);
-    let request = proxy
-        .prepare_print(
-            None,
-            &title,
-            Settings::default(),
-            PageSetup::default(),
-            PreparePrintOptions::default().set_modal(true).set_accept_label("Print").set_has_current_page(has_pages),
-        )
-        .await;
-    let prepared = match request.and_then(|r| r.response()) {
-        Ok(p) => p,
-        Err(e) if cancelled(&e) => return Ok(Outcome::Cancelled),
-        // The portal is there but cannot print (no backend for it): print without it.
-        Err(e) => {
-            tracing::info!("the print portal failed ({e}); printing directly");
-            return Ok(Outcome::NoPortal);
-        }
-    };
-
-    let token = prepared.token;
-    let file = if has_pages {
-        File::open(&path).with_context(|| format!("cannot read {}", path.display()))?
-    } else {
-        let paper = Paper::from_setup(&prepared.page_setup);
-        let src = path.clone();
-        tokio::task::spawn_blocking(move || picture_to_pdf_file(&src, &paper))
-            .await
-            .context("print preparation stopped")??
-    };
-
-    let sent = proxy
-        .print(None, &title, &file.as_fd(), PrintOptions::default().set_token(token).set_modal(true))
-        .await
-        .and_then(|r| r.response());
-    match sent {
-        Ok(()) => Ok(Outcome::Sent),
-        Err(e) if cancelled(&e) => Ok(Outcome::Cancelled),
-        Err(e) => Err(e).context("the print job failed"),
-    }
 }
 
 /// A sheet of paper: its size and margins (top, right, bottom, left) in points.
@@ -139,30 +87,12 @@ pub struct Paper {
 }
 
 /// The margin printers can usually reach, a quarter of an inch.
-const MARGIN: f32 = 6.35 * MM_TO_PT;
+pub const MARGIN: f32 = 6.35 * MM_TO_PT;
 
 impl Paper {
     /// A sheet of `width`×`height` points with the usual margins.
     pub fn sized(width: f32, height: f32) -> Self {
         Self { width, height, margins: [MARGIN; 4] }
-    }
-
-    /// The paper chosen in the portal's dialog, with orientation applied. Defaults to A4.
-    fn from_setup(setup: &PageSetup) -> Self {
-        let mm = |v: Option<f64>, d: f32| v.map(|v| v as f32).filter(|v| *v > 0.0).unwrap_or(d) * MM_TO_PT;
-        let (mut w, mut h) = (mm(setup.width, 210.0), mm(setup.height, 297.0));
-        let landscape = matches!(setup.orientation, Some(Orientation::Landscape) | Some(Orientation::ReverseLandscape));
-        if landscape && w < h || !landscape && w > h && setup.orientation.is_some() {
-            std::mem::swap(&mut w, &mut h);
-        }
-        let margin = |v: Option<f64>| v.map(|v| v as f32 * MM_TO_PT).filter(|v| *v >= 0.0).unwrap_or(MARGIN);
-        let margins = [
-            margin(setup.margin_top),
-            margin(setup.margin_right),
-            margin(setup.margin_bottom),
-            margin(setup.margin_left),
-        ];
-        Self { width: w, height: h, margins }
     }
 }
 
@@ -232,14 +162,6 @@ fn image_to_pdf(mut img: image::RgbImage, paper: &Paper) -> Result<Vec<u8>> {
     Ok(pdf.finish())
 }
 
-/// Writes the picture's PDF to a private temporary file and returns it open,
-/// already unlinked, so nothing is left behind whatever happens next.
-fn picture_to_pdf_file(path: &Path, paper: &Paper) -> Result<File> {
-    let bytes = picture_to_pdf(path, paper)?;
-    let copy = Job::copy("picture.pdf", |path| Ok(crate::fsio::write_new(path, &bytes)?))?;
-    Ok(File::open(&copy.path)?)
-}
-
 /// Prints `path` on `printer` through CUPS, without a portal. Pictures are put on the
 /// job's paper (A4 when it is not known). Blocking.
 pub fn print_direct(path: &Path, printer: &str, job: &crate::cups::Job) -> Result<()> {
@@ -258,6 +180,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(unix)]
     fn a_copy_for_printing_is_private_and_goes_away() {
         use std::os::unix::fs::PermissionsExt;
         let job = Job::copy("secret.pdf", |p| Ok(crate::fsio::write_new(p, b"decrypted")?)).unwrap();
@@ -306,7 +229,7 @@ mod tests {
         let path = dir.join("p.png");
         image::RgbaImage::from_pixel(1200, 800, image::Rgba([200, 0, 0, 128])).save(&path).unwrap();
 
-        let bytes = picture_to_pdf(&path, &Paper::from_setup(&PageSetup::default())).unwrap();
+        let bytes = picture_to_pdf(&path, &Paper::sized(210.0 * MM_TO_PT, 297.0 * MM_TO_PT)).unwrap();
         assert!(bytes.starts_with(b"%PDF-"));
         // The result must be readable by our own PDF engine, and be A4.
         let doc = hayro::hayro_syntax::Pdf::new(std::sync::Arc::new(bytes)).unwrap();

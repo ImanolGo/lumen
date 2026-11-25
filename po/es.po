@@ -915,3 +915,9 @@ msgstr "«{}» está protegido con contraseña"
 
 msgid "“{}” was moved or deleted"
 msgstr "«{}» se ha movido o eliminado"
+
+msgid "Decode pictures in a separate process"
+msgstr "Descodificar las imágenes en un proceso aparte"
+
+msgid "A picture that crashes the decoder costs only that picture. On this system the process is not shut in: it could still reach your files."
+msgstr "Una imagen que haga fallar el descodificador solo se pierde ella. En este sistema el proceso no está aislado: aún podría llegar a tus archivos."

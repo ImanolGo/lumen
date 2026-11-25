@@ -21,6 +21,7 @@ use super::pages::PagesMsg;
 use super::{App, Message, blocking, err_string, file_name, muted};
 use crate::i18n::tr;
 use crate::library::Kind;
+use crate::platform::{NoDialog, dialogs, dirs};
 use crate::{icons, style};
 
 const ROW: f32 = 32.0;
@@ -154,34 +155,6 @@ pub enum ChooserMsg {
     Cancel,
 }
 
-/// The folders offered on the left: home, the usual user folders, the whole computer.
-fn places() -> Vec<(String, PathBuf)> {
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else { return vec![(tr("Computer"), "/".into())] };
-    let mut out = vec![(tr("Home"), home.clone())];
-    // ~/.config/user-dirs.dirs knows the (possibly translated) names.
-    let config = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".config"));
-    let dirs = std::fs::read_to_string(config.join("user-dirs.dirs")).unwrap_or_default();
-    for key in ["DESKTOP", "DOCUMENTS", "DOWNLOAD", "PICTURES"] {
-        let path = dirs
-            .lines()
-            .find_map(|l| l.strip_prefix(&format!("XDG_{key}_DIR=")))
-            .map(|v| PathBuf::from(v.trim_matches('"').replace("$HOME", &home.to_string_lossy())))
-            .unwrap_or_else(|| {
-                home.join(match key {
-                    "DESKTOP" => "Desktop",
-                    "DOCUMENTS" => "Documents",
-                    "DOWNLOAD" => "Downloads",
-                    _ => "Pictures",
-                })
-            });
-        if path.is_dir() && path != home && !out.iter().any(|(_, p)| *p == path) {
-            out.push((file_name(&path), path));
-        }
-    }
-    out.push((tr("Computer"), "/".into()));
-    out
-}
-
 fn list(dir: &Path, purpose: Purpose, hidden: bool) -> Result<Vec<Entry>, String> {
     let mut entries: Vec<Entry> = std::fs::read_dir(dir)
         .map_err(|e| trf!("cannot open {}: {}", dir.display(), e))?
@@ -236,19 +209,17 @@ impl App {
         Task::perform(
             async move {
                 let result = match purpose {
-                    Purpose::OpenFiles | Purpose::InsertPdf => crate::portal::choose(false).await,
-                    Purpose::OpenFolder | Purpose::ExportFolder => crate::portal::choose(true).await,
+                    Purpose::OpenFiles | Purpose::InsertPdf => dialogs::choose(false).await,
+                    Purpose::OpenFolder | Purpose::ExportFolder => dialogs::choose(true).await,
                     Purpose::SaveCopy | Purpose::SavePages | Purpose::Export => match suggested.clone() {
-                        Some(s) => crate::portal::save_as(s).await.map(|p| p.into_iter().collect()),
+                        Some(s) => dialogs::save_as(s).await.map(|p| p.into_iter().collect()),
                         None => Ok(Vec::new()),
                     },
                 };
                 match result {
                     Ok(paths) if purpose.saves() => purpose.answer(paths),
                     Ok(paths) => purpose.answer_many(paths),
-                    Err(e) if e.is::<crate::portal::NoPortal>() => {
-                        Message::Chooser(ChooserMsg::Show(purpose, suggested))
-                    }
+                    Err(e) if e.is::<NoDialog>() => Message::Chooser(ChooserMsg::Show(purpose, suggested)),
                     Err(e) => purpose.failed(err_string(e)),
                 }
             },
@@ -281,7 +252,7 @@ impl App {
                 .filter(|p| p.is_dir())
                 .map(Path::to_path_buf)
                 .or_else(|| self.current_path().and_then(Path::parent).map(Path::to_path_buf))
-                .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
+                .or_else(dirs::home)
                 .unwrap_or_else(|| "/".into());
             self.chooser = Some(Chooser {
                 purpose,
@@ -462,7 +433,7 @@ impl App {
         .align_y(Alignment::Center);
 
         let mut side = column![].spacing(2).width(150);
-        for (name, path) in places() {
+        for (name, path) in dirs::places() {
             let here = path == c.dir;
             side = side.push(
                 button(text(name).size(13).wrapping(text::Wrapping::None))

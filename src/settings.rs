@@ -1,4 +1,4 @@
-//! Preferences, kept in `~/.config/lumen-rs/settings.toml` (or under `$XDG_CONFIG_HOME`).
+//! Preferences, kept in `~/.config/lumen-rs/settings.toml` on Linux.
 //!
 //! The file is read leniently: a missing file, a missing key, an unknown key or a value of
 //! the wrong kind never stops Lumen from starting; each such setting just keeps its default.
@@ -88,11 +88,7 @@ static LOADED: OnceLock<toml::Table> = OnceLock::new();
 impl Settings {
     /// `~/.config/lumen-rs/settings.toml`.
     pub fn path() -> Option<PathBuf> {
-        let base = std::env::var_os("XDG_CONFIG_HOME")
-            .filter(|v| !v.is_empty())
-            .map(PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-        Some(base.join("lumen-rs").join("settings.toml"))
+        Some(crate::platform::dirs::config()?.join("settings.toml"))
     }
 
     pub fn load() -> Self {
@@ -202,6 +198,7 @@ pub fn set_portals(on: bool) {
     PORTALS.store(on, Ordering::Relaxed);
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code, reason = "until docs/improvement-plan.md package 7"))]
 pub fn portals_allowed() -> bool {
     PORTALS.load(Ordering::Relaxed)
 }

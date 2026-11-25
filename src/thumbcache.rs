@@ -6,22 +6,14 @@
 //! changed since) or that looks wrong is ignored, never trusted.
 
 use std::io::Cursor;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
+use crate::platform::thumbs::file_uri;
 use crate::raster::{Picture, THUMB_SIDE};
 
 /// The largest thumbnail read from the cache, so a hostile file in it costs little.
 const MAX_SIDE: u32 = 512;
 const MAX_BYTES: u64 = 4 << 20;
-
-/// `~/.cache/thumbnails` (or under `$XDG_CACHE_HOME`).
-pub fn base_dir() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_CACHE_HOME")
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))?;
-    Some(base.join("thumbnails"))
-}
 
 /// A thumbnail found in the cache for `path`, if there is a good one.
 pub fn read(base: &Path, path: &Path) -> Option<Picture> {
@@ -45,16 +37,15 @@ pub fn write(base: &Path, path: &Path, picture: &Picture, modified: u64) {
 
 fn try_write(base: &Path, path: &Path, picture: &Picture, modified: u64) -> Option<()> {
     use std::io::Write;
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
     let uri = file_uri(path)?;
     let dir = base.join("large");
     // The standard asks for these folders to be private.
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).ok()?;
+    crate::platform::fs::private_dirs(&dir).ok()?;
     let name = format!("{}.png", md5_hex(uri.as_bytes()));
     let png = encode(picture, &uri, modified)?;
     // Written under another name first, so nobody ever reads half a file.
     let temp = dir.join(format!(".{name}.{}.tmp", std::process::id()));
-    let mut out = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temp).ok()?;
+    let mut out = crate::platform::fs::new_private_file(&temp).ok()?;
     if out.write_all(&png).is_err() || std::fs::rename(&temp, dir.join(name)).is_err() {
         let _ = std::fs::remove_file(&temp);
         return None;
@@ -130,26 +121,6 @@ fn decode(bytes: &[u8], uri: &str, modified: u64) -> Option<Picture> {
     Some(Picture { width: frame.width, height: frame.height, original, rgba: rgba.into() })
 }
 
-/// `file:///home/me/a%20b.png`, written the way GLib writes it (so other programs, which
-/// name the thumbnail after the MD5 of this text, find the same file as we do).
-pub fn file_uri(path: &Path) -> Option<String> {
-    use std::os::unix::ffi::OsStrExt;
-    if !path.is_absolute() {
-        return None;
-    }
-    let mut uri = String::from("file://");
-    for &b in path.as_os_str().as_bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => uri.push(b as char),
-            b'/' | b'!' | b'$' | b'&' | b'\'' | b'(' | b')' | b'*' | b'+' | b',' | b';' | b'=' | b':' | b'@' => {
-                uri.push(b as char)
-            }
-            _ => uri.push_str(&format!("%{b:02X}")),
-        }
-    }
-    Some(uri)
-}
-
 /// MD5 (RFC 1321) as lower-case hex. It only names files here; nothing depends on it being hard to forge.
 pub fn md5_hex(data: &[u8]) -> String {
     const S: [u32; 64] = [
@@ -189,7 +160,7 @@ pub fn md5_hex(data: &[u8]) -> String {
     [a0, b0, c0, d0].iter().flat_map(|v| v.to_le_bytes()).map(|b| format!("{b:02x}")).collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
 
@@ -232,7 +203,7 @@ mod tests {
         Picture { width: w, height: h, original: (4000, 3000), rgba: rgba.into() }
     }
 
-    fn temp(name: &str) -> PathBuf {
+    fn temp(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("lumen-thumbcache-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();

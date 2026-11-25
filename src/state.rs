@@ -1,6 +1,6 @@
 //! What Lumen remembers between runs besides the preferences: the size of the window and the
 //! files opened recently, with the page each PDF was left at. Kept in
-//! `~/.local/state/lumen-rs/state.toml` (or under `$XDG_STATE_HOME`). It is only ever a
+//! `~/.local/state/lumen-rs/state.toml` on Linux. It is only ever a
 //! convenience: a missing or damaged file is the same as an empty one.
 
 use std::collections::HashSet;
@@ -53,11 +53,7 @@ fn now() -> u64 {
 impl State {
     /// `~/.local/state/lumen-rs/state.toml`.
     pub fn path() -> Option<PathBuf> {
-        let base = std::env::var_os("XDG_STATE_HOME")
-            .filter(|v| !v.is_empty())
-            .map(PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state")))?;
-        Some(base.join("lumen-rs").join("state.toml"))
+        Some(crate::platform::dirs::state()?.join("state.toml"))
     }
 
     /// Reads the file, noting which recent files are not there.
@@ -211,6 +207,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_path_that_is_not_text_does_not_empty_the_file() {
         use std::os::unix::ffi::OsStrExt;
         let mut s = State { window: Some((1000, 700)), ..State::default() };

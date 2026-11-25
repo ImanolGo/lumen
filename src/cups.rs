@@ -5,13 +5,14 @@
 //! two-sided support, and submits PDF jobs. Blocking; callers run it off the UI thread.
 
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 
-const SOCKETS: [&str; 2] = ["/run/cups/cups.sock", "/var/run/cups/cups.sock"];
-const TIMEOUT: Duration = Duration::from_secs(20);
+use crate::platform::print::{SOCKETS, connect as connect_socket};
+use crate::print::Connection;
+
+pub const TIMEOUT: Duration = Duration::from_secs(20);
 /// Answers bigger than this are not believed (a printer list is a few kilobytes).
 const MAX_RESPONSE: usize = 16 << 20;
 
@@ -212,9 +213,6 @@ fn printers_from(response: &Response) -> Vec<Printer> {
 
 // ---------------------------------------------------------------- transport
 
-trait Stream: Read + Write {}
-impl<T: Read + Write> Stream for T {}
-
 /// Where `CUPS_SERVER` says the printing service is: a socket's path, or a host and port.
 #[derive(Debug, PartialEq)]
 enum Server {
@@ -240,18 +238,15 @@ fn server(setting: &str) -> Option<Server> {
     })
 }
 
-fn connect() -> Result<Box<dyn Stream>> {
-    let timed_tcp = |s: std::net::TcpStream| -> Result<Box<dyn Stream>> {
+fn connect() -> Result<Box<dyn Connection>> {
+    let timed_tcp = |s: std::net::TcpStream| -> Result<Box<dyn Connection>> {
         s.set_read_timeout(Some(TIMEOUT))?;
         s.set_write_timeout(Some(TIMEOUT))?;
         Ok(Box::new(s))
     };
     match std::env::var("CUPS_SERVER").ok().as_deref().and_then(server) {
         Some(Server::Socket(path)) => {
-            let s = UnixStream::connect(&path).with_context(|| format!("no printing service at {}", path.display()))?;
-            s.set_read_timeout(Some(TIMEOUT))?;
-            s.set_write_timeout(Some(TIMEOUT))?;
-            return Ok(Box::new(s));
+            return connect_socket(&path);
         }
         Some(Server::Host(host, port)) => {
             use std::net::ToSocketAddrs;
@@ -264,12 +259,8 @@ fn connect() -> Result<Box<dyn Stream>> {
         }
         None => {}
     }
-    for path in SOCKETS {
-        if let Ok(s) = UnixStream::connect(path) {
-            s.set_read_timeout(Some(TIMEOUT))?;
-            s.set_write_timeout(Some(TIMEOUT))?;
-            return Ok(Box::new(s));
-        }
+    if let Some(stream) = SOCKETS.iter().find_map(|path| connect_socket(std::path::Path::new(path)).ok()) {
+        return Ok(stream);
     }
     let s = std::net::TcpStream::connect_timeout(&([127, 0, 0, 1], 631).into(), Duration::from_secs(2))
         .context("no printing service (CUPS) is running on this computer")?;

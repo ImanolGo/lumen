@@ -268,7 +268,7 @@ msgstr "Después"
     fn nothing_with_words_is_shown_untranslated() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut files: Vec<_> = std::fs::read_dir(dir.join("app")).unwrap().map(|e| e.unwrap().path()).collect();
-        files.extend([dir.join("app.rs"), dir.join("portal.rs")]);
+        files.extend([dir.join("app.rs"), dir.join("platform/linux/portal.rs")]);
         let openers = [
             "text(\"",
             "text(format!(\"",

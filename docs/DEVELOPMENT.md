@@ -19,6 +19,7 @@ RUST_LOG=info cargo run --release -- file.pdf # timing logs
 
 make test      # cargo test --locked
 make lint      # cargo fmt --check, and clippy with warnings as errors
+make check-all                 # type-checks Linux, Windows and macOS (rustup target add x86_64-pc-windows-msvc aarch64-apple-darwin)
 make install PREFIX=$HOME/.local
 ```
 

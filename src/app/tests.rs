@@ -764,7 +764,7 @@ fn trashing_a_file_with_unsaved_changes_asks_and_undo_brings_them_back() {
     let _ = app.update(Message::ConfirmNo);
     assert_eq!(app.confirm, None);
     // It went to the trash: the changes are kept aside, and count as unsaved no longer.
-    let item = crate::trash::Trashed::for_test(path.clone());
+    let item = crate::platform::trash::Trashed::for_test(path.clone());
     let _ = app.update(Message::Trashed(0, Ok(item)));
     assert!(matches!(app.doc, Doc::Empty));
     assert_eq!(app.unsaved_files(), 0);
