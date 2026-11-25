@@ -278,6 +278,10 @@ impl App {
         );
         let combine = pdf(Message::Export(ExportMsg::Combine)).filter(|_| free);
         add("combine", msgid("Combine Files…"), File, Some(Place::Export), &[], combine);
+        if crate::platform::caps().new_windows {
+            let window = file(Message::NewWindow);
+            add("new-window", msgid("Open in New Window"), File, Some(Place::File), &[], window);
+        }
         add("show", msgid("Show in Folder"), File, Some(Place::File), &[], file(Message::ShowInFolder));
         if crate::platform::caps().open_with {
             add("open-with", msgid("Open With…"), File, Some(Place::File), &[], file(Message::OpenWith));

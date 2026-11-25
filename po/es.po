@@ -1065,3 +1065,6 @@ msgstr "Recortar…"
 
 msgid "Discard Changes…"
 msgstr "Descartar los cambios…"
+
+msgid "Open in New Window"
+msgstr "Abrir en una ventana nueva"

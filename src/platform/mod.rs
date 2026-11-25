@@ -49,6 +49,8 @@ pub struct Caps {
     pub title_in_header: bool,
     /// What the header leaves free at its start, for the system's own buttons.
     pub leading_inset: f32,
+    /// Another window is another process (on a Mac that would be another icon in the Dock).
+    pub new_windows: bool,
     /// Dialogs have their main button before Cancel.
     pub confirm_first: bool,
 }

@@ -4,6 +4,9 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Added
+- Linux and Windows: Open in New Window, in the File menu and a sidebar file's right-click menu; Ctrl+click in the sidebar or in Open Recent does the same.
+
 ### Changed
 - A window that opens on a picture is made to fit it: at its own size or smaller, at least 720×480 and at most 80 % of the screen. It stays that size while browsing, and where the system sizes windows itself it is left alone. PDFs and folders open at the remembered size, as before.
 

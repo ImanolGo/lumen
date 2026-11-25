@@ -1265,3 +1265,18 @@ fn the_size_made_for_a_picture_is_not_remembered() {
     let _ = app.update(event(window::Event::Opened { position: None, size: Size::new(640.0, 1400.0) }));
     assert!(app.first_picture.is_none() && app.own_sizes.is_empty());
 }
+
+#[test]
+fn a_file_can_be_opened_in_a_window_of_its_own() {
+    let _inside = runtime().enter();
+    let mut app = opened(0, false);
+    let shown = |app: &App| app.toast.as_ref().map(|t| t.1.clone()).unwrap_or_default();
+    let _ = app.update(Message::Modifiers(iced::keyboard::Modifiers::COMMAND));
+    let _ = app.update(Message::Select(2));
+    let there = crate::platform::caps().new_windows;
+    assert_eq!(app.current, if there { 0 } else { 2 });
+    assert_eq!(shown(&app).ends_with("g.png"), there);
+    let _ = app.update(Message::Modifiers(iced::keyboard::Modifiers::default()));
+    let _ = app.update(Message::Select(1));
+    assert_eq!(app.current, 1);
+}

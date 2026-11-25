@@ -827,6 +827,6 @@ say exactly which systems those are.
 | 20 | What opening a file shows | Done. Showing the folder's list makes it what is browsed. |
 | 21 | A toolbar joined to the header | Done. What is said of a selected part of a picture (Copy, Crop) stays a small island on the view: in the row it would move the picture under the pointer. Rotate, crop, a slider and a click outside its panel were tried with a pointer on an X display. `data/screenshots/` still to be taken again. |
 | 22 | The window's first size | Done. The size is read from the picture's header, not decoded. Looked at on an X display without a window manager; not on Wayland desktops, macOS or Windows. SVGs keep the remembered size. |
-| 23 | A window for each opening | |
+| 23 | A window for each opening | Linux and Windows: done, a process for each window. Tried with a pointer on an X display. A file already open in another window is not brought forward: Wayland gives a program no way to raise another's window, and saving already asks when the file changed on disk. **macOS: not done.** It needs several windows in one process, and iced puts pictures on the GPU of the first window only (`vendor/iced_winit`, `image::Action::Allocate`), so zooming would flicker in the others; the user has to decide whether that copy may be changed. Names of widgets must become per window then, as iced runs focus and scrolling in every window. |
 | 18 | Features: the ones from macOS Preview (all of them, see the list), then those the user picks | |
 | 19 | Confine the decoder on macOS and Windows | |

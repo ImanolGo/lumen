@@ -673,6 +673,8 @@ pub enum Message {
     /// Write the remembered state to disk (a moment after it changed).
     SaveState,
     OpenRecent(PathBuf),
+    /// The file on screen, in a window of its own.
+    NewWindow,
     ClearRecent,
     SearchOpen,
     SearchClose,
@@ -1218,6 +1220,19 @@ impl App {
                 let append = !opened && !self.files.is_empty();
                 if paths.is_empty() { Task::none() } else { expand(paths, append) }
             }
+            // With Ctrl held, in a window of its own (as in a browser).
+            Message::Select(i) if self.wants_window() => match self.files.get(i).cloned() {
+                Some(path) => self.open_window(path),
+                None => Task::none(),
+            },
+            Message::OpenRecent(path) if self.wants_window() => {
+                self.menu = None;
+                self.open_window(path)
+            }
+            Message::NewWindow => match self.current_file() {
+                Some(path) => self.open_window(path),
+                None => Task::none(),
+            },
             Message::Select(i) => self.show(i),
             Message::Next => self.show_if(self.beside(true)),
             Message::Prev => self.show_if(self.beside(false)),
@@ -2251,6 +2266,20 @@ impl App {
             end.copied().filter(|&i| self.prefs.wrap_around && i != self.current)
         };
         self.straight_beside(next).or_else(round)
+    }
+
+    fn wants_window(&self) -> bool {
+        self.modifiers.command() && crate::platform::caps().new_windows
+    }
+
+    fn open_window(&mut self, path: PathBuf) -> Task<Message> {
+        if cfg!(test) {
+            return self.notice(path.display().to_string());
+        }
+        match crate::newwindow::open(&path) {
+            Ok(()) => Task::none(),
+            Err(e) => self.toast(format!("{e:#}")),
+        }
     }
 
     fn show_if(&mut self, index: Option<usize>) -> Task<Message> {

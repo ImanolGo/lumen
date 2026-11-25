@@ -26,6 +26,7 @@ mod library;
 mod lossless;
 mod merge;
 mod metadata;
+mod newwindow;
 mod pages;
 mod pdf;
 mod platform;
