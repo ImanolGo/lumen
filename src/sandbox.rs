@@ -318,7 +318,12 @@ fn read_item(from: &mut impl Read) -> Result<Option<Item>, ReplyError> {
             let picture = Picture { width, height, original: (width, height), rgba: pixels.into() };
             Ok(Some(Item::Frame(picture, Duration::from_micros(u64::from(n(8))))))
         }
-        ITEM_LOOP_END => Ok(Some(Item::LoopEnd)),
+        ITEM_LOOP_END => {
+            let mut plays = [0u8; 4];
+            from.read_exact(&mut plays).map_err(cut)?;
+            let plays = u32::from_le_bytes(plays);
+            Ok(Some(Item::LoopEnd((plays > 0).then_some(plays))))
+        }
         ITEM_TOO_BIG => Ok(Some(Item::TooBig)),
         ITEM_LAST => Ok(None),
         _ => Err(ReplyError::Said(anyhow!("the decoder's answer was damaged"))),
@@ -336,7 +341,10 @@ fn write_item(out: &mut impl Write, item: &Item) -> std::io::Result<()> {
             out.write_all(&head)?;
             out.write_all(&p.rgba)?;
         }
-        Item::LoopEnd => out.write_all(&[ITEM_LOOP_END])?,
+        Item::LoopEnd(plays) => {
+            out.write_all(&[ITEM_LOOP_END])?;
+            out.write_all(&plays.unwrap_or(0).to_le_bytes())?;
+        }
         Item::TooBig => out.write_all(&[ITEM_TOO_BIG])?,
     }
     out.flush()
@@ -678,7 +686,7 @@ mod tests {
     fn frames_round_trip() {
         let mut wire = Vec::new();
         write_item(&mut wire, &Item::Frame(picture(3, 2), Duration::from_millis(40))).unwrap();
-        write_item(&mut wire, &Item::LoopEnd).unwrap();
+        write_item(&mut wire, &Item::LoopEnd(Some(3))).unwrap();
         write_item(&mut wire, &Item::TooBig).unwrap();
         wire.push(ITEM_LAST);
         let mut from = &wire[..];
@@ -686,7 +694,7 @@ mod tests {
             Some(Item::Frame(p, d)) => assert_eq!((p.width, p.height, d), (3, 2, Duration::from_millis(40))),
             _ => panic!("expected a frame"),
         }
-        assert!(matches!(read_item(&mut from), Ok(Some(Item::LoopEnd))));
+        assert!(matches!(read_item(&mut from), Ok(Some(Item::LoopEnd(Some(3))))));
         assert!(matches!(read_item(&mut from), Ok(Some(Item::TooBig))));
         assert!(matches!(read_item(&mut from), Ok(None)));
         assert!(matches!(read_item(&mut from), Err(ReplyError::Cut(_))));

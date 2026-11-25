@@ -29,6 +29,20 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - Inserting another PDF brings its form fields, named link targets and outline along.
 - Reorganising keeps the turn of pages that give it as a real number; outline entries and links land at the right height on turned pages.
 - Exporting a very large page as PNG records (and tells) the resolution it really has; exporting a small picture as a PDF no longer crops it.
+- Thumbnails are never enlarged, know the picture's real size, and turn a PNG the way its EXIF says; a very large SVG keeps its proportions.
+- A linked picture opens and is browsed where the link is, and moving it to the trash moves the link.
+- Deleting or renaming the open file is noticed; a half-written file is no longer loaded.
+- A JPEG whose EXIF has no orientation is turned without loss too.
+- Animations show their last frame for its own time, and stop after as many rounds as they ask for.
+- The trash uses an administrator's shared `.Trash` where there is one, and restoring never replaces a file.
+- Search finds words with ligatures, accents written apart from their letters, and words broken across lines.
+- Memory no longer grows with every zoom level of a PDF; rearranging a PDF of hundreds of thousands of objects takes a second or two.
+- Curly quotes and dashes in PDF titles show in Properties, which opens faster for large PDFs.
+- `CUPS_SERVER` is honoured, and a nonsensical answer from the printing service is an error.
+- `LANGUAGE` decides the language before `LC_ALL`, `LC_MESSAGES` and `LANG`, as in other programs; the desktop's dialogs, the quit question and the password prompt are translated. The file dialog lists `.svgz` and `.j2k` files.
+- Pages rearranged and not saved are kept when the organiser closes or another file is shown, and quitting asks about them.
+- A place to save that was asked for one file is not used for another shown meanwhile; properties, thumbnails and inserted pages that arrive late do not land on another file.
+- Delete in a text box no longer deletes the selected annotation as well; clicks on a question no longer reach what is under it.
 - A saved picture only carries its colour profile over when that is an RGB one.
 - Printing a picture whose decoded size is refused no longer waits for ever.
 - A PDF page that cannot be rendered says so instead of being asked for again without end.

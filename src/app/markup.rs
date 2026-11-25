@@ -324,9 +324,14 @@ impl App {
             .filter(|(_, m)| m.is_dirty())
             .map(|(p, _)| p)
             .chain(self.stash_forms.keys())
+            .chain(self.stash_pages.keys())
             .chain(self.stash_edits.iter().filter(|(_, e)| e.is_dirty()).map(|(p, _)| p))
             .collect();
-        usize::from(self.has_unsaved_changes()) + elsewhere.len()
+        let rearranged = self.organizer.as_ref().is_some_and(super::pages::Organizer::is_changed);
+        let here = self.has_unsaved_changes() || rearranged;
+        // The file on screen counts once, whatever is unsaved of it.
+        let others = elsewhere.iter().filter(|p| !here || self.current_path() != Some(p.as_path())).count();
+        usize::from(here) + others
     }
 
     /// Markup or form values on screen that the file does not have yet.
@@ -809,11 +814,16 @@ impl App {
                     }
                     _ => return done,
                 };
+                self.save_asked_for = self.current_path().map(Path::to_path_buf);
                 let ask = App::ask_for_files(super::chooser::Purpose::SaveCopy, Some(suggested));
                 Task::batch([done, ask])
             }
             MarkupMsg::SaveTo(Ok(None)) => Task::none(),
             MarkupMsg::SaveTo(Err(e)) => self.toast(e),
+            // The answer came after another file was shown: not that one's copy.
+            MarkupMsg::SaveTo(Ok(Some(_))) if self.asked_for_another() => {
+                self.toast(tr("Not saved: another file was opened meanwhile"))
+            }
             MarkupMsg::SaveTo(Ok(Some(target))) => match &self.doc {
                 Doc::Pdf(_) => self.save_pdf(target),
                 Doc::Image(_) => self.save_picture(target),
@@ -890,6 +900,11 @@ impl App {
     }
 
     /// What to write into the PDF on screen: unsaved markup and form values.
+    /// Whether the file a place to save was asked for is not the one on screen any more.
+    pub(super) fn asked_for_another(&mut self) -> bool {
+        self.save_asked_for.take().is_some_and(|asked| self.current_path() != Some(asked.as_path()))
+    }
+
     pub(super) fn pdf_changes(&self) -> Pending {
         let (layers, refs, pages) = match &self.marks {
             Some(m) => (m.store.pages.layers.clone(), m.refs.clone(), m.dirty_pages()),
@@ -1330,18 +1345,22 @@ impl App {
         )
         .padding(22)
         .style(style::panel);
-        center(card).style(style::scrim).into()
+        iced::widget::opaque(center(card).style(style::scrim))
     }
 
     pub(super) fn quit_dialog(&self) -> Element<'_, Message> {
         let n = self.unsaved_files();
-        let what = if n == 1 { "One file has".to_string() } else { format!("{n} files have") };
+        let body = if n == 1 {
+            tr("One file has changes that are not saved. They will be lost.")
+        } else {
+            trf!("{} files have changes that are not saved. They will be lost.", n)
+        };
         let card = container(
             column![
                 text(tr("Quit without saving?"))
                     .size(18)
                     .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT }),
-                text(format!("{what} markup that is not saved. It will be lost.")).size(14).style(muted),
+                text(body).size(14).style(muted),
                 space().height(6),
                 row![
                     space().width(Length::Fill),
@@ -1361,7 +1380,7 @@ impl App {
         )
         .padding(22)
         .style(style::panel);
-        center(card).style(style::scrim).into()
+        iced::widget::opaque(center(card).style(style::scrim))
     }
 }
 

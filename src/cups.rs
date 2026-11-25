@@ -215,7 +215,55 @@ fn printers_from(response: &Response) -> Vec<Printer> {
 trait Stream: Read + Write {}
 impl<T: Read + Write> Stream for T {}
 
+/// Where `CUPS_SERVER` says the printing service is: a socket's path, or a host and port.
+#[derive(Debug, PartialEq)]
+enum Server {
+    Socket(std::path::PathBuf),
+    Host(String, u16),
+}
+
+fn server(setting: &str) -> Option<Server> {
+    // The IPP version may follow, which is no concern here.
+    let setting = setting.split("/version=").next().unwrap_or(setting).trim();
+    if setting.is_empty() {
+        return None;
+    }
+    if setting.starts_with('/') {
+        return Some(Server::Socket(setting.into()));
+    }
+    Some(match setting.rsplit_once(':') {
+        // `[::1]` and `::1` hold colons without a port.
+        Some((host, port)) if !host.is_empty() && (!host.contains(':') || host.ends_with(']')) => {
+            Server::Host(host.trim_matches(['[', ']']).to_owned(), port.parse().ok()?)
+        }
+        _ => Server::Host(setting.trim_matches(['[', ']']).to_owned(), 631),
+    })
+}
+
 fn connect() -> Result<Box<dyn Stream>> {
+    let timed_tcp = |s: std::net::TcpStream| -> Result<Box<dyn Stream>> {
+        s.set_read_timeout(Some(TIMEOUT))?;
+        s.set_write_timeout(Some(TIMEOUT))?;
+        Ok(Box::new(s))
+    };
+    match std::env::var("CUPS_SERVER").ok().as_deref().and_then(server) {
+        Some(Server::Socket(path)) => {
+            let s = UnixStream::connect(&path).with_context(|| format!("no printing service at {}", path.display()))?;
+            s.set_read_timeout(Some(TIMEOUT))?;
+            s.set_write_timeout(Some(TIMEOUT))?;
+            return Ok(Box::new(s));
+        }
+        Some(Server::Host(host, port)) => {
+            use std::net::ToSocketAddrs;
+            let mut addresses =
+                (host.as_str(), port).to_socket_addrs().context("the printing service was not found")?;
+            let s = addresses
+                .find_map(|a| std::net::TcpStream::connect_timeout(&a, Duration::from_secs(5)).ok())
+                .with_context(|| format!("no printing service at {host}"))?;
+            return timed_tcp(s);
+        }
+        None => {}
+    }
     for path in SOCKETS {
         if let Ok(s) = UnixStream::connect(path) {
             s.set_read_timeout(Some(TIMEOUT))?;
@@ -225,9 +273,7 @@ fn connect() -> Result<Box<dyn Stream>> {
     }
     let s = std::net::TcpStream::connect_timeout(&([127, 0, 0, 1], 631).into(), Duration::from_secs(2))
         .context("no printing service (CUPS) is running on this computer")?;
-    s.set_read_timeout(Some(TIMEOUT))?;
-    s.set_write_timeout(Some(TIMEOUT))?;
-    Ok(Box::new(s))
+    timed_tcp(s)
 }
 
 /// Posts an IPP request (and a document after it) to `path`, and returns the answer's body.
@@ -269,7 +315,7 @@ fn post(path: &str, ipp: &[u8], document: &[u8]) -> Result<Vec<u8>> {
             line.clear();
             reader.read_line(&mut line)?;
             let size = usize::from_str_radix(line.trim().split(';').next().unwrap_or("0"), 16)?;
-            if size == 0 || body.len() + size > MAX_RESPONSE {
+            if size == 0 || size > MAX_RESPONSE.saturating_sub(body.len()) {
                 break;
             }
             let start = body.len();
@@ -382,6 +428,16 @@ pub fn media_size(keyword: &str) -> Option<(f32, f32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cups_server_names_a_socket_or_a_host() {
+        assert_eq!(server("/run/my/cups.sock"), Some(Server::Socket("/run/my/cups.sock".into())));
+        assert_eq!(server("printer.home"), Some(Server::Host("printer.home".into(), 631)));
+        assert_eq!(server("printer.home:8631/version=1.1"), Some(Server::Host("printer.home".into(), 8631)));
+        assert_eq!(server("[::1]:632"), Some(Server::Host("::1".into(), 632)));
+        assert_eq!(server("::1"), Some(Server::Host("::1".into(), 631)));
+        assert_eq!((server(""), server("host:nonsense")), (None, None));
+    }
 
     #[test]
     fn encodes_a_print_job() {

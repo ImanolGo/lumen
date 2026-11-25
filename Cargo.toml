@@ -44,6 +44,8 @@ futures = { version = "0.3", default-features = false, features = ["std"] }
 wl-clipboard-rs = "0.9.5"
 subsetter = { version = "0.2.6", default-features = false }
 ttf-parser = { version = "0.25", default-features = false, features = ["std", "opentype-layout"] }
+jiff = { version = "1.0.3", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo", "tzdb-concatenated"] }
+unicode-normalization = "0.1.26"
 
 [profile.release]
 lto = "thin"

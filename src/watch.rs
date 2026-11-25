@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use futures::SinkExt;
 use futures::channel::mpsc;
-use rustix::fs::inotify::{self, CreateFlags, WatchFlags};
+use rustix::fs::inotify::{self, CreateFlags, ReadFlags, WatchFlags};
 use rustix::io::Errno;
 
 /// A burst of events (a save is often several) is taken as one.
@@ -39,7 +39,14 @@ async fn watch(path: &Path, out: &mut mpsc::Sender<Option<()>>) -> std::io::Resu
     inotify::add_watch(
         &fd,
         dir,
-        WatchFlags::CLOSE_WRITE | WatchFlags::MOVED_TO | WatchFlags::CREATE | WatchFlags::ATTRIB,
+        // Not CREATE: a file that was only just made is half written; the write that ends it is heard.
+        WatchFlags::CLOSE_WRITE
+            | WatchFlags::MOVED_TO
+            | WatchFlags::ATTRIB
+            | WatchFlags::DELETE
+            | WatchFlags::MOVED_FROM
+            | WatchFlags::DELETE_SELF
+            | WatchFlags::MOVE_SELF,
     )?;
     // `new` is deprecated because it cannot tell who owns the descriptor; `register` is `unsafe`,
     // which this program forbids. Here the `OwnedFd` is the owner, the case the note is not about.
@@ -68,7 +75,16 @@ fn drain(fd: &impl std::os::fd::AsFd, name: &OsStr) -> std::io::Result<bool> {
     let mut hit = false;
     loop {
         match reader.next() {
-            Ok(event) => hit |= event.file_name().is_some_and(|n| n.to_bytes() == name.as_bytes()),
+            Ok(event) => {
+                // So much happened that events were lost: this file's may be among them.
+                let lost = event.events().contains(ReadFlags::QUEUE_OVERFLOW);
+                // The folder itself went away: nothing more will be heard from it.
+                let ended = [ReadFlags::IGNORED, ReadFlags::MOVE_SELF, ReadFlags::UNMOUNT];
+                if ended.into_iter().any(|f| event.events().contains(f)) {
+                    return Err(std::io::Error::other("the folder is gone"));
+                }
+                hit |= lost || event.file_name().is_some_and(|n| n.to_bytes() == name.as_bytes());
+            }
             Err(Errno::AGAIN) => return Ok(hit),
             Err(e) => return Err(e.into()),
         }
@@ -79,6 +95,34 @@ fn drain(fd: &impl std::os::fd::AsFd, name: &OsStr) -> std::io::Result<bool> {
 mod tests {
     use super::*;
     use futures::StreamExt;
+
+    #[tokio::test]
+    async fn deleting_and_renaming_the_file_are_noticed_and_a_folder_that_goes_ends_the_watch() {
+        let dir = temp("gone");
+        let file = dir.join("book.pdf");
+        std::fs::write(&file, b"one").unwrap();
+        let mut stream = Box::pin(changes(file.clone()));
+        assert_eq!(next(&mut stream, Duration::from_millis(200)).await, None);
+        std::fs::remove_file(&file).unwrap();
+        assert_eq!(next(&mut stream, Duration::from_secs(2)).await, Some(Some(())));
+        std::fs::write(&file, b"two").unwrap();
+        assert_eq!(next(&mut stream, Duration::from_secs(2)).await, Some(Some(())));
+        std::fs::rename(&file, dir.join("other.pdf")).unwrap();
+        assert_eq!(next(&mut stream, Duration::from_secs(2)).await, Some(Some(())));
+        // Made, but not written to the end yet: nothing is said.
+        let half = std::fs::File::create(&file).unwrap();
+        assert_eq!(next(&mut stream, Duration::from_millis(400)).await, None);
+        drop(half);
+        assert_eq!(next(&mut stream, Duration::from_secs(2)).await, Some(Some(())));
+        std::fs::remove_file(dir.join("other.pdf")).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        loop {
+            match next(&mut stream, Duration::from_secs(2)).await {
+                Some(Some(())) => {}
+                end => break assert_eq!(end, Some(None)),
+            }
+        }
+    }
 
     fn temp(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("lumen-watch-{name}-{}", std::process::id()));

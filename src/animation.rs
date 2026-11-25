@@ -9,6 +9,7 @@ use std::sync::mpsc::{Receiver, sync_channel};
 use std::time::Duration;
 
 use image::codecs::{gif::GifDecoder, png::PngDecoder, webp::WebPDecoder};
+use image::metadata::LoopCount;
 use image::{AnimationDecoder, Frames, ImageDecoder};
 
 use crate::raster::Picture;
@@ -16,8 +17,8 @@ use crate::raster::Picture;
 /// What the decoder thread sends.
 pub enum Item {
     Frame(Picture, Duration),
-    /// The last frame of one pass has been sent.
-    LoopEnd,
+    /// The last frame of one pass has been sent; how often to play it all (`None`: for ever).
+    LoopEnd(Option<u32>),
     /// The frames are too large to play; nothing else follows.
     TooBig,
 }
@@ -90,7 +91,7 @@ pub fn stream(path: &Path) -> Receiver<Item> {
         // Still pictures are not worth a decoder: their header says so.
         let ext = crate::raster::extension(&path);
         if ext != "gif" && !header_says_animated(&path, 4 << 20) {
-            let _ = tx.send(Item::LoopEnd);
+            let _ = tx.send(Item::LoopEnd(None));
             return;
         }
         let mut emit = |item| tx.send(item).map_err(drop);
@@ -99,7 +100,7 @@ pub fn stream(path: &Path) -> Receiver<Item> {
         }
         match std::fs::read(&path) {
             Ok(data) => play(&data, &ext, &mut emit),
-            Err(_) => drop(emit(Item::LoopEnd)),
+            Err(_) => drop(emit(Item::LoopEnd(None))),
         }
     });
     rx
@@ -115,13 +116,15 @@ pub fn play(data: &[u8], ext: &str, emit: &mut dyn FnMut(Item) -> Result<(), ()>
 /// Sends one pass of frames; returns how many were sent, or an error when nobody wants them.
 fn pass(data: &[u8], ext: &str, emit: &mut dyn FnMut(Item) -> Result<(), ()>) -> Result<usize, ()> {
     let mut count = 0;
+    let mut plays = None;
     match open(data, ext) {
         Opened::Still => {}
         Opened::TooBig => {
             emit(Item::TooBig)?;
             return Ok(0);
         }
-        Opened::Frames(frames) => {
+        Opened::Frames(frames, times) => {
+            plays = times;
             for frame in frames {
                 let Ok(frame) = frame else { break };
                 let delay = frame_delay(frame.delay());
@@ -133,7 +136,7 @@ fn pass(data: &[u8], ext: &str, emit: &mut dyn FnMut(Item) -> Result<(), ()>) ->
             }
         }
     }
-    emit(Item::LoopEnd)?;
+    emit(Item::LoopEnd(plays))?;
     Ok(count)
 }
 
@@ -147,7 +150,15 @@ enum Opened<'a> {
     Still,
     /// Its frames are too large to play.
     TooBig,
-    Frames(Frames<'a>),
+    /// The frames, and how often to play them.
+    Frames(Frames<'a>, Option<u32>),
+}
+
+fn plays<'a>(decoder: &impl AnimationDecoder<'a>) -> Option<u32> {
+    match decoder.loop_count() {
+        LoopCount::Finite(n) => Some(n.get()),
+        LoopCount::Infinite => None,
+    }
 }
 
 /// The frames of `data` if it is animated, decoded under the same limits as still pictures.
@@ -160,7 +171,8 @@ fn open<'a>(data: &'a [u8], ext: &str) -> Opened<'a> {
         if decoder.set_limits(crate::raster::limits()).is_err() {
             return Opened::Still;
         }
-        Opened::Frames(decoder.into_frames())
+        let plays = plays(&decoder);
+        Opened::Frames(decoder.into_frames(), plays)
     }
     let reader = Cursor::new(data);
     match ext {
@@ -174,7 +186,10 @@ fn open<'a>(data: &'a [u8], ext: &str) -> Opened<'a> {
             if !fits(width, height) {
                 return Opened::TooBig;
             }
-            decoder.apng().map_or(Opened::Still, |d| Opened::Frames(d.into_frames()))
+            decoder.apng().map_or(Opened::Still, |d| {
+                let plays = plays(&d);
+                Opened::Frames(d.into_frames(), plays)
+            })
         }
         "webp" => match WebPDecoder::new(reader) {
             Ok(decoder) if decoder.has_animation() => frames(decoder),
@@ -237,7 +252,10 @@ mod tests {
                     assert_eq!(d, Duration::from_millis(40));
                     seen.push("frame");
                 }
-                Item::LoopEnd => seen.push("end"),
+                Item::LoopEnd(plays) => {
+                    assert_eq!(plays, None, "a GIF that does not say loops");
+                    seen.push("end")
+                }
                 Item::TooBig => panic!("not a large one"),
             }
         }
@@ -263,7 +281,7 @@ mod tests {
         let png = dir.join("p.png");
         RgbaImage::from_pixel(3, 3, Rgba([1, 2, 3, 255])).save(&png).unwrap();
         let rx = stream(&png);
-        assert!(matches!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), Item::LoopEnd));
+        assert!(matches!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), Item::LoopEnd(_)));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

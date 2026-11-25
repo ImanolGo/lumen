@@ -26,6 +26,12 @@ pub struct Anim {
     current: Option<(image::Handle, Duration)>,
     /// Its frames are too large to play.
     too_big: bool,
+    /// The next frame was not there in time.
+    waiting: bool,
+    /// Passes played, how many there should be, and whether that is done.
+    passes: u32,
+    plays: Option<u32>,
+    finished: bool,
 }
 
 impl Anim {
@@ -40,6 +46,10 @@ impl Anim {
             index: 0,
             current: None,
             too_big: false,
+            waiting: false,
+            passes: 0,
+            plays: None,
+            finished: false,
         })
     }
 
@@ -48,17 +58,40 @@ impl Anim {
         self.current.as_ref().map(|(h, _)| h)
     }
 
-    /// How long until the next look.
-    pub fn period(&self) -> Duration {
-        self.current.as_ref().map_or(POLL, |(_, d)| (*d).clamp(Duration::from_millis(20), Duration::from_secs(10)))
+    /// How long until the next look; `None` once it has been played as often as it asks.
+    pub fn period(&self) -> Option<Duration> {
+        if self.finished {
+            return None;
+        }
+        Some(match &self.current {
+            Some((_, d)) if !self.waiting => (*d).clamp(Duration::from_millis(20), Duration::from_secs(10)),
+            _ => POLL,
+        })
+    }
+
+    /// One pass is over. Whether another one follows.
+    fn again(&mut self, plays: Option<u32>) -> bool {
+        self.passes = self.passes.saturating_add(1);
+        self.plays = plays;
+        self.finished = plays.is_some_and(|n| self.passes >= n);
+        if self.finished {
+            self.rx = None;
+        }
+        !self.finished
     }
 
     /// Goes on to the next frame. Returns false when the picture turns out not to be animated.
     pub fn advance(&mut self) -> bool {
+        if self.finished {
+            return true;
+        }
         let Some(rx) = &self.rx else {
             // Replaying from memory.
             if self.cache.is_empty() {
                 return false;
+            }
+            if self.index + 1 == self.cache.len() && !self.again(self.plays) {
+                return true;
             }
             self.index = (self.index + 1) % self.cache.len();
             self.current = Some(self.cache[self.index].clone());
@@ -67,6 +100,7 @@ impl Anim {
         match rx.try_recv() {
             Ok(Item::Frame(picture, delay)) => {
                 let handle = image::Handle::from_rgba(picture.width, picture.height, picture.rgba);
+                self.waiting = false;
                 self.seen += 1;
                 if self.caching {
                     // Four bytes a pixel.
@@ -81,23 +115,33 @@ impl Anim {
                 self.current = Some((handle, delay));
                 true
             }
-            Ok(Item::LoopEnd) => {
+            Ok(Item::LoopEnd(plays)) => {
                 if self.seen <= 1 {
                     return false;
                 }
                 self.seen = 0;
+                if !self.again(plays) {
+                    return true;
+                }
                 if self.caching {
                     // The whole pass is in memory: the decoder can rest.
                     self.rx = None;
-                    self.index = self.cache.len().saturating_sub(1);
+                    self.index = 0;
+                    self.current = Some(self.cache[0].clone());
+                    return true;
                 }
-                true
+                // The last frame has had its time: straight on to the first.
+                self.advance()
             }
             Ok(Item::TooBig) => {
                 self.too_big = true;
                 false
             }
-            Err(TryRecvError::Empty) => true,
+            Err(TryRecvError::Empty) => {
+                // It is late: look again soon rather than after this frame's whole time.
+                self.waiting = true;
+                true
+            }
             Err(TryRecvError::Disconnected) => self.current.is_some(),
         }
     }
@@ -143,10 +187,10 @@ impl App {
 
     pub(super) fn anim_subscription(&self) -> Subscription<Message> {
         match &self.doc {
-            Doc::Image(view) if self.anim_visible() => {
-                let period = view.anim.as_ref().map_or(POLL, Anim::period);
-                iced::time::every(period).map(Message::AnimTick)
-            }
+            Doc::Image(view) if self.anim_visible() => match view.anim.as_ref().and_then(Anim::period) {
+                Some(period) => iced::time::every(period).map(Message::AnimTick),
+                None => Subscription::none(),
+            },
             _ => Subscription::none(),
         }
     }
@@ -181,30 +225,51 @@ mod tests {
             index: 0,
             current: None,
             too_big: false,
+            waiting: false,
+            passes: 0,
+            plays: None,
+            finished: false,
         }
+    }
+
+    fn shown(a: &Anim) -> u128 {
+        a.period().unwrap().as_millis()
     }
 
     #[test]
     fn first_pass_is_cached_then_replayed_from_memory() {
-        let mut a = anim(vec![frame(40), frame(50), frame(60), Item::LoopEnd]);
-        for want in [40, 50, 60] {
-            assert!(a.advance());
-            assert_eq!(a.period(), Duration::from_millis(want));
-        }
-        assert!(a.advance()); // the end of the pass: the decoder is let go
-        assert!(a.rx.is_none());
-        // Replay wraps around the cached frames.
+        let mut a = anim(vec![frame(40), frame(50), frame(60), Item::LoopEnd(None)]);
         let mut seen = Vec::new();
-        for _ in 0..4 {
+        // Every frame once each time round: the last one is not shown twice as long.
+        for _ in 0..8 {
             assert!(a.advance());
-            seen.push(a.period().as_millis());
+            seen.push(shown(&a));
         }
-        assert_eq!(seen, [40, 50, 60, 40]);
+        assert!(a.rx.is_none(), "the decoder is let go");
+        assert_eq!(seen, [40, 50, 60, 40, 50, 60, 40, 50]);
+    }
+
+    #[test]
+    fn it_plays_as_often_as_it_asks() {
+        let mut a = anim(vec![frame(40), frame(50), Item::LoopEnd(Some(2))]);
+        let mut seen = Vec::new();
+        while a.period().is_some() {
+            assert!(a.advance());
+            seen.push(a.period().map(|p| p.as_millis()));
+        }
+        // The last tick only ends it, with the last frame left on screen.
+        assert_eq!(seen, [Some(40), Some(50), Some(40), Some(50), None]);
+        assert!(a.advance() && a.frame().is_some());
+        let mut once = anim(vec![frame(40), frame(50), Item::LoopEnd(Some(1)), frame(40)]);
+        for _ in 0..5 {
+            assert!(once.advance());
+        }
+        assert_eq!(once.period(), None);
     }
 
     #[test]
     fn a_picture_with_one_frame_is_not_an_animation() {
-        let mut a = anim(vec![frame(100), Item::LoopEnd]);
+        let mut a = anim(vec![frame(100), Item::LoopEnd(None)]);
         assert!(a.advance());
         assert!(!a.advance());
     }
@@ -221,20 +286,19 @@ mod tests {
         let mut a = anim(vec![frame(80)]);
         assert!(a.advance());
         assert!(a.advance()); // nothing new yet
-        assert_eq!(a.period(), Duration::from_millis(80));
+        assert_eq!(a.period(), Some(POLL), "looked for again soon");
         assert!(a.frame().is_some());
     }
 
     #[test]
     fn too_long_animations_keep_streaming() {
-        let mut a = anim(vec![frame(40), frame(40), Item::LoopEnd, frame(40), frame(40)]);
+        let mut a = anim(vec![frame(40), frame(40), Item::LoopEnd(None), frame(40), frame(40)]);
         a.cache_bytes = CACHE_BYTES; // already at the limit: the next frame tips it over
         assert!(a.advance());
         assert!(!a.caching && a.cache.is_empty());
         assert!(a.advance());
-        assert!(a.advance()); // the end of the pass: still streaming
+        assert!(a.advance()); // the end of the pass, and straight on: still streaming
         assert!(a.rx.is_some());
-        assert!(a.advance());
         assert_eq!(a.seen, 1);
     }
 }

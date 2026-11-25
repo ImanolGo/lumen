@@ -56,10 +56,10 @@ pub fn read(path: &Path, password: Option<&str>) -> Result<Sheet> {
 fn pdf_sections(sheet: &mut Sheet, path: &Path, password: Option<&str>) -> Result<()> {
     use hayro::hayro_syntax::PdfVersion as V;
     let bytes = Arc::new(std::fs::read(path)?);
-    let encrypted = lopdf::Document::load_mem(&bytes).map(|d| d.is_encrypted()).unwrap_or(password.is_some());
+    let encrypted = is_encrypted(&bytes);
     let pdf = crate::pdf::parse(bytes, password)?;
     let m = pdf.metadata();
-    let text = |b: &Option<Box<[u8]>>| b.as_deref().map(pdf_text);
+    let text = |b: &Option<Box<[u8]>>| b.as_deref().map(crate::structure::decode_text);
     let date = |d: &Option<hayro::hayro_syntax::object::DateTime>| {
         d.map(|d| format!("{:04}-{:02}-{:02} {:02}:{:02}", d.year, d.month, d.day, d.hour, d.minute))
     };
@@ -106,17 +106,27 @@ fn pdf_sections(sheet: &mut Sheet, path: &Path, password: Option<&str>) -> Resul
     Ok(())
 }
 
-/// A PDF text string: UTF-16 with a byte order mark, UTF-8 with one, or PDFDocEncoding
-/// (which matches Latin-1 for everything that matters in a title).
-pub fn pdf_text(bytes: &[u8]) -> String {
-    if let Some(rest) = bytes.strip_prefix(&[0xFE, 0xFF]) {
-        let units: Vec<u16> = rest.as_chunks::<2>().0.iter().map(|c| u16::from_be_bytes(*c)).collect();
-        String::from_utf16_lossy(&units)
-    } else if let Some(rest) = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
-        String::from_utf8_lossy(rest).into_owned()
-    } else {
-        bytes.iter().map(|&b| b as char).collect()
+/// Whether a PDF is encrypted: its trailer says so. The trailers are looked for as text, which is
+/// what they are in every file (a cross-reference stream's dictionary is not packed), so that
+/// the file need not be read whole a second time.
+fn is_encrypted(bytes: &[u8]) -> bool {
+    const KEY: &[u8] = b"/Encrypt";
+    let mut rest = bytes;
+    while let Some(at) = rest.windows(KEY.len()).position(|w| w == KEY) {
+        rest = &rest[at + KEY.len()..];
+        // A reference (`12 0 R`) or a dictionary follows; `/EncryptMetadata` is something else.
+        let after = rest.trim_ascii_start();
+        let reference = || {
+            let text = String::from_utf8_lossy(&after[..after.len().min(24)]).into_owned();
+            let mut words = text.split_ascii_whitespace();
+            let number = |w: Option<&str>| w.is_some_and(|w| w.parse::<u32>().is_ok());
+            number(words.next()) && number(words.next()) && words.next().is_some_and(|w| w.starts_with('R'))
+        };
+        if after.starts_with(b"<<") || (after.len() < rest.len() && reference()) {
+            return true;
+        }
     }
+    false
 }
 
 /// "595 × 842 pt (210 × 297 mm, A4)".
@@ -251,11 +261,23 @@ mod tests {
     use std::time::Duration;
 
     #[test]
+    fn says_whether_a_pdf_is_encrypted() {
+        let fixture =
+            |n: &str| std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(n)).unwrap();
+        assert!(is_encrypted(&fixture("encrypted.pdf")));
+        assert!(!is_encrypted(&fixture("form.pdf")) && !is_encrypted(&fixture("pages.pdf")));
+        assert!(is_encrypted(b"trailer << /Encrypt 5 0 R>>") && is_encrypted(b"<</Encrypt<</V 1>>>>"));
+        assert!(!is_encrypted(b"(/Encrypt it) /EncryptMetadata false"));
+    }
+
+    #[test]
     fn decodes_pdf_text_strings() {
-        assert_eq!(pdf_text(b"Plain"), "Plain");
-        assert_eq!(pdf_text(&[0xFE, 0xFF, 0x00, b'H', 0x00, 0xE9]), "Hé");
-        assert_eq!(pdf_text(&[0xEF, 0xBB, 0xBF, b'o', b'k']), "ok");
-        assert_eq!(pdf_text(&[0x63, 0x61, 0x66, 0xE9]), "café");
+        // Curly quotes and dashes are not where Latin-1 has nothing.
+        assert_eq!(crate::structure::decode_text(&[0x8D, b'a', 0x8E, 0x85]), "“a”–");
+        assert_eq!(crate::structure::decode_text(b"Plain"), "Plain");
+        assert_eq!(crate::structure::decode_text(&[0xFE, 0xFF, 0x00, b'H', 0x00, 0xE9]), "Hé");
+        assert_eq!(crate::structure::decode_text(&[0xEF, 0xBB, 0xBF, b'o', b'k']), "ok");
+        assert_eq!(crate::structure::decode_text(&[0x63, 0x61, 0x66, 0xE9]), "café");
     }
 
     #[test]

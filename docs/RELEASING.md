@@ -37,8 +37,8 @@ git push origin v0.1.0
 
 The tag runs `.github/workflows/release.yml`: it checks that the tag matches `Cargo.toml`, runs the
 tests, builds an x86_64 tarball (the `make install DESTDIR=… PREFIX=/usr` layout) and a `.deb`
-(`cargo deb`), writes `SHA256SUMS`, and creates a GitHub release with the three. This workflow has
-never run, so watch it the first time.
+(`cargo deb`), writes `SHA256SUMS`, and creates a GitHub release with the three. It ran for
+v0.1.0 and published all three.
 
 ## AUR
 

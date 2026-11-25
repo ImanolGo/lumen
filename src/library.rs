@@ -44,9 +44,8 @@ pub fn list_dir(dir: &Path) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = entries
         .flatten()
         .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
-        .filter(|e| e.file_type().is_ok_and(|t| !t.is_dir()))
         .map(|e| e.path())
-        .filter(|p| Kind::of(p).is_some())
+        .filter(|p| Kind::of(p).is_some() && !p.is_dir())
         .collect();
     files.sort_by(|a, b| natural_cmp(a, b));
     files
@@ -61,7 +60,8 @@ pub fn list_dir(dir: &Path) -> Vec<PathBuf> {
 ///
 /// Blocking; call it off the UI thread.
 pub fn expand(paths: &[PathBuf]) -> (Vec<PathBuf>, usize) {
-    let paths: Vec<PathBuf> = paths.iter().map(|p| std::fs::canonicalize(p).unwrap_or_else(|_| p.clone())).collect();
+    // As they were given, only made absolute: what a link leads to may have another name and folder.
+    let paths: Vec<PathBuf> = paths.iter().map(|p| std::path::absolute(p).unwrap_or_else(|_| p.clone())).collect();
 
     if let [single] = paths.as_slice()
         && single.is_file()
@@ -90,6 +90,20 @@ pub fn expand(paths: &[PathBuf]) -> (Vec<PathBuf>, usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_link_is_browsed_where_it_is() {
+        let dir = std::env::temp_dir().join(format!("lumen-rs-links-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("store")).unwrap();
+        std::fs::create_dir_all(dir.join("album")).unwrap();
+        std::fs::write(dir.join("store/ab12cd"), b"x").unwrap();
+        std::fs::write(dir.join("album/z.png"), b"x").unwrap();
+        std::os::unix::fs::symlink("../store/ab12cd", dir.join("album/a.png")).unwrap();
+        let (files, start) = expand(&[dir.join("album/a.png")]);
+        assert_eq!((files, start), (vec![dir.join("album/a.png"), dir.join("album/z.png")], 0));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn kinds() {

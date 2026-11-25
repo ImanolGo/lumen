@@ -84,6 +84,16 @@ impl App {
     }
 
     pub(super) fn printing_update(&mut self, msg: PrintMsg) -> Task<Message> {
+        // The job may outlive the dialog (Escape closes it): its end is told all the same.
+        if let PrintMsg::Done(result) = msg {
+            if self.print_dialog.as_ref().is_some_and(|d| d.sending) {
+                self.print_dialog = None;
+            }
+            return match result {
+                Ok(()) => self.notice(tr("Sent to the printer")),
+                Err(e) => self.toast(trf!("Could not print: {}", e)),
+            };
+        }
         let Some(dialog) = &mut self.print_dialog else { return Task::none() };
         match msg {
             PrintMsg::Loaded(result) => {
@@ -116,13 +126,7 @@ impl App {
                     |r| Message::Printing(PrintMsg::Done(r.and_then(|r| r))),
                 );
             }
-            PrintMsg::Done(result) => {
-                self.print_dialog = None;
-                return match result {
-                    Ok(()) => self.notice(tr("Sent to the printer")),
-                    Err(e) => self.toast(trf!("Could not print: {}", e)),
-                };
-            }
+            PrintMsg::Done(_) => {}
         }
         Task::none()
     }

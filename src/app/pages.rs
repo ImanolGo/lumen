@@ -85,7 +85,7 @@ pub enum PagesMsg {
     Redo,
     Insert,
     InsertChosen(Result<Vec<PathBuf>, String>),
-    Inserted(PathBuf, Result<pdf::Opened, pdf::OpenError>),
+    Inserted(u64, PathBuf, Result<pdf::Opened, pdf::OpenError>),
     Save,
     SaveAs,
     SaveTo(Result<Option<PathBuf>, String>),
@@ -102,6 +102,14 @@ impl App {
                 let done = self.finish_text();
                 let Doc::Pdf(view) = &self.doc else { return done };
                 let n = view.doc.page_count();
+                if let Some(mut kept) = self.stash_pages.remove(view.doc.path())
+                    && kept.sources[0].page_count() == n
+                {
+                    // Where it was left, on the document as it is now.
+                    kept.sources[0] = view.doc.clone();
+                    self.organizer = Some(kept);
+                    return Task::batch([done, self.request_thumbs_grid()]);
+                }
                 self.organizer = Some(Organizer {
                     plan: pages::identity(n),
                     past: Vec::new(),
@@ -126,7 +134,7 @@ impl App {
                 ])
             }
             PagesMsg::Close => {
-                self.organizer = None;
+                self.put_pages_aside();
                 Task::none()
             }
             PagesMsg::Scrolled(offset, height) => {
@@ -247,9 +255,16 @@ impl App {
                 }
                 self.request_thumbs_grid()
             }
-            PagesMsg::Insert => App::ask_for_files(super::chooser::Purpose::InsertPdf, None),
+            PagesMsg::Insert => {
+                self.save_asked_for = self.current_path().map(std::path::Path::to_path_buf);
+                App::ask_for_files(super::chooser::Purpose::InsertPdf, None)
+            }
             PagesMsg::InsertChosen(Err(e)) => self.toast(e),
             PagesMsg::InsertChosen(Ok(paths)) => {
+                if self.asked_for_another() {
+                    return Task::none();
+                }
+                let generation = self.generation;
                 let tasks = paths
                     .into_iter()
                     .filter(|p| crate::library::Kind::of(p) == Some(crate::library::Kind::Pdf))
@@ -262,18 +277,22 @@ impl App {
                             },
                             move |r| {
                                 let r = r.map_err(pdf::OpenError::Failed).and_then(|r| r.map_err(pdf::OpenError::from));
-                                Message::Pages(PagesMsg::Inserted(path.clone(), r))
+                                Message::Pages(PagesMsg::Inserted(generation, path.clone(), r))
                             },
                         )
                     });
                 Task::batch(tasks)
             }
-            PagesMsg::Inserted(path, result) => {
+            PagesMsg::Inserted(generation, path, result) => {
+                // For the document that was open when it was asked for.
+                if generation != self.generation {
+                    return Task::none();
+                }
                 let opened = match result {
                     Ok(opened) => opened,
                     Err(pdf::OpenError::Password { .. }) => {
                         return self
-                            .toast(format!("“{}” is password-protected: open it in Lumen first", file_name(&path)));
+                            .toast(trf!("“{}” is password-protected: open it in Lumen first", file_name(&path)));
                     }
                     Err(pdf::OpenError::Failed(e)) => {
                         return self.toast(trf!("Could not insert “{}”: {}", file_name(&path), e));
@@ -308,7 +327,11 @@ impl App {
                 let p = view.doc.path();
                 let stem = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
                 let suggested = p.with_file_name(format!("{stem} (rearranged).pdf"));
+                self.save_asked_for = self.current_path().map(std::path::Path::to_path_buf);
                 App::ask_for_files(super::chooser::Purpose::SavePages, Some(suggested))
+            }
+            PagesMsg::SaveTo(Ok(Some(_))) if self.asked_for_another() => {
+                self.toast(tr("Not saved: another file was opened meanwhile"))
             }
             PagesMsg::SaveTo(Ok(Some(target))) => self.save_pages(target),
             PagesMsg::SaveTo(Ok(None)) => Task::none(),
@@ -334,6 +357,7 @@ impl App {
                 self.form_path = None;
                 self.stash.remove(&target);
                 self.stash_forms.remove(&target);
+                self.stash_pages.remove(&target);
                 if self.files.get(self.current).is_some_and(|p| *p != target) {
                     self.files[self.current] = target.clone();
                 }
@@ -484,6 +508,15 @@ impl App {
     }
 
     /// Escape closes the organiser when nothing would be lost.
+    /// Closes the organiser. What was rearranged and not saved is there when it is opened again.
+    pub(super) fn put_pages_aside(&mut self) {
+        let Some(mut o) = self.organizer.take().filter(Organizer::is_changed) else { return };
+        o.thumbs.clear();
+        o.requested.clear();
+        (o.pressed, o.dragging, o.drop_at, o.saving) = (None, false, None, false);
+        self.stash_pages.insert(o.sources[0].path().to_path_buf(), o);
+    }
+
     pub(super) fn pages_escape(&mut self) -> bool {
         match &self.organizer {
             Some(o) if !o.is_changed() => {

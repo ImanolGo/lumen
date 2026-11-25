@@ -771,3 +771,62 @@ fn trashing_a_file_with_unsaved_changes_asks_and_undo_brings_them_back() {
     let _ = app.update(Message::UndoTrash);
     assert!(app.stash.contains_key(&path));
 }
+
+#[test]
+fn rearranged_pages_are_kept_when_the_organiser_closes() {
+    let _inside = runtime().enter();
+    let mut app = pdf_app();
+    let _ = app.update(Message::Pages(PagesMsg::Open));
+    let _ = app.update(Message::Pages(PagesMsg::Rotate(90)));
+    assert_eq!(app.unsaved_files(), 1);
+    let _ = app.update(Message::Pages(PagesMsg::Close));
+    assert!(app.organizer.is_none());
+    assert_eq!(app.unsaved_files(), 1, "quitting asks");
+    let _ = app.update(Message::Pages(PagesMsg::Open));
+    assert!(app.organizer.as_ref().unwrap().is_changed());
+    // Undone, there is nothing to keep.
+    let _ = app.update(Message::Pages(PagesMsg::Undo));
+    let _ = app.update(Message::Pages(PagesMsg::Close));
+    assert_eq!(app.unsaved_files(), 0);
+}
+
+#[test]
+fn late_answers_do_not_land_on_another_file() {
+    let _inside = runtime().enter();
+    let mut app = pdf_app();
+    // A place to save was asked for another file than the one on screen now.
+    app.save_asked_for = Some(PathBuf::from("/elsewhere.pdf"));
+    let _ = app.update(Message::Markup(markup::MarkupMsg::SaveTo(Ok(Some("/tmp/never-written.pdf".into())))));
+    assert!(app.markup_busy.is_none() && app.last_toast.as_ref().is_some_and(|(_, error)| *error));
+    // Properties of a file that is not on screen any more.
+    app.dialog = Some(menu::Dialog::Properties);
+    let _ = app.update(Message::PropertiesRead("/elsewhere.pdf".into(), Err("x".into())));
+    assert!(app.properties.is_none());
+    // A thumbnail, and a preloaded picture, of files of a folder that was left.
+    let pic = Picture { width: 1, height: 1, original: (1, 1), rgba: vec![0; 4].into() };
+    let _ = app.update(Message::Thumb("/elsewhere.png".into(), Some(pic.clone()), true));
+    assert!(app.thumbs.is_empty() && app.locked_thumbs.is_empty());
+    let _ = app.update(Message::Preloaded("/elsewhere.png".into(), Ok(pic)));
+    assert!(app.pictures.is_empty());
+    // Pages inserted for a document that was left.
+    let opened = pdf::Document::open_full(&fixture("pages.pdf"), false, None).unwrap();
+    let _ = app.update(Message::Pages(PagesMsg::Open));
+    let _ = app.update(Message::Pages(PagesMsg::Inserted(app.generation + 1, fixture("pages.pdf"), Ok(opened))));
+    assert!(!app.organizer.as_ref().unwrap().is_changed());
+}
+
+#[test]
+fn a_file_that_goes_away_is_noticed_once_and_reloaded_when_it_is_back() {
+    use std::time::SystemTime;
+    let _inside = runtime().enter();
+    let mut app = pdf_app();
+    let path = app.current_path().unwrap().to_path_buf();
+    app.disk = Some(disk_baseline(&path));
+    let generation = app.generation;
+    let _ = app.update(Message::FileStat(path.clone(), None));
+    assert!(app.disk_gone && app.last_toast.take().is_some());
+    let _ = app.update(Message::FileStat(path.clone(), None));
+    assert!(app.last_toast.is_none(), "said once");
+    let _ = app.update(Message::FileStat(path, Some((SystemTime::now(), 1))));
+    assert!(!app.disk_gone && app.generation > generation);
+}

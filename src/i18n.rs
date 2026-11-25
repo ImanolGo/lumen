@@ -2,7 +2,7 @@
 //! passed through [`tr`], which looks it up in the catalogue of the user's language.
 //!
 //! Catalogues are `po/<language>.po` files embedded in the binary (no `msgfmt` step, nothing
-//! to install). The language comes from `LC_ALL`, `LC_MESSAGES`, `LANGUAGE` or `LANG`, like
+//! to install). The language comes from `LANGUAGE`, `LC_ALL`, `LC_MESSAGES` or `LANG`, like
 //! gettext's; a string with no translation shows in English.
 
 use std::collections::HashMap;
@@ -53,17 +53,35 @@ fn fill(template: &str, args: &[&str]) -> String {
 
 fn load() -> HashMap<String, String> {
     let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
-    let wanted = [env("LC_ALL"), env("LC_MESSAGES"), env("LANGUAGE"), env("LANG")];
-    catalogue_for(&wanted.into_iter().flatten().collect::<Vec<_>>())
+    catalogue_for(&languages(env))
 }
 
-/// The catalogue for the first of `locales` (`"es_ES.UTF-8"`, `"fr:es"`, …) that has one.
-fn catalogue_for(locales: &[String]) -> HashMap<String, String> {
-    for locale in locales.iter().flat_map(|l| l.split(':')) {
-        let code = locale.split(['_', '.', '@']).next().unwrap_or("");
-        // "C" and "POSIX" mean English, whatever follows.
-        if code.is_empty() || code == "C" || code == "POSIX" {
-            return HashMap::new();
+/// The languages asked for, best first, the way gettext works it out: the locale is the first of
+/// `LC_ALL`, `LC_MESSAGES` and `LANG` that is set; unless that is "C", `LANGUAGE` overrides it.
+fn languages(env: impl Fn(&str) -> Option<String>) -> Vec<String> {
+    let locale = ["LC_ALL", "LC_MESSAGES", "LANG"].into_iter().find_map(&env).unwrap_or_default();
+    if is_c(&locale) {
+        return Vec::new();
+    }
+    match env("LANGUAGE") {
+        Some(list) => list.split(':').map(str::to_owned).collect(),
+        None => vec![locale],
+    }
+}
+
+/// "C" and "POSIX" mean English, as no locale at all does.
+fn is_c(locale: &str) -> bool {
+    let code = locale.split(['.', '@']).next().unwrap_or("");
+    matches!(code, "" | "C" | "POSIX")
+}
+
+/// The catalogue for the first of `languages` (`"es_ES.UTF-8"`, `"fr"`, …) that has one.
+/// English needs none, and ends the search.
+fn catalogue_for(languages: &[String]) -> HashMap<String, String> {
+    for language in languages.iter().filter(|l| !l.is_empty()) {
+        let code = language.split(['_', '.', '@']).next().unwrap_or("");
+        if is_c(language) || code == "en" {
+            break;
         }
         if let Some((_, po)) = CATALOGUES.iter().find(|(c, _)| *c == code) {
             return parse(po);
@@ -223,12 +241,76 @@ msgstr "Después"
 
     #[test]
     fn the_language_comes_from_the_locale_variables() {
-        let es = |l: &str| !catalogue_for(&[l.to_string()]).is_empty();
-        assert!(es("es_ES.UTF-8") && es("es") && es("es_MX@euro") && es("fr:es"));
-        assert!(!es("en_US.UTF-8") && !es("C") && !es("POSIX") && !es("de_DE"));
-        // The first language that has a catalogue wins; C stops the search.
-        assert!(!es("C:es"));
-        assert!(catalogue_for(&[]).is_empty());
+        let spanish = |vars: &[(&str, &str)]| {
+            let env = |k: &str| vars.iter().find(|(name, _)| *name == k).map(|(_, v)| v.to_string());
+            !catalogue_for(&languages(env)).is_empty()
+        };
+        for yes in ["es_ES.UTF-8", "es", "es_MX@euro"] {
+            assert!(spanish(&[("LANG", yes)]), "{yes}");
+        }
+        for no in ["en_US.UTF-8", "C", "C.UTF-8", "POSIX", "de_DE"] {
+            assert!(!spanish(&[("LANG", no)]), "{no}");
+        }
+        assert!(!spanish(&[]));
+        // LANGUAGE says it all, unless the locale is C.
+        assert!(!spanish(&[("LANGUAGE", "en"), ("LANG", "es_ES.UTF-8")]));
+        assert!(spanish(&[("LANGUAGE", "fr:es"), ("LANG", "de_DE.UTF-8")]));
+        assert!(!spanish(&[("LANGUAGE", "fr:en:es"), ("LANG", "es_ES.UTF-8")]));
+        assert!(!spanish(&[("LANGUAGE", "es"), ("LC_ALL", "C")]));
+        // Of the others the first that is set decides alone.
+        assert!(!spanish(&[("LC_ALL", "de_DE"), ("LANG", "es_ES")]));
+        assert!(spanish(&[("LC_MESSAGES", "es_ES"), ("LANG", "en_GB")]));
+    }
+
+    /// Text put on screen without `tr` or `trf!`, as far as it can be seen: literals given to
+    /// `text(` or formatted for it, for toasts and for dialogs.
+    #[test]
+    fn nothing_with_words_is_shown_untranslated() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files: Vec<_> = std::fs::read_dir(dir.join("app")).unwrap().map(|e| e.unwrap().path()).collect();
+        files.extend([dir.join("app.rs"), dir.join("portal.rs")]);
+        let openers = [
+            "text(\"",
+            "text(format!(\"",
+            "toast(\"",
+            "toast(format!(\"",
+            "notice(\"",
+            "notice(format!(\"",
+            ".title(\"",
+            ".accept_label(\"",
+            "FileFilter::new(\"",
+        ];
+        let mut found = Vec::new();
+        for file in files.iter().filter(|f| !f.ends_with("tests.rs")) {
+            let source = std::fs::read_to_string(file).unwrap();
+            // The modules' own tests come last.
+            let source = source.split("#[cfg(test)]").next().unwrap();
+            for opener in openers {
+                for (at, _) in source.match_indices(opener) {
+                    if source[..at].ends_with(|c: char| c.is_alphanumeric() || c == '_') {
+                        continue;
+                    }
+                    let rest = &source[at + opener.len()..];
+                    let literal = &rest[..rest.find('"').unwrap_or(0)];
+                    // What is left without the holes: units and names do not count as words.
+                    let mut plain = String::new();
+                    let mut depth = 0;
+                    for c in literal.chars() {
+                        match c {
+                            '{' => depth += 1,
+                            '}' => depth -= 1,
+                            c if depth == 0 => plain.push(c),
+                            _ => {}
+                        }
+                    }
+                    let words = plain.split(|c: char| !c.is_alphabetic()).any(|w| w.len() > 1);
+                    if words && !["Lumen", " dpi"].contains(&plain.as_str()) {
+                        found.push(format!("{}: {literal}", file.file_name().unwrap().display()));
+                    }
+                }
+            }
+        }
+        assert!(found.is_empty(), "not translated: {found:#?}");
     }
 
     /// Every string passed to `tr` or `trf!` in the source, and the few the code picks by name.

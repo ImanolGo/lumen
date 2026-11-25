@@ -861,3 +861,57 @@ msgstr "Se ha guardado «{}» a {} ppp: la página es muy grande"
 
 msgid "Saved {} images in “{}”, some at {} dpi: the pages are very large"
 msgstr "Se han guardado {} imágenes en «{}», algunas a {} ppp: las páginas son muy grandes"
+
+msgid "Pictures and PDFs"
+msgstr "Imágenes y PDF"
+
+msgid "All files"
+msgstr "Todos los archivos"
+
+msgid "One file has changes that are not saved. They will be lost."
+msgstr "Un archivo tiene cambios sin guardar. Se perderán."
+
+msgid "{} files have changes that are not saved. They will be lost."
+msgstr "{} archivos tienen cambios sin guardar. Se perderán."
+
+msgid "Not saved: another file was opened meanwhile"
+msgstr "No se ha guardado: entretanto se abrió otro archivo"
+
+msgid "of {}"
+msgstr "de {}"
+
+msgid "“{}” already exists. Saving will replace it."
+msgstr "«{}» ya existe. Al guardar se reemplazará."
+
+msgid "Computer"
+msgstr "Equipo"
+
+msgid "Home"
+msgstr "Carpeta personal"
+
+msgid "{} h ago"
+msgstr "hace {} h"
+
+msgid "{} days ago"
+msgstr "hace {} días"
+
+msgid "{} months ago"
+msgstr "hace {} meses"
+
+msgid "{} years ago"
+msgstr "hace {} años"
+
+msgid "cannot open {}: {}"
+msgstr "no se puede abrir {}: {}"
+
+msgid "“{}” is password-protected: open it in Lumen first"
+msgstr "«{}» está protegido con contraseña: ábrelo antes en Lumen"
+
+msgid "{} × {} pixels"
+msgstr "{} × {} píxeles"
+
+msgid "“{}” is password-protected"
+msgstr "«{}» está protegido con contraseña"
+
+msgid "“{}” was moved or deleted"
+msgstr "«{}» se ha movido o eliminado"

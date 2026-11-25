@@ -37,15 +37,16 @@ pub fn read(base: &Path, path: &Path) -> Option<Picture> {
 
 /// Saves `picture` as the thumbnail of `path` (best effort: a cache that cannot be written is
 /// just not there).
-pub fn write(base: &Path, path: &Path, picture: &Picture) {
-    let _ = try_write(base, path, picture);
+/// `modified` is the file's time before it was read: if it changes while the thumbnail is
+/// made, the thumbnail is known to be old.
+pub fn write(base: &Path, path: &Path, picture: &Picture, modified: u64) {
+    let _ = try_write(base, path, picture, modified);
 }
 
-fn try_write(base: &Path, path: &Path, picture: &Picture) -> Option<()> {
+fn try_write(base: &Path, path: &Path, picture: &Picture, modified: u64) -> Option<()> {
     use std::io::Write;
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
     let uri = file_uri(path)?;
-    let modified = mtime(path)?;
     let dir = base.join("large");
     // The standard asks for these folders to be private.
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).ok()?;
@@ -61,7 +62,7 @@ fn try_write(base: &Path, path: &Path, picture: &Picture) -> Option<()> {
     Some(())
 }
 
-fn mtime(path: &Path) -> Option<u64> {
+pub fn mtime(path: &Path) -> Option<u64> {
     let m = std::fs::metadata(path).ok()?.modified().ok()?;
     Some(m.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs())
 }
@@ -246,7 +247,7 @@ mod tests {
         let base = dir.join("cache");
         assert!(read(&base, &file).is_none());
         let pic = picture(256, 171);
-        write(&base, &file, &pic);
+        write(&base, &file, &pic, mtime(&file).unwrap());
         let back = read(&base, &file).expect("a thumbnail was cached");
         assert_eq!((back.width, back.height, back.original), (256, 171, (4000, 3000)));
         assert_eq!(&back.rgba[..], &pic.rgba[..], "pixels survive");
@@ -274,7 +275,7 @@ mod tests {
         // A real thumbnail of some other file under this name is not ours either.
         let other = dir.join("other.png");
         std::fs::write(&other, b"y").unwrap();
-        write(&base, &other, &picture(10, 10));
+        write(&base, &other, &picture(10, 10), mtime(&other).unwrap());
         let theirs = base.join("large").join(format!("{}.png", md5_hex(file_uri(&other).unwrap().as_bytes())));
         std::fs::copy(theirs, base.join("large").join(&name)).unwrap();
         assert!(read(&base, &file).is_none(), "the address inside does not match");

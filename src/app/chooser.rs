@@ -156,8 +156,8 @@ pub enum ChooserMsg {
 
 /// The folders offered on the left: home, the usual user folders, the whole computer.
 fn places() -> Vec<(String, PathBuf)> {
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else { return vec![("Computer".into(), "/".into())] };
-    let mut out = vec![("Home".to_string(), home.clone())];
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else { return vec![(tr("Computer"), "/".into())] };
+    let mut out = vec![(tr("Home"), home.clone())];
     // ~/.config/user-dirs.dirs knows the (possibly translated) names.
     let config = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".config"));
     let dirs = std::fs::read_to_string(config.join("user-dirs.dirs")).unwrap_or_default();
@@ -178,13 +178,13 @@ fn places() -> Vec<(String, PathBuf)> {
             out.push((file_name(&path), path));
         }
     }
-    out.push(("Computer".into(), "/".into()));
+    out.push((tr("Computer"), "/".into()));
     out
 }
 
 fn list(dir: &Path, purpose: Purpose, hidden: bool) -> Result<Vec<Entry>, String> {
     let mut entries: Vec<Entry> = std::fs::read_dir(dir)
-        .map_err(|e| format!("cannot open {}: {e}", dir.display()))?
+        .map_err(|e| trf!("cannot open {}: {}", dir.display(), e))?
         .filter_map(Result::ok)
         .filter_map(|e| {
             let name = e.file_name().to_string_lossy().into_owned();
@@ -223,10 +223,10 @@ fn age(t: Option<SystemTime>) -> String {
     };
     match secs {
         s if s < 3600 => tr("Just now"),
-        s if s < 86_400 => format!("{} h ago", s / 3600),
-        s if s < 86_400 * 60 => format!("{} days ago", s / 86_400),
-        s if s < 86_400 * 730 => format!("{} months ago", s / (86_400 * 30)),
-        s => format!("{} years ago", s / (86_400 * 365)),
+        s if s < 86_400 => trf!("{} h ago", s / 3600),
+        s if s < 86_400 * 60 => trf!("{} days ago", s / 86_400),
+        s if s < 86_400 * 730 => trf!("{} months ago", s / (86_400 * 30)),
+        s => trf!("{} years ago", s / (86_400 * 365)),
     }
 }
 
@@ -580,7 +580,7 @@ impl App {
         ]
         .spacing(12);
         if c.replace {
-            card = card.push(text(format!("“{}” already exists. Saving will replace it.", c.name)).size(13));
+            card = card.push(text(trf!("“{}” already exists. Saving will replace it.", c.name)).size(13));
         }
         let card = container(card.push(bottom).width(Length::Fixed(760.0_f32.min(self.area.width.max(560.0)))))
             .padding(20)

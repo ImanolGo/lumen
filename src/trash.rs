@@ -29,7 +29,8 @@ impl Trashed {
 
 /// Moves `path` to the trash that belongs to its disk.
 pub fn trash(path: &Path) -> Result<Trashed> {
-    let path = std::fs::canonicalize(path).with_context(|| format!("cannot find {}", path.display()))?;
+    // A link is moved itself, not what it leads to.
+    let path = std::path::absolute(path).with_context(|| format!("cannot find {}", path.display()))?;
     let dev = std::fs::symlink_metadata(&path)?.dev();
     let home = home_trash().context("there is no home folder to keep a trash in")?;
     std::fs::create_dir_all(home.parent().unwrap_or(&home))?;
@@ -39,7 +40,20 @@ pub fn trash(path: &Path) -> Result<Trashed> {
     // Another disk: its own trash at its top.
     let top = mount_top(&path, dev);
     let uid = std::fs::metadata("/proc/self")?.uid();
-    trash_into(&path, &top.join(format!(".Trash-{uid}")), Some(&top))
+    trash_into(&path, &disk_trash(&top, uid), Some(&top))
+}
+
+/// The trash of the disk whose top folder is `top`: the one its administrator made for everybody (if it
+/// is safe to use: a real folder with the sticky bit), else the user's own.
+fn disk_trash(top: &Path, uid: u32) -> PathBuf {
+    let shared = top.join(".Trash");
+    if std::fs::symlink_metadata(&shared).is_ok_and(|m| m.is_dir() && m.mode() & 0o1000 != 0) {
+        let own = shared.join(uid.to_string());
+        if std::fs::create_dir_all(&own).is_ok() {
+            return own;
+        }
+    }
+    top.join(format!(".Trash-{uid}"))
 }
 
 /// `~/.local/share/Trash` (or under `$XDG_DATA_HOME`).
@@ -109,16 +123,29 @@ fn trash_into(path: &Path, trash_dir: &Path, top: Option<&Path>) -> Result<Trash
 
 /// Puts a trashed file back where it was.
 pub fn restore(item: &Trashed) -> Result<()> {
-    if item.original.symlink_metadata().is_ok() {
-        bail!("there is already something at {}", item.original.display());
-    }
     if let Some(dir) = item.original.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    std::fs::rename(&item.stored, &item.original)
-        .with_context(|| format!("cannot restore {}", item.original.display()))?;
+    rename_new(&item.stored, &item.original).with_context(|| format!("cannot restore {}", item.original.display()))?;
     let _ = std::fs::remove_file(&item.info);
     Ok(())
+}
+
+/// Renames without ever replacing something.
+fn rename_new(from: &Path, to: &Path) -> Result<()> {
+    use rustix::fs::{CWD, RenameFlags, renameat_with};
+    use rustix::io::Errno;
+    match renameat_with(CWD, from, CWD, to, RenameFlags::NOREPLACE) {
+        Ok(()) => return Ok(()),
+        Err(Errno::EXIST) => bail!("there is already something at {}", to.display()),
+        // A file system that cannot do it in one step.
+        Err(Errno::INVAL | Errno::NOSYS | Errno::NOTSUP) => {}
+        Err(e) => return Err(e.into()),
+    }
+    if to.symlink_metadata().is_ok() {
+        bail!("there is already something at {}", to.display());
+    }
+    Ok(std::fs::rename(from, to)?)
 }
 
 /// Percent-encodes a path as the spec asks: everything but unreserved characters and `/`.
@@ -134,14 +161,9 @@ pub fn encode(bytes: &[u8]) -> String {
     out
 }
 
-/// The local time as the spec writes it (`2026-11-23T16:20:05`); the standard library has no
-/// time zones, so `date` is asked, and UTC is used if that fails.
+/// The local time as the spec writes it (`2026-11-23T16:20:05`).
 fn now() -> String {
-    let asked = std::process::Command::new("date").arg("+%Y-%m-%dT%H:%M:%S").output().ok();
-    match asked.filter(|o| o.status.success()).and_then(|o| String::from_utf8(o.stdout).ok()) {
-        Some(t) if t.trim().len() == 19 => t.trim().to_string(),
-        _ => crate::properties::format_time(std::time::SystemTime::now()).replacen(' ', "T", 1).replace(" UTC", ":00"),
-    }
+    jiff::ZonedDateTime::now().strftime("%Y-%m-%dT%H:%M:%S").to_string()
 }
 
 #[cfg(test)]
@@ -170,6 +192,29 @@ mod tests {
             }
         }
         PathBuf::from(OsString::from_vec(out))
+    }
+
+    #[test]
+    fn the_date_is_the_local_one() {
+        let asked = std::process::Command::new("date").arg("+%Y-%m-%dT%H:%M").output().unwrap();
+        let asked = String::from_utf8(asked.stdout).unwrap();
+        // The minute may turn in between.
+        assert_eq!(now().len(), 19);
+        assert_eq!(now()[..13], asked[..13]);
+    }
+
+    #[test]
+    fn the_shared_trash_of_a_disk_is_used_only_if_it_is_safe() {
+        let top = scratch("shared");
+        assert_eq!(disk_trash(&top, 7), top.join(".Trash-7"));
+        std::fs::create_dir(top.join(".Trash")).unwrap();
+        assert_eq!(disk_trash(&top, 7), top.join(".Trash-7"), "no sticky bit");
+        std::fs::set_permissions(top.join(".Trash"), std::fs::Permissions::from_mode(0o1777)).unwrap();
+        assert_eq!(disk_trash(&top, 7), top.join(".Trash/7"));
+        std::fs::rename(top.join(".Trash"), top.join("elsewhere")).unwrap();
+        std::os::unix::fs::symlink(top.join("elsewhere"), top.join(".Trash")).unwrap();
+        assert_eq!(disk_trash(&top, 7), top.join(".Trash-7"), "a link is not trusted");
+        std::fs::remove_dir_all(&top).unwrap();
     }
 
     fn scratch(name: &str) -> PathBuf {

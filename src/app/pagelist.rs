@@ -176,7 +176,7 @@ impl App {
                     .size(14)
                     .padding([6, 8])
                     .width(130),
-                text(format!("of {pages}")).size(12).style(super::muted),
+                text(trf!("of {}", pages)).size(12).style(super::muted),
                 super::icon_button(crate::icons::close(), tr("Close (Esc)"), Some(Message::GoToClose), false),
             ]
             .spacing(8)

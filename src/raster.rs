@@ -89,7 +89,8 @@ pub fn thumbnail_bytes(data: &[u8], ext: &str) -> Result<Picture> {
     let _turn = FULL_DECODE.lock().unwrap_or_else(|e| e.into_inner());
     let img = decode(data, ext)?;
     let original = (img.width(), img.height());
-    Ok(Picture::from_rgba(to_rgba8(img.thumbnail(THUMB_SIDE, THUMB_SIDE)), original))
+    let img = if original.0.max(original.1) > THUMB_SIDE { img.thumbnail(THUMB_SIDE, THUMB_SIDE) } else { img };
+    Ok(Picture::from_rgba(to_rgba8(img), original))
 }
 
 /// AVIF and HEIC go through the system's libheif, which needs a path and is not sandboxed.
@@ -322,12 +323,12 @@ fn load_svg(path: &Path, target_side: u32) -> Result<Picture> {
     let tree = usvg::Tree::from_data(&data, &svg_options()).context("the SVG is damaged")?;
     let size = tree.size();
     let (w, h) = (size.width(), size.height());
-    let scale = (target_side as f32 / w.max(h)).clamp(0.01, 16.0);
+    let scale = (target_side as f32 / w.max(h)).min(16.0);
     let pw = ((w * scale).ceil() as u32).clamp(1, MAX_SIDE);
     let ph = ((h * scale).ceil() as u32).clamp(1, MAX_SIDE);
     let mut pixmap = tiny_skia::Pixmap::new(pw, ph).context("SVG too large")?;
     resvg::render(&tree, tiny_skia::Transform::from_scale(scale, scale), &mut pixmap.as_mut());
-    let mut rgba = Vec::with_capacity((pw * ph * 4) as usize);
+    let mut rgba = Vec::with_capacity(pw as usize * ph as usize * 4);
     for px in pixmap.pixels() {
         let c = px.demultiply();
         rgba.extend_from_slice(&[c.red(), c.green(), c.blue(), c.alpha()]);
@@ -365,12 +366,9 @@ fn jpeg_thumbnail(data: &[u8]) -> Option<Picture> {
     let orientation = decoder
         .exif_data()
         .and_then(|raw| exif::Reader::new().read_raw(raw.to_vec()).ok())
-        .and_then(|e| e.get_field(exif::Tag::Orientation, exif::In::PRIMARY).and_then(|f| f.value.get_uint(0)))
-        .and_then(|v| Orientation::from_exif(v as u8))
-        .unwrap_or(Orientation::NoTransforms);
+        .map_or(Orientation::NoTransforms, |e| exif_orientation(&e));
     img.apply_orientation(orientation);
-    let original = if orientation.to_exif() > 4 { (original.1, original.0) } else { original };
-    Some(Picture::from_rgba(img.thumbnail(THUMB_SIDE, THUMB_SIDE).into_rgba8(), original))
+    Some(Picture::from_rgba(shrunk(&img), turned(original, orientation)))
 }
 
 /// Thumbnail of a plain (non-interlaced) PNG made while its rows are read, by
@@ -426,8 +424,31 @@ fn png_thumbnail(data: &[u8]) -> Option<Picture> {
         let n = n.max(1);
         out.extend(sums[cell * 4..cell * 4 + 4].iter().map(|&v| ((v + n / 2) / n) as u8));
     }
-    let img = RgbaImage::from_raw(tw as u32, th as u32, out)?;
-    Some(Picture::from_rgba(img, (w as u32, h as u32)))
+    let mut img = DynamicImage::ImageRgba8(RgbaImage::from_raw(tw as u32, th as u32, out)?);
+    let orientation = exif::Reader::new()
+        .read_from_container(&mut Cursor::new(data))
+        .map_or(Orientation::NoTransforms, |e| exif_orientation(&e));
+    img.apply_orientation(orientation);
+    Some(Picture::from_rgba(img.into_rgba8(), turned((w as u32, h as u32), orientation)))
+}
+
+/// `img` brought down to a thumbnail's size; a smaller one stays as it is.
+fn shrunk(img: &DynamicImage) -> RgbaImage {
+    if img.width().max(img.height()) <= THUMB_SIDE {
+        return img.to_rgba8();
+    }
+    img.thumbnail(THUMB_SIDE, THUMB_SIDE).into_rgba8()
+}
+
+fn exif_orientation(exif: &exif::Exif) -> Orientation {
+    exif.get_field(exif::Tag::Orientation, exif::In::PRIMARY)
+        .and_then(|f| f.value.get_uint(0))
+        .and_then(|v| Orientation::from_exif(v as u8))
+        .unwrap_or(Orientation::NoTransforms)
+}
+
+fn turned(size: (u32, u32), orientation: Orientation) -> (u32, u32) {
+    if orientation.to_exif() > 4 { (size.1, size.0) } else { size }
 }
 
 fn exif_thumbnail(data: &[u8]) -> Option<Picture> {
@@ -443,19 +464,87 @@ fn exif_thumbnail(data: &[u8]) -> Option<Picture> {
     if img.width().max(img.height()) < 120 {
         return None;
     }
-    let orientation = exif
-        .get_field(Tag::Orientation, In::PRIMARY)
-        .and_then(|f| f.value.get_uint(0))
-        .and_then(|v| Orientation::from_exif(v as u8))
-        .unwrap_or(Orientation::NoTransforms);
+    let orientation = exif_orientation(&exif);
     img.apply_orientation(orientation);
-    let original = (img.width(), img.height());
-    Some(Picture::from_rgba(img.thumbnail(THUMB_SIDE, THUMB_SIDE).into_rgba8(), original))
+    // The picture's own size, not the preview's.
+    let full = ImageReader::new(Cursor::new(data)).with_guessed_format().ok()?.into_dimensions().ok()?;
+    Some(Picture::from_rgba(shrunk(&img), turned(full, orientation)))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A JPEG of `w` × `h` with EXIF: an orientation, and a preview of `pw` × `ph`.
+    fn jpeg_with_preview(w: u32, h: u32, preview: (u32, u32), orientation: u16) -> Vec<u8> {
+        use image::ImageEncoder;
+        let grey = |w: u32, h: u32| {
+            let mut out = Vec::new();
+            image::codecs::jpeg::JpegEncoder::new(&mut out)
+                .write_image(&vec![90; (w * h * 3) as usize], w, h, image::ExtendedColorType::Rgb8)
+                .unwrap();
+            out
+        };
+        let small = grey(preview.0, preview.1);
+        // TIFF: an IFD with the orientation, and one for the preview, which follows it.
+        let mut tiff = b"MM\0*\0\0\0\x08\0\x01".to_vec();
+        tiff.extend([0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, orientation as u8, 0, 0]);
+        tiff.extend([0, 0, 0, 26]);
+        tiff.extend([0, 2, 0x02, 0x01, 0, 4, 0, 0, 0, 1, 0, 0, 0, 56]);
+        tiff.extend([0x02, 0x02, 0, 4, 0, 0, 0, 1]);
+        tiff.extend((small.len() as u32).to_be_bytes());
+        tiff.extend([0, 0, 0, 0]);
+        assert_eq!(tiff.len(), 56);
+        tiff.extend(&small);
+        let full = grey(w, h);
+        let mut out = full[..2].to_vec();
+        out.extend([0xFF, 0xE1]);
+        out.extend((tiff.len() as u16 + 8).to_be_bytes());
+        out.extend(b"Exif\0\0");
+        out.extend(tiff);
+        out.extend(&full[2..]);
+        out
+    }
+
+    #[test]
+    fn thumbnails_are_never_enlarged_and_know_the_real_size() {
+        let t = thumbnail_bytes(&jpeg_with_preview(1600, 1200, (160, 120), 1), "jpg").unwrap();
+        assert_eq!((t.width, t.height, t.original), (160, 120, (1600, 1200)));
+        let t = thumbnail_bytes(&jpeg_with_preview(1600, 1200, (160, 120), 6), "jpg").unwrap();
+        assert_eq!((t.width, t.height, t.original), (120, 160, (1200, 1600)));
+        let mut small = Cursor::new(Vec::new());
+        RgbaImage::new(30, 20).write_to(&mut small, image::ImageFormat::Bmp).unwrap();
+        let t = thumbnail_bytes(small.get_ref(), "bmp").unwrap();
+        assert_eq!((t.width, t.height, t.original), (30, 20, (30, 20)));
+    }
+
+    #[test]
+    fn a_png_thumbnail_is_turned_like_the_picture() {
+        use image::ImageEncoder;
+        let mut data = Vec::new();
+        let mut encoder = image::codecs::png::PngEncoder::new(&mut data);
+        encoder.set_exif_metadata(b"MM\0*\0\0\0\x08\0\x01\x01\x12\0\x03\0\0\0\x01\0\x06\0\0\0\0\0\0".to_vec()).unwrap();
+        encoder.write_image(&vec![7; 800 * 400 * 4], 800, 400, image::ExtendedColorType::Rgba8).unwrap();
+        let (full, thumb) = (load_bytes(&data, "png").unwrap(), thumbnail_bytes(&data, "png").unwrap());
+        assert_eq!((full.width, full.height), (400, 800));
+        assert_eq!((thumb.width, thumb.height, thumb.original), (128, 256, (400, 800)));
+    }
+
+    #[test]
+    fn a_huge_svg_keeps_its_proportions() {
+        let dir = std::env::temp_dir().join(format!("lumen-rs-svg-huge-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("t.svg");
+        std::fs::write(&path, r#"<svg xmlns="http://www.w3.org/2000/svg" width="4000000" height="2000000"/>"#).unwrap();
+        let pic = load_svg(&path, 2048).unwrap();
+        assert!(
+            (pic.width as f32 / pic.height as f32 - 2.0).abs() < 0.01 && pic.width <= 2049,
+            "{}×{}",
+            pic.width,
+            pic.height
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     /// A PNG header and nothing else: 50 000 × 50 000 pixels.
     fn huge_png() -> Vec<u8> {

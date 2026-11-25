@@ -17,6 +17,8 @@ use hayro::hayro_syntax::Pdf;
 use hayro::hayro_syntax::object::{Array, Dict, MaybeRef, Name, ObjRef, Object, String as PdfString};
 use hayro::hayro_syntax::page::Page;
 use hayro::kurbo::{Affine, BezPath, Point, Rect};
+use unicode_normalization::UnicodeNormalization;
+use unicode_normalization::char::is_combining_mark;
 
 /// Where a link or outline entry leads.
 #[derive(Debug, Clone, PartialEq)]
@@ -417,6 +419,8 @@ pub struct PageText {
     upper: Vec<bool>,
     /// Box and writing direction of each character, in page points; `None` for inserted spaces.
     boxes: Vec<Option<(Rect, Dir)>>,
+    /// Where in `chars` a hyphen ends a line in the middle of a word.
+    soft: HashSet<usize>,
 }
 
 impl PageText {
@@ -437,26 +441,50 @@ impl PageText {
         if needle.is_empty() || needle.len() > self.chars.len() {
             return Vec::new();
         }
-        let word = |c: char| c.is_alphanumeric() || c == '_';
+        // An accent written after its letter is part of the word too.
+        let word = |c: char| c.is_alphanumeric() || c == '_' || is_combining_mark(c);
+        // The neighbours, past a hyphen that only breaks the line.
+        let before = |i: usize| {
+            let i = i.checked_sub(1)?;
+            let i = if self.soft.contains(&i) { i.checked_sub(1)? } else { i };
+            self.chars.get(i).copied()
+        };
+        let after = |end: usize| self.chars.get(end + usize::from(self.soft.contains(&end))).copied();
         let mut hits = Vec::new();
         let mut i = 0;
         while i + needle.len() <= self.chars.len() {
-            let end = i + needle.len();
-            let same = self.chars[i..end] == needle[..]
-                && (!options.match_case || self.upper[i..end] == needle_upper[..])
+            let found = self.matches_at(i, &needle, options.match_case.then_some(&needle_upper[..])).filter(|&end| {
                 // A whole word is not touched by a letter or digit on either side (a side that
                 // is itself punctuation, like the `+` of `C++`, has no edge to check).
-                && (!options.whole_words
-                    || ((i == 0 || !word(self.chars[i - 1]) || !word(needle[0]))
-                        && (end == self.chars.len() || !word(self.chars[end]) || !word(needle[needle.len() - 1]))));
-            if same {
-                hits.push(merge_boxes(self.boxes[i..end].iter().flatten().copied()));
-                i = end;
-            } else {
-                i += 1;
+                !options.whole_words
+                    || ((!before(i).is_some_and(word) || !word(needle[0]))
+                        && (!after(end).is_some_and(word) || !word(needle[needle.len() - 1])))
+            });
+            match found {
+                Some(end) => {
+                    hits.push(merge_boxes(self.boxes[i..end].iter().flatten().copied()));
+                    i = end;
+                }
+                None => i += 1,
             }
         }
         hits
+    }
+
+    /// Where `needle` ends if it starts at `at`. A hyphen at the end of a line may be one the line
+    /// break put there, so it matches a hyphen and nothing at all.
+    fn matches_at(&self, at: usize, needle: &[char], upper: Option<&[bool]>) -> Option<usize> {
+        let mut end = at;
+        for (k, c) in needle.iter().enumerate() {
+            if k > 0 && self.soft.contains(&end) && self.chars[end] != *c {
+                end += 1;
+            }
+            if self.chars.get(end) != Some(c) || upper.is_some_and(|u| u[k] != self.upper[end]) {
+                return None;
+            }
+            end += 1;
+        }
+        Some(end)
     }
 
     /// Whether `p` (page points) is on a glyph, give or take the space between words.
@@ -537,12 +565,18 @@ pub struct SearchOptions {
     pub whole_words: bool,
 }
 
+/// `s` with every character written one way: ligatures as their letters, accents after their letter,
+/// full-width forms as the usual ones; soft hyphens go.
+fn folded(s: &str) -> impl Iterator<Item = char> {
+    s.nfkd().filter(|c| *c != '\u{AD}')
+}
+
 /// Lower-cases `s` and turns every run of whitespace into one space (none at the ends), also
 /// saying which of the characters were upper case in `s`.
 fn normalise_cased(s: &str) -> (Vec<char>, Vec<bool>) {
     let mut chars = Vec::new();
     let mut upper = Vec::new();
-    for original in s.chars() {
+    for original in folded(s) {
         for c in original.to_lowercase() {
             if c.is_whitespace() {
                 if chars.last() != Some(&' ') {
@@ -665,13 +699,21 @@ impl PageText {
         let mut chars = Vec::new();
         let mut upper = Vec::new();
         let mut boxes = Vec::new();
+        let mut soft = HashSet::new();
         for item in &items {
-            if item.gap != Gap::None && chars.last().is_some_and(|c| *c != ' ') {
+            let broken_word = item.gap == Gap::Line
+                && chars.last() == Some(&'-')
+                && chars.len() > 1
+                && chars[chars.len() - 2].is_alphabetic()
+                && item.text.chars().next().is_some_and(char::is_lowercase);
+            if broken_word {
+                soft.insert(chars.len() - 1);
+            } else if item.gap != Gap::None && chars.last().is_some_and(|c| *c != ' ') {
                 chars.push(' ');
                 upper.push(false);
                 boxes.push(None);
             }
-            for original in item.text.chars() {
+            for original in folded(&item.text) {
                 for c in original.to_lowercase() {
                     if c.is_whitespace() {
                         if chars.last().is_some_and(|c| *c != ' ') {
@@ -687,7 +729,7 @@ impl PageText {
                 }
             }
         }
-        Self { items, chars, upper, boxes }
+        Self { items, chars, upper, boxes, soft }
     }
 }
 
@@ -998,6 +1040,40 @@ mod tests {
         assert_eq!(text.find_with("cat", SearchOptions { match_case: true, whole_words: true }).len(), 1);
         // A word ending in punctuation still matches as a whole word.
         assert_eq!(text.find_with("c++", whole).len(), 2, "C++ and the start of C+++");
+    }
+
+    /// Lines of words, each word its glyphs, given as the strings the PDF maps them to.
+    fn lines(lines: &[&[&str]]) -> PageText {
+        let mut device = TextDevice::default();
+        for (row, glyphs) in lines.iter().enumerate() {
+            let (mut x, y) = (0.0, row as f64 * 20.0);
+            for glyph in *glyphs {
+                if *glyph != " " {
+                    device.push(glyph, Rect::new(x, y, x + 6.0, y + 12.0), Dir::Right);
+                }
+                x += 6.0;
+            }
+        }
+        device.finish()
+    }
+
+    #[test]
+    fn finds_ligatures_accents_and_words_broken_across_lines() {
+        let any = SearchOptions::default();
+        let text = lines(&[&["e", "ﬃ", "c", "i", "e", "n", "t"], &["r", "e\u{301}", "s", "u", "m", "é"]]);
+        assert_eq!(text.find("efficient").len(), 1, "a ligature");
+        assert_eq!(text.find("eﬃcient").len(), 1, "also when it is typed");
+        assert_eq!(text.find("résumé").len(), 1, "accents written apart or not");
+        assert_eq!(text.find("RE\u{301}SUME\u{301}").len(), 1);
+        let text =
+            lines(&[&["i", "n", "f", "o", "r", "-"], &["m", "a", "t", "i", "o", "n", " ", "x", "-"], &["Y", "z"]]);
+        assert_eq!(text.find("information").len(), 1, "a word the line break cut");
+        assert_eq!(text.find("information")[0].len(), 2, "a box on each line");
+        assert_eq!(text.find("infor-mation").len(), 1, "or one with a hyphen of its own");
+        assert_eq!(text.find_with("information", SearchOptions { whole_words: true, ..any }).len(), 1);
+        assert_eq!(text.find_with("mation", SearchOptions { whole_words: true, ..any }).len(), 0);
+        assert_eq!(text.find("xyz").len(), 0, "a capital does not continue a word");
+        assert_eq!(lines(&[&["a", "b", "\u{AD}"], &["c", "d"]]).find("ab cd").len(), 1);
     }
 
     #[test]

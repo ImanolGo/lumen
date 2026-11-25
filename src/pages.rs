@@ -107,6 +107,52 @@ fn rotation_of(doc: &Document, page: ObjectId) -> i64 {
     doc.dereference(&turn).ok().and_then(|(_, o)| o.as_float().ok()).map_or(0, |r| r.round() as i64)
 }
 
+/// Moves every object number of `doc` up by `by`, out of the way of another document's.
+fn shift(doc: &mut Document, by: u32) {
+    fn walk(object: &mut Object, by: u32) {
+        match object {
+            Object::Reference(id) => id.0 = id.0.saturating_add(by),
+            Object::Array(a) => a.iter_mut().for_each(|o| walk(o, by)),
+            Object::Dictionary(d) => d.iter_mut().for_each(|(_, o)| walk(o, by)),
+            Object::Stream(s) => s.dict.iter_mut().for_each(|(_, o)| walk(o, by)),
+            _ => {}
+        }
+    }
+    doc.objects = std::mem::take(&mut doc.objects)
+        .into_iter()
+        .map(|((number, generation), mut object)| {
+            walk(&mut object, by);
+            ((number.saturating_add(by), generation), object)
+        })
+        .collect();
+    doc.trailer.iter_mut().for_each(|(_, o)| walk(o, by));
+    doc.max_id = doc.max_id.saturating_add(by);
+}
+
+/// Drops the objects nothing leads to.
+fn prune(doc: &mut Document) {
+    fn references(object: &Object, out: &mut Vec<ObjectId>) {
+        match object {
+            Object::Reference(id) => out.push(*id),
+            Object::Array(a) => a.iter().for_each(|o| references(o, out)),
+            Object::Dictionary(d) => d.iter().for_each(|(_, o)| references(o, out)),
+            Object::Stream(s) => s.dict.iter().for_each(|(_, o)| references(o, out)),
+            _ => {}
+        }
+    }
+    let mut waiting = Vec::new();
+    doc.trailer.iter().for_each(|(_, o)| references(o, &mut waiting));
+    let mut used = std::collections::HashSet::new();
+    while let Some(id) = waiting.pop() {
+        if used.insert(id)
+            && let Some(object) = doc.objects.get(&id)
+        {
+            references(object, &mut waiting);
+        }
+    }
+    doc.objects.retain(|id, _| used.contains(id));
+}
+
 fn kids_of(doc: &Document, node: ObjectId) -> Vec<ObjectId> {
     let kids = doc.get_dictionary(node).and_then(|d| d.get(b"Kids")).and_then(Object::as_array);
     kids.map(|k| k.iter().filter_map(|o| o.as_reference().ok()).collect()).unwrap_or_default()
@@ -126,7 +172,7 @@ pub fn compose(base: &Source, extras: &[Source], plan: &[Entry]) -> Result<Vec<u
     let root = doc.trailer.get(b"Root").and_then(Object::as_reference).context("the document has no catalog")?;
     for extra in extras {
         let mut other = load(extra)?;
-        other.renumber_objects_with(doc.max_id + 1);
+        shift(&mut other, doc.max_id);
         let their_pages = other.get_pages();
         let their_root = other.trailer.get(b"Root").and_then(Object::as_reference);
         doc.max_id = doc.max_id.max(other.max_id);
@@ -185,7 +231,7 @@ pub fn compose(base: &Source, extras: &[Source], plan: &[Entry]) -> Result<Vec<u
     let kept: Vec<ObjectId> = kids_of(&doc, tree_id);
     let removed = pages.iter().flat_map(|p| p.values().copied()).filter(|id| !used.contains(id)).collect();
     crate::redact::remove_pages(&mut doc, &removed, &kept);
-    doc.prune_objects();
+    prune(&mut doc);
     if let Some(state) = encryption {
         doc.encrypt(&state).context("the PDF could not be protected again")?;
     }
@@ -457,6 +503,28 @@ mod tests {
         doc.save_to(&mut bytes).unwrap();
         let out = compose(&Source { bytes, password: None }, &[], &[e(1), e(0)]).unwrap();
         assert_eq!(texts(out, "").iter().map(|t| t.1).collect::<Vec<_>>(), [180, 90]);
+    }
+
+    /// `cargo test big_documents -- --ignored --nocapture` says how long a big document takes.
+    #[test]
+    #[ignore]
+    fn big_documents() {
+        let mut doc = Document::load_mem(&connected()).unwrap();
+        let mut last = doc.add_object(Object::Null);
+        for _ in 0..200_000 {
+            last = doc.add_object(lopdf::dictionary! { "Next" => last });
+        }
+        let page = doc.get_pages()[&1];
+        doc.get_dictionary_mut(page).unwrap().set("PieceInfo", last);
+        let mut bytes = Vec::new();
+        doc.save_to(&mut bytes).unwrap();
+        let source = || Source { bytes: bytes.clone(), password: None };
+        let start = std::time::Instant::now();
+        compose(&source(), &[], &identity(3)).unwrap();
+        println!("200 000 objects, rearranged: {:?}", start.elapsed());
+        let start = std::time::Instant::now();
+        compose(&source(), &[source()], &[e(0), Entry { source: 1, index: 0, rotate: 0 }]).unwrap();
+        println!("the same, with as many inserted: {:?}", start.elapsed());
     }
 
     #[test]

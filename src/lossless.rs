@@ -37,7 +37,7 @@ pub fn orientation(jpeg: &[u8]) -> u8 {
 }
 
 /// The same JPEG with orientation `new`. A file with no EXIF gets a minimal block; one with
-/// EXIF but no orientation tag, or anything that is not a well-formed JPEG, is not handled
+/// EXIF but no orientation tag gets the tag. Anything that is not a well-formed JPEG is not handled
 /// (`None`), and the caller saves the usual way.
 pub fn with_orientation(jpeg: &[u8], new: u8) -> Option<Vec<u8>> {
     if !(1..=8).contains(&new) || jpeg.get(..2)? != [0xFF, 0xD8] {
@@ -80,7 +80,13 @@ pub fn with_orientation(jpeg: &[u8], new: u8) -> Option<Vec<u8>> {
                     return Some(out);
                 }
             }
-            return None; // EXIF without an orientation tag
+            let grown = with_entry(tiff, le, ifd, count, new)?;
+            let mut segment = vec![0xFF, 0xE1];
+            segment.extend(u16::try_from(grown.len() + 8).ok()?.to_be_bytes());
+            segment.extend_from_slice(b"Exif\0\0");
+            segment.extend(grown);
+            out.splice(at..end, segment);
+            return Some(out);
         }
         if marker == 0xE0 && at == after_app0 {
             after_app0 = end; // keep JFIF first
@@ -94,6 +100,39 @@ pub fn with_orientation(jpeg: &[u8], new: u8) -> Option<Vec<u8>> {
     block.extend_from_slice(&[0x01, 0x12, 0x00, 0x03, 0, 0, 0, 1, 0, new, 0, 0]);
     block.extend_from_slice(&[0, 0, 0, 0]);
     out.splice(after_app0..after_app0, block);
+    Some(out)
+}
+
+/// A TIFF block whose first directory (of `count` entries at `ifd`) gets an orientation. The directory
+/// is written again at the end, with the new entry; everything else stays where it is, so every
+/// offset in the block still holds.
+fn with_entry(tiff: &[u8], le: bool, ifd: usize, count: usize, new: u8) -> Option<Vec<u8>> {
+    let two = |v: u16| if le { v.to_le_bytes() } else { v.to_be_bytes() };
+    let four = |v: u32| if le { v.to_le_bytes() } else { v.to_be_bytes() };
+    let entries = tiff.get(ifd + 2..ifd + 2 + count * 12)?;
+    let next = tiff.get(ifd + 2 + count * 12..ifd + 6 + count * 12)?;
+    let tag = |entry: &[u8; 12]| {
+        let b = [entry[0], entry[1]];
+        if le { u16::from_le_bytes(b) } else { u16::from_be_bytes(b) }
+    };
+    let mut entry = [0u8; 12];
+    entry[..2].copy_from_slice(&two(0x0112));
+    entry[2..4].copy_from_slice(&two(3));
+    entry[4..8].copy_from_slice(&four(1));
+    entry[8..10].copy_from_slice(&two(u16::from(new)));
+    let mut all: Vec<[u8; 12]> = entries.as_chunks::<12>().0.to_vec();
+    // Entries are in the order of their tags.
+    let place = all.iter().position(|e| tag(e) > 0x0112).unwrap_or(all.len());
+    all.insert(place, entry);
+    let mut out = tiff.to_vec();
+    if out.len() % 2 == 1 {
+        out.push(0);
+    }
+    let start = u32::try_from(out.len()).ok()?;
+    out.get_mut(4..8)?.copy_from_slice(&four(start));
+    out.extend(two(u16::try_from(all.len()).ok()?));
+    out.extend(all.concat());
+    out.extend_from_slice(next);
     Some(out)
 }
 
@@ -188,16 +227,33 @@ mod tests {
     }
 
     #[test]
-    fn leaves_what_it_cannot_do_alone() {
-        let no_tag = exif_with(
-            vec![exif::Field {
-                tag: exif::Tag::Make,
+    fn adds_the_tag_to_exif_that_lacks_it() {
+        for le in [true, false] {
+            let text = |tag, t: &str| exif::Field {
+                tag,
                 ifd_num: exif::In::PRIMARY,
-                value: exif::Value::Ascii(vec![b"Cam".to_vec()]),
-            }],
-            true,
-        );
-        assert!(with_orientation(&jpeg(Some(no_tag)), 6).is_none());
+                value: exif::Value::Ascii(vec![t.as_bytes().to_vec()]),
+            };
+            let fields = vec![
+                text(exif::Tag::Make, "Lumen Camera Company"),
+                text(exif::Tag::DateTimeOriginal, "2024:05:06 07:08:09"),
+                text(exif::Tag::Software, "something longer than four bytes"),
+            ];
+            let original = jpeg(Some(exif_with(fields, le)));
+            let turned = with_orientation(&original, 6).unwrap();
+            assert_eq!((orientation(&turned), scan(&turned)), (6, scan(&original)));
+            let exif = exif::Reader::new().read_from_container(&mut std::io::Cursor::new(&turned)).unwrap();
+            let shown = |tag| exif.get_field(tag, exif::In::PRIMARY).unwrap().display_value().to_string();
+            assert_eq!(shown(exif::Tag::Make), "\"Lumen Camera Company\"");
+            assert_eq!(shown(exif::Tag::Software), "\"something longer than four bytes\"");
+            assert_eq!(shown(exif::Tag::DateTimeOriginal), "2024-05-06 07:08:09");
+            // And now it has one to change.
+            assert_eq!(with_orientation(&turned, 3).unwrap().len(), turned.len());
+        }
+    }
+
+    #[test]
+    fn leaves_what_it_cannot_do_alone() {
         assert!(with_orientation(b"not a jpeg", 6).is_none());
         assert!(with_orientation(&jpeg(None), 9).is_none());
     }

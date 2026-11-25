@@ -44,7 +44,7 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
             ("Alt+Enter", "Properties"),
             ("Ctrl+Shift+P", "Command palette: find a command by name"),
             ("Ctrl+P", "Print"),
-            ("Ctrl+S", "Save (a copy of a picture)"),
+            ("Ctrl+S", "Save"),
             ("Ctrl+Shift+S", "Save a copy"),
             ("Ctrl+Q", "Quit"),
         ],

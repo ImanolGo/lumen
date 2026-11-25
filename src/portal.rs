@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use crate::i18n::tr;
 use anyhow::{Context, Result};
 use ashpd::desktop::ResponseError;
 use ashpd::desktop::file_chooser::{FileFilter, SelectedFiles};
@@ -31,14 +32,16 @@ pub async fn choose(folder: bool) -> Result<Vec<PathBuf>> {
     if disabled() {
         return Err(NoPortal.into());
     }
+    let title = if folder { tr("Open Folder") } else { tr("Open Files") };
+    let open = tr("Open");
     let mut request = SelectedFiles::open_file()
-        .title(if folder { "Open Folder" } else { "Open Files" })
-        .accept_label("Open")
+        .title(title.as_str())
+        .accept_label(open.as_str())
         .modal(true)
         .multiple(!folder)
         .directory(folder);
     if !folder {
-        let supported = FileFilter::new("Pictures and PDFs")
+        let supported = FileFilter::new(&tr("Pictures and PDFs"))
             .mimetype("application/pdf")
             .mimetype("image/png")
             .mimetype("image/jpeg")
@@ -47,6 +50,7 @@ pub async fn choose(folder: bool) -> Result<Vec<PathBuf>> {
             .mimetype("image/bmp")
             .mimetype("image/tiff")
             .mimetype("image/svg+xml")
+            .mimetype("image/svg+xml-compressed")
             .mimetype("image/x-icon")
             .mimetype("image/vnd.microsoft.icon")
             .mimetype("image/qoi")
@@ -55,11 +59,18 @@ pub async fn choose(folder: bool) -> Result<Vec<PathBuf>> {
             .mimetype("image/jxl")
             .mimetype("image/jp2")
             .mimetype("image/jpx")
+            .mimetype("image/x-jp2-codestream")
+            // For desktops that do not know those names.
+            .glob("*.svgz")
+            .glob("*.j2k")
+            .glob("*.j2c")
             .mimetype("image/x-exr");
         #[cfg(feature = "heif")]
         let supported = supported.mimetype("image/heic").mimetype("image/heif").mimetype("image/avif");
-        request =
-            request.filter(supported.clone()).filter(FileFilter::new("All files").glob("*")).current_filter(supported);
+        request = request
+            .filter(supported.clone())
+            .filter(FileFilter::new(&tr("All files")).glob("*"))
+            .current_filter(supported);
     }
     let files = match request.send().await.and_then(|r| r.response()) {
         Ok(files) => files,
@@ -78,8 +89,13 @@ pub async fn save_as(suggested: PathBuf) -> Result<Option<PathBuf>> {
         return Err(NoPortal.into());
     }
     let name = suggested.file_name().map(|n| n.to_string_lossy().into_owned());
+    let (title, save) = (tr("Save a Copy"), tr("Save"));
     let base = || {
-        SelectedFiles::save_file().title("Save a Copy").accept_label("Save").modal(true).current_name(name.as_deref())
+        SelectedFiles::save_file()
+            .title(title.as_str())
+            .accept_label(save.as_str())
+            .modal(true)
+            .current_name(name.as_deref())
     };
     let request = match suggested.parent().filter(|d| d.is_dir()) {
         Some(dir) => base().current_folder(dir).unwrap_or_else(|_| base()),

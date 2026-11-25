@@ -25,6 +25,9 @@ use crate::structure::{self, Link, OutlineItem, PageText};
 /// Largest bitmap we render for a single page, in pixels per side.
 const MAX_SIDE: f32 = 8192.0;
 
+/// A render thread starts its caches afresh after this many pixels.
+const CACHE_PIXELS: usize = 200_000_000;
+
 enum Work {
     Render { scale: f32, night: bool, reply: oneshot::Sender<Result<Picture>> },
     Text { reply: oneshot::Sender<Arc<PageText>> },
@@ -413,10 +416,11 @@ fn render_scale(scale: f32, w: f32, h: f32) -> Option<f32> {
 fn worker(bytes: Arc<Vec<u8>>, password: Option<&str>, queue: &Queue) {
     let Ok(pdf) = parse(bytes, password) else { return };
     let pages = pdf.pages();
-    let cache = RenderCache::new();
+    let mut cache = RenderCache::new();
+    // Pixels rendered with this cache: it keeps the glyphs of every zoom level and never lets one go.
+    let mut rendered = 0usize;
     let interpreter = InterpreterSettings::default();
     let settings = RenderSettings::default();
-
     let text_cache = hayro::hayro_interpret::InterpreterCache::new();
 
     while let Some(job) = queue.pop() {
@@ -442,6 +446,11 @@ fn worker(bytes: Arc<Vec<u8>>, password: Option<&str>, queue: &Queue) {
                     let _ = reply.send(Err(anyhow!("page {} is too large to show", job.page + 1)));
                     continue;
                 };
+                rendered += (w * scale) as usize * (h * scale) as usize;
+                if rendered > CACHE_PIXELS {
+                    cache = RenderCache::new();
+                    rendered = 0;
+                }
                 let pixmap_settings = PixmapSettings {
                     x_scale: scale,
                     y_scale: scale,
@@ -718,6 +727,27 @@ pub(crate) mod tests {
         assert_eq!(dest("FitV", &[100], 90), Some(100.0));
         for (turn, top) in [(0, 100.0), (90, 100.0), (180, 600.0), (270, 400.0)] {
             assert_eq!(dest("FitR", &[100, 600, 200, 700], turn), Some(top), "{turn}");
+        }
+    }
+
+    /// Memory while zooming: `LUMEN_PDF=file.pdf cargo test zoom_memory -- --ignored --nocapture`.
+    #[tokio::test]
+    #[ignore]
+    async fn zoom_memory() {
+        let Ok(path) = std::env::var("LUMEN_PDF") else { return };
+        let doc = Document::open(Path::new(&path)).unwrap();
+        let rss = || {
+            let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+            status.lines().find(|l| l.starts_with("VmRSS")).unwrap_or_default().to_owned()
+        };
+        for step in 0..120 {
+            let scale = 0.5 + step as f32 * 0.05;
+            for page in 20..24 {
+                let _ = doc.render(page.min(doc.page_count() - 1), scale).await;
+            }
+            if step % 15 == 14 {
+                println!("{} zoom levels: {}", step + 1, rss());
+            }
         }
     }
 

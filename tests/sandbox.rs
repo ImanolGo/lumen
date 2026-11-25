@@ -169,7 +169,10 @@ fn animations_are_decoded_inside_too() {
                     out.read_exact(&mut vec![0u8; n(0) * n(4) * 4]).unwrap();
                     frames += 1;
                 }
-                2 => passes += 1,
+                2 => {
+                    out.read_exact(&mut [0u8; 4]).unwrap();
+                    passes += 1;
+                }
                 other => panic!("{name}: unexpected {other}"),
             }
         }

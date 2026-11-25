@@ -8,8 +8,8 @@ ground-up rewrite of the [GTK Lumen](https://github.com/ImanolGo/lumen) 0.4.2, a
 
 Everything on the GTK Lumen's feature list works in some form, except the items under
 [Not there yet](#not-there-yet). It is faster to open files than the GTK Lumen, uses no C library in
-the document path, and decodes pictures in a sandbox. It has not been released, packaged or used by
-anyone but its author, and a number of things have only been checked in tests and screenshots, not by
+the document path, and decodes pictures in a sandbox. Version 0.1.0 is tagged and published on
+GitHub; it is in no distribution's packages, has been used by no one but its author, and a number of things have only been checked in tests and screenshots, not by
 a person clicking (see [What has not been checked](#what-has-not-been-checked)).
 
 ## Numbers
@@ -26,7 +26,7 @@ PNG 5120×2160. lumen-rs restarts itself once to use the integrated GPU (see the
 | Memory after loading: JPEG / PNG | **166 / 165 MB** | 186 / 178 MB |
 | Idle CPU over 3 s after loading | 50–140 ms | **0 ms** |
 | Binary size / shared libraries | **12 MB** / 145 | 37 MB / **5** |
-| Tests that always run | 143 | **185** (182 unit + 3 sandbox) |
+| Tests that always run | 143 | **242** (235 unit + 7 sandbox) |
 
 Notes:
 
@@ -63,7 +63,7 @@ code):
 - **The desktop's own dialogs.** The file and print portals, Show in Folder and Open With were not run (they would open windows on the author's desktop); only the built-in fallbacks and the trash were.
 - **Very large animations** beyond the 96 MB cache, and the home trash (`~/.local/share/Trash`) in the app, were covered by unit tests only. The other-disk trash was tried by hand.
 - **AVIF and HEIC** were tested only with libheif 1.23 on one machine; CI does not build that feature.
-- **Packaging.** The `-git` PKGBUILD was built once with `makepkg` and the `.deb` was built and inspected; the release workflow, the AUR upload, the Flatpak build and the released `lumen-rs` PKGBUILD (it needs a tag) have never been run.
+- **Packaging.** The `-git` PKGBUILD was built once with `makepkg` and the `.deb` was built and inspected; the release workflow ran for v0.1.0. The AUR upload, the Flatpak build and the released `lumen-rs` PKGBUILD have never been run.
 - **PDF rendering fidelity** was measured against poppler on 132 pages of real documents and a feature test ([FIDELITY.md](FIDELITY.md)): close, with heavier hairlines and slightly heavier text. The corpus is mostly text documents; scanned pages, JBIG2 and JPEG 2000 images, CJK fonts and exotic transparency were not covered.
 - **The Spanish** in dialogs other than the menu and Preferences has not been looked at on screen, and was written by the same author as the code.
 - **The headless GUI test job** in CI (the control tests on a headless Wayland compositor with the software renderer) passed on every run so far, so a failure now blocks. Its software rendering is not the GPU path people use.

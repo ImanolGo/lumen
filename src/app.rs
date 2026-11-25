@@ -265,6 +265,12 @@ pub struct App {
     resize_form: Option<ResizeForm>,
     /// Unsaved edits of other pictures.
     stash_edits: HashMap<PathBuf, PicEdit>,
+    /// Pages rearranged and not saved, of files not being organised now.
+    stash_pages: HashMap<PathBuf, Organizer>,
+    /// The file that was on screen when a place to save it (or PDFs to insert) was asked for.
+    save_asked_for: Option<PathBuf>,
+    /// The open file was moved or deleted by another program.
+    disk_gone: bool,
     /// The page organiser of the open PDF.
     organizer: Option<Organizer>,
     /// The floating zoom and previous/next controls fade in while the pointer moves over the view.
@@ -315,6 +321,7 @@ struct Kept {
     marks: Option<DocMarkup>,
     form: Option<Vec<crate::forms::Value>>,
     edit: Option<PicEdit>,
+    pages: Option<Organizer>,
 }
 
 /// A question to answer before going on.
@@ -674,7 +681,7 @@ pub enum Message {
     Dialog(Option<Dialog>),
     ShowProperties,
     Export(ExportMsg),
-    PropertiesRead(Result<crate::properties::Sheet, String>),
+    PropertiesRead(PathBuf, Result<crate::properties::Sheet, String>),
     Chooser(ChooserMsg),
     Printing(PrintMsg),
     ControlsCheck,
@@ -816,6 +823,9 @@ impl App {
             adjust_open: false,
             resize_form: None,
             stash_edits: HashMap::new(),
+            stash_pages: HashMap::new(),
+            save_asked_for: None,
+            disk_gone: false,
             organizer: None,
             controls: iced::Animation::new(false).duration(Duration::from_millis(180)),
             now: Instant::now(),
@@ -897,10 +907,13 @@ impl App {
             } else {
                 Subscription::none()
             },
-            event::listen_with(|event, _status, _id| match event {
+            event::listen_with(|event, status, _id| match event {
                 Event::Mouse(mouse::Event::WheelScrolled { delta }) => Some(Message::Wheel(delta)),
                 Event::Mouse(mouse::Event::Pinched { delta }) => Some(Message::Pinch(delta)),
-                Event::Keyboard(keyboard::Event::KeyPressed { key: Key::Named(Named::Delete), .. }) => {
+                // Not while it deletes text in a box that has the focus.
+                Event::Keyboard(keyboard::Event::KeyPressed { key: Key::Named(Named::Delete), .. })
+                    if status == event::Status::Ignored =>
+                {
                     Some(Message::DeleteKey)
                 }
                 // Modifiers are tracked whatever has focus, so Ctrl is never thought held down.
@@ -1043,6 +1056,8 @@ impl App {
                     }
                     return Task::none();
                 }
+                // The picture before it may have been worked on while this one loaded.
+                self.put_aside();
                 match result {
                     Ok(p) => {
                         self.log_opened(&path, "picture");
@@ -1060,7 +1075,11 @@ impl App {
             }
             Message::Preloaded(path, result) => {
                 self.preloading.remove(&path);
-                if let Ok(p) = result {
+                // Not what is gone from the list, nor over what was read since.
+                if let Ok(p) = result
+                    && self.files.contains(&path)
+                    && !self.pictures.iter().any(|(known, _)| *known == path)
+                {
                     self.remember(path, p.into());
                 }
                 Task::none()
@@ -1116,11 +1135,14 @@ impl App {
             }
             Message::Thumb(path, picture, locked) => {
                 self.thumbs_running = self.thumbs_running.saturating_sub(1);
-                if locked {
+                if locked && self.thumbs.contains_key(&path) {
                     self.locked_thumbs.insert(path.clone());
                 }
                 let handle = picture.map(|p| image::Handle::from_rgba(p.width, p.height, p.rgba.clone()));
-                self.thumbs.insert(path, handle);
+                // Only if it is still waited for: another folder may have been opened since.
+                if let Some(slot) = self.thumbs.get_mut(&path) {
+                    *slot = handle;
+                }
                 self.request_thumbs()
             }
 
@@ -1549,7 +1571,8 @@ impl App {
             Message::Trash => {
                 self.menu = None;
                 let done = self.finish_text();
-                if self.has_unsaved_changes() && self.confirm.take() != Some(Confirm::Trash) {
+                let rearranged = self.organizer.as_ref().is_some_and(Organizer::is_changed);
+                if (self.has_unsaved_changes() || rearranged) && self.confirm.take() != Some(Confirm::Trash) {
                     self.confirm = Some(Confirm::Trash);
                     return done;
                 }
@@ -1578,7 +1601,7 @@ impl App {
                 self.pictures.retain(|(p, _)| *p != path);
                 let name = file_name(&path);
                 let show = if self.files.is_empty() {
-                    self.organizer = None;
+                    self.put_pages_aside();
                     self.put_aside();
                     self.generation += 1;
                     self.doc = Doc::Empty;
@@ -1594,6 +1617,7 @@ impl App {
                     marks: self.stash.remove(&path),
                     form: self.stash_forms.remove(&path),
                     edit: self.stash_edits.remove(&path),
+                    pages: self.stash_pages.remove(&path),
                 };
                 let toast = self.show_toast_for(trf!("Moved “{}” to the trash", name), false, 8);
                 self.trash_undo = Some(TrashUndo { toast: self.toast_seq, at, item, kept });
@@ -1608,6 +1632,7 @@ impl App {
                 self.stash.extend(kept.marks.map(|m| (path.clone(), m)));
                 self.stash_forms.extend(kept.form.map(|f| (path.clone(), f)));
                 self.stash_edits.extend(kept.edit.map(|e| (path.clone(), e)));
+                self.stash_pages.extend(kept.pages.map(|p| (path.clone(), p)));
                 Task::perform(
                     blocking(move || crate::trash::restore(&item).map(|()| item.original).map_err(err_string)),
                     move |r| Message::Restored(index, r.and_then(|r| r)),
@@ -1698,12 +1723,15 @@ impl App {
                 self.properties = None;
                 self.dialog = Some(Dialog::Properties);
                 Task::perform(
-                    blocking(move || crate::properties::read(&path, password.as_deref()).map_err(err_string)),
-                    |r| Message::PropertiesRead(r.and_then(|r| r)),
+                    {
+                        let path = path.clone();
+                        blocking(move || crate::properties::read(&path, password.as_deref()).map_err(err_string))
+                    },
+                    move |r| Message::PropertiesRead(path.clone(), r.and_then(|r| r)),
                 )
             }
-            Message::PropertiesRead(result) => {
-                if self.dialog == Some(Dialog::Properties) {
+            Message::PropertiesRead(path, result) => {
+                if self.dialog == Some(Dialog::Properties) && self.current_path() == Some(path.as_path()) {
                     self.properties = Some(result);
                 }
                 Task::none()
@@ -1913,7 +1941,9 @@ impl App {
             self.files = files;
             self.thumbs.clear();
             self.locked_thumbs.clear();
-            self.thumbs_running = 0;
+            // Passwords are kept for flipping back and forth in a list, not for ever.
+            let files = &self.files;
+            self.passwords.retain(|path, _| files.contains(path));
             start
         };
         self.current = usize::MAX; // force a reload
@@ -1932,11 +1962,12 @@ impl App {
         // How the file is as it starts to load: a change after this is another program's.
         self.disk = self.files.get(index).map(|path| disk_baseline(path));
         self.remember_place();
-        self.organizer = None;
+        self.put_pages_aside();
         self.zoom_ease = None;
         self.put_aside();
         self.confirm = None;
         self.disk_conflict = false;
+        self.disk_gone = false;
         self.crop = None;
         self.resize_form = None;
         self.pending_sign = None;
@@ -2546,8 +2577,15 @@ impl App {
         if self.current_path() != Some(path.as_path()) {
             return Task::none();
         }
-        // The first look just notes how the file is; a file that vanished is left on screen.
-        let Some(now) = stamp else { return Task::none() };
+        // A file that vanished is left on screen.
+        let Some(now) = stamp else {
+            if std::mem::replace(&mut self.disk_gone, true) || !matches!(self.disk, Some((_, Some(_)))) {
+                return Task::none();
+            }
+            return self.notice(trf!("“{}” was moved or deleted", file_name(&path)));
+        };
+        self.disk_gone = false;
+        // The first look just notes how the file is.
         let known = match &self.disk {
             Some((p, Some(known))) if *p == path => *known,
             _ => {
@@ -2794,9 +2832,10 @@ fn cached_thumbnail(cache: Option<&Path>, path: &Path) -> Option<raster::Picture
     if let Some(found) = cache.and_then(|base| crate::thumbcache::read(base, path)) {
         return Some(found);
     }
+    let modified = crate::thumbcache::mtime(path);
     let made = raster::thumbnail(path).ok()?;
-    if let Some(base) = cache {
-        crate::thumbcache::write(base, path, &made);
+    if let (Some(base), Some(modified)) = (cache, modified) {
+        crate::thumbcache::write(base, path, &made, modified);
     }
     Some(made)
 }
@@ -3056,7 +3095,7 @@ impl App {
         let titles: Element<'_, Message> = match &self.doc {
             Doc::Image(v) => {
                 let (w, h) = v.shown.picture.original;
-                tip(titles.into(), format!("{w} × {h} pixels"))
+                tip(titles.into(), trf!("{} × {} pixels", w, h))
             }
             _ => titles.into(),
         };
@@ -3593,7 +3632,7 @@ impl App {
         center(
             column![
                 svg(icons::lock()).width(56).height(56).style(style::icon_muted),
-                text(format!("“{}” is password-protected", file_name(path))).size(18),
+                text(trf!("“{}” is password-protected", file_name(path))).size(18),
                 hint,
                 space().height(4),
                 row![input, unlock].spacing(8).align_y(Alignment::Center),

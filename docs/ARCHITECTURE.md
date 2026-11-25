@@ -119,7 +119,6 @@ dependencies (touchpad pinch); see `vendor/README.md`.
 | `tools/screenshots/` | Makes the sample files for screenshots |
 | `tools/update-flatpak-sources.py`, `tools/check-flatpak-sources.py` | Rebuilds / checks the Flatpak crate list against `Cargo.lock` |
 | `tools/fidelity.py`, `tools/make_feature_pdf.py` | Compares PDF rendering with poppler; makes a feature-test PDF |
-| `tools/check-flatpak-sources.py` | Checks the Flatpak sources against `Cargo.lock` |
 
 ### Packaging
 

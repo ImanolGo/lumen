@@ -730,9 +730,9 @@ say exactly which systems those are.
 | # | Package | Status |
 |---|---|---|
 | 1 | The decoder fails closed and stays within limits | Done. The worker keeps `prctl`, for naming threads and mappings only. `clone3` is answered with `ENOSYS`. JPEG XL and JPEG 2000 memory is bounded by the worker's 8 GB address-space limit; their internals were not read. Also found and fixed: the size check on the worker's answer overflowed, and a page that failed to render was requested in a loop. |
-| 2 | Saving does not lose or expose data | Done. 2.4's suspected case (recovery without `/Prev`) was not reproduced; the new bytes are checked before writing anyway. Article threads are dropped whole when pages are removed. The new questions (overwrite, trash) were tested by message, not yet looked at. |
+| 2 | Saving does not lose or expose data | Done. 2.4's suspected case (recovery without `/Prev`) was not reproduced; the new bytes are checked before writing anyway. Article threads are dropped whole when pages are removed. The new questions (overwrite, trash) were tested by message; the overwrite one was looked at. |
 | 3 | PDF writing keeps what other programs wrote | Done. Embedded text is not shaped (Arabic and Indic scripts come out unjoined). A merged outline goes after the document's own. |
-| 4 | Smaller defects, things that disagree, finish the review | |
+| 4 | Smaller defects, things that disagree, finish the review | Done, with what the review found added (organiser changes lost silently, late answers, Delete in text boxes, clicks through questions). Render caches measured on the 477-page manual: 311 MB and growing after 120 zoom levels before, 205 MB and flat after. Page rearranging on 200 000 objects: 0.5 s, with as many inserted 1 s (not measured before). Review: the update logic of `app.rs` and the files in `app/` were read for the points listed; the view code was not read line by line. `CLAUDE.md`'s `Co-Authored-By` line is left to the user. |
 | 5 | Platform layer (Linux only) | |
 | 6 | Compiles on Linux, macOS and Windows; CI on all three | |
 | 7 | Each system's own services | |
