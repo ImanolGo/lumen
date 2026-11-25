@@ -42,7 +42,8 @@ jobs:
       - name: The real trash
         run: cargo test --locked --bin lumen-rs trash -- --ignored
       - run: cargo build --release --locked
-      - run: ./target/release/lumen-rs --version
+      - run: ./target/release/lumen-rs --version | cat
+        shell: bash
       - name: The app itself, driven over standard input
         timeout-minutes: 15
         env:

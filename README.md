@@ -5,7 +5,7 @@
 <h1 align="center">Lumen (Rust/iced)</h1>
 
 <p align="center">
-  A fast image and PDF viewer for Linux, with the light editing, markup, form filling and signing you use every day.<br>
+  A fast image and PDF viewer for Linux, macOS and Windows, with the light editing, markup, form filling and signing you use every day.<br>
   Written in pure Rust with <a href="https://iced.rs">iced</a>: no GTK, no poppler, no C in the document path.
 </p>
 
@@ -45,14 +45,28 @@ The full list, with the details, is in [docs/FEATURES.md](docs/FEATURES.md).
 
 ## Installing
 
-The [0.1.1 release](https://github.com/ImanolGo/lumen-rs/releases/tag/v0.1.1) has a tarball and a `.deb` for x86_64 Linux. The AUR packages and the Flatpak are not published yet; the files to build them are in the repository:
+The [latest release](https://github.com/ImanolGo/lumen-rs/releases/latest) has the packages. The AUR packages and the Flatpak are not published yet; the files to build them are in the repository:
 
 | How | Where | State |
 |---|---|---|
 | From source | below | works |
 | Arch Linux (AUR) | [`build-aux/aur/`](build-aux/aur/): `lumen-rs` (a release) and `lumen-rs-git` (the latest commit). Try one with `makepkg -si` inside its folder | `lumen-rs-git` builds; not on the AUR yet |
-| Debian and Ubuntu (`.deb`) | built by `cargo deb`, and by the release workflow when a version tag is pushed | builds; no release yet |
+| Debian and Ubuntu (`.deb`) | on the release page | works |
+| macOS 11 or newer (`.dmg`, Apple silicon and Intel) | on the release page from 0.2 on | new, tried by nobody yet. It is not signed: macOS says it cannot check it. Right-click Lumen → Open, or System Settings → Privacy & Security → Open Anyway |
+| Windows 10 or newer (`.zip`, unpack and run `Lumen.exe`) | on the release page from 0.2 on | new, tried by nobody yet. It is not signed: SmartScreen warns; More info → Run anyway |
 | Flatpak | [`build-aux/flatpak/`](build-aux/flatpak/) | manifest only, never built |
+
+What works where:
+
+| | Linux | macOS | Windows |
+|---|---|---|---|
+| Pictures, PDFs, markup, forms, editing, export | yes | yes | yes |
+| The picture decoder | a process that is shut in (Landlock, seccomp) | a separate process, **not** shut in | a separate process, **not** shut in |
+| File dialogs | the desktop's, or Lumen's own | the system's | the system's |
+| Move to trash / undo it | yes / yes | yes / no (Finder can) | yes / yes |
+| Open with another program | yes | no | yes |
+| Printing | the desktop's dialog, or straight to CUPS | Lumen's dialog, to CUPS | through the program that prints PDFs |
+| Copying a picture | Wayland (not GNOME) | yes | yes |
 
 ### From source
 
@@ -61,7 +75,7 @@ You need Rust 1.92 or newer ([rustup](https://rustup.rs) if yours is older). Not
 ```sh
 git clone https://github.com/ImanolGo/lumen-rs.git
 cd lumen-rs
-make                                  # cargo build --release
+make                                  # cargo build --release (on Windows, that command)
 sudo make install                     # to /usr/local
 make install PREFIX=$HOME/.local      # or just for your user
 ```

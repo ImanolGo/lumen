@@ -1,6 +1,8 @@
 //! Lumen (Rust/iced edition): a fast, safe image and PDF viewer.
 
 #![forbid(unsafe_code)]
+// No console window on Windows (a debug build keeps its log).
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 #[macro_use]
 mod i18n;

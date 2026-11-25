@@ -36,9 +36,14 @@ git push origin v0.1.0
 ```
 
 The tag runs `.github/workflows/release.yml`: it checks that the tag matches `Cargo.toml`, runs the
-tests, builds an x86_64 tarball (the `make install DESTDIR=… PREFIX=/usr` layout) and a `.deb`
-(`cargo deb`), writes `SHA256SUMS`, and creates a GitHub release with the three. It ran for
-v0.1.0 and published all three.
+tests on the three systems, and builds an x86_64 tarball (the `make install DESTDIR=… PREFIX=/usr`
+layout) and a `.deb` (`cargo deb`), a universal `.dmg` (`build-aux/macos/bundle.sh`) and a Windows
+`.zip`; then it writes `SHA256SUMS` and creates a GitHub release with all of them. Nothing is signed
+with a certificate. To try it without publishing: `gh workflow run release.yml`, then
+`gh run download`.
+
+On Windows a release build is a program without a console: `--help` and `--version` only show when
+their output is piped (`Lumen.exe --version | more`).
 
 ## AUR
 

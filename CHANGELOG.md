@@ -8,6 +8,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - Lumen runs on macOS and Windows, with each system's own file dialogs, trash (with Undo on Windows), clipboard, file watching, folders and language. Printing goes through Lumen's dialog and CUPS on macOS, and through the program that prints PDFs on Windows. The decoder there is a separate process that is not shut in. Nobody has tried these builds by hand yet.
 - On macOS, shortcuts are shown with ⌘, the menu bar has Lumen's commands (its Quit asks about unsaved changes), Ctrl+⌘F is fullscreen, and files opened from Finder open in the running window.
 - The control interface also works over standard input and output (`LUMEN_CONTROL=stdio`), on every system.
+- Packages for macOS (a `.dmg` for Apple silicon and Intel) and Windows (a `.zip`), not signed.
 
 ## [0.1.1] - 2026-11-25
 

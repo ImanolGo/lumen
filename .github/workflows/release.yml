@@ -1,19 +1,20 @@
 name: Release
 
-# Runs when a version tag (v0.1.0, …) is pushed: builds an x86_64 tarball and a .deb and
-# attaches them to a GitHub release of that tag.
+# Runs when a version tag (v0.1.0, …) is pushed: builds packages for Linux, macOS and Windows and
+# attaches them to a GitHub release of that tag. Started by hand, it only builds them.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
+  linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,25 +22,100 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev pkg-config
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Check the tag matches Cargo.toml
+      - name: The version, which a tag must match
         run: |
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
-          test "v$version" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} is not v$version"; exit 1; }
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME is not v$version"; exit 1; }
+          fi
       - run: cargo test --locked
       - name: Tarball
         run: |
           make install PREFIX=/usr DESTDIR="$PWD/stage"
-          tar -C stage -czf "lumen-rs-${GITHUB_REF_NAME}-x86_64-linux.tar.gz" usr
+          mkdir out
+          tar -C stage -czf "out/lumen-rs-v$VERSION-x86_64-linux.tar.gz" usr
       - name: Debian package
         run: |
           cargo install cargo-deb --locked
           cargo deb --locked
-          cp target/debian/*.deb .
+          cp target/debian/*.deb out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: out/*
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked --target aarch64-apple-darwin
+      - name: Build for both processors
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '11.0'
+        run: |
+          cargo build --release --locked --target aarch64-apple-darwin
+          cargo build --release --locked --target x86_64-apple-darwin
+          lipo -create -output lumen-rs target/aarch64-apple-darwin/release/lumen-rs target/x86_64-apple-darwin/release/lumen-rs
+      - name: Disk image
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          mkdir out
+          build-aux/macos/bundle.sh lumen-rs "$version" "out/lumen-rs-v$version-macos-universal.dmg"
+      - name: It starts from the disk image
+        run: |
+          hdiutil attach -quiet -mountpoint mnt out/*.dmg
+          mnt/Lumen.app/Contents/MacOS/lumen-rs --version
+          hdiutil detach -quiet mnt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: out/*
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked
+      - run: cargo build --release --locked
+      - name: Zip
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          mkdir -p out "Lumen-$version"
+          cp target/release/lumen-rs.exe "Lumen-$version/Lumen.exe"
+          cp LICENSE "Lumen-$version/LICENSE.txt"
+          cp README.md CHANGELOG.md "Lumen-$version/"
+          "Lumen-$version/Lumen.exe" --version | cat
+          7z a "out/lumen-rs-v$version-x86_64-windows.zip" "Lumen-$version"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: out/*
+
+  publish:
+    if: github.ref_type == 'tag'
+    needs: [linux, macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
       - name: Checksums
-        run: sha256sum lumen-rs-*.tar.gz *.deb > SHA256SUMS
+        run: cd out && sha256sum -- * > ../SHA256SUMS && mv ../SHA256SUMS .
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "${GITHUB_REF_NAME}" --title "Lumen ${GITHUB_REF_NAME}" --generate-notes \
-            lumen-rs-*.tar.gz ./*.deb SHA256SUMS
+          GH_REPO: ${{ github.repository }}
+        run: gh release create "${GITHUB_REF_NAME}" --title "Lumen ${GITHUB_REF_NAME}" --generate-notes out/*

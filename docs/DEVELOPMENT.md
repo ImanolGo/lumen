@@ -147,3 +147,18 @@ SVG in `src/icons.rs`; they are 24×24, stroked, and take the theme's text colou
 ## Printing
 
 Do not send a real print job from a test or a demo. The live CUPS test only validates.
+
+## Building for another system
+
+`make check-all` type-checks for all three from any of them. A macOS binary is only built on a Mac
+(Apple's SDK is licensed for Apple hardware): CI does it. A Windows one can be built from Linux
+(neither way was tried yet):
+
+```sh
+# GNU toolchain
+yay -S mingw-w64-gcc && rustup target add x86_64-pc-windows-gnu
+cargo build --release --locked --target x86_64-pc-windows-gnu
+# MSVC toolchain (what CI ships; downloads Microsoft's CRT and SDK: read their licence)
+cargo install cargo-xwin
+cargo xwin build --release --locked --target x86_64-pc-windows-msvc
+```
