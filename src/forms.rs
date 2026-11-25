@@ -16,8 +16,9 @@ use hayro::hayro_syntax::object::{Array, Dict, MaybeRef, Name, Number, Object, S
 use hayro::kurbo::{Affine, Rect};
 use lopdf::{Object as LObject, dictionary};
 
-use crate::annotate::pdf::{ObjRef, parse_da, pdf_text, win_ansi};
+use crate::annotate::pdf::{ObjRef, parse_da, pdf_text};
 use crate::structure::decode_text;
+use crate::textfont::{TextFont, wrapped};
 
 const MAX_FIELDS: usize = 5_000;
 const MAX_DEPTH: u8 = 16;
@@ -28,6 +29,7 @@ const MAX_FORM_BYTES: usize = 32 << 20;
 const READ_ONLY: u32 = 1;
 const MULTILINE: u32 = 1 << 12;
 const PASSWORD: u32 = 1 << 13;
+const COMB: u32 = 1 << 24;
 const RADIO: u32 = 1 << 15;
 const PUSH: u32 = 1 << 16;
 #[cfg(test)]
@@ -95,6 +97,8 @@ pub struct Field {
     color: [f32; 3],
     /// 0 left, 1 centred, 2 right.
     quadding: u8,
+    /// Each character in a cell of its own.
+    comb: Option<usize>,
 }
 
 impl Field {
@@ -197,7 +201,7 @@ pub fn read(pdf: &Pdf) -> Form {
         q: acro.get::<u32>("Q").unwrap_or(0).min(2) as u8,
         ..Inherited::default()
     };
-    for field in fields.iter::<Dict<'_>>() {
+    for field in crate::structure::dicts(pdf, &fields) {
         reader.walk(&field, &base, "", 0);
     }
     Form { truncated: reader.budget.is_none(), fields: reader.fields }
@@ -223,16 +227,27 @@ fn choice_bytes(c: &Choice) -> usize {
     size_of::<Choice>() + c.export.len() + c.display.len()
 }
 
+/// The name of a button's state, or `None` for "Off". Names are bytes, not text: each byte becomes the
+/// character of that number, so that any name survives.
+fn state_of(name: &Name<'_>) -> Option<String> {
+    let bytes: &[u8] = name.as_ref();
+    (bytes != b"Off").then(|| bytes.iter().map(|b| char::from(*b)).collect())
+}
+
+fn state_bytes(state: &str) -> Vec<u8> {
+    state.chars().map(|c| u8::try_from(c).unwrap_or(b'?')).collect()
+}
+
 fn value_of(dict: &Dict<'_>) -> Option<Value> {
     match dict.get::<Object<'_>>("V")? {
         Object::String(s) => Some(Value::Text(decode_text(s.as_bytes()))),
-        Object::Name(n) => Some(Value::State((n.as_str() != "Off").then(|| n.as_str().to_owned()))),
+        Object::Name(n) => Some(Value::State(state_of(&n))),
         Object::Array(a) => a.iter::<PdfString<'_>>().next().map(|s| Value::Text(decode_text(s.as_bytes()))),
         _ => None,
     }
 }
 
-impl Reader<'_> {
+impl<'a> Reader<'a> {
     /// Takes `bytes` from the budget; false (from then on) when it has run out.
     fn spend(&mut self, bytes: usize) -> bool {
         self.budget = self.budget.and_then(|left| left.checked_sub(bytes));
@@ -251,7 +266,7 @@ impl Reader<'_> {
         out
     }
 
-    fn walk(&mut self, dict: &Dict<'_>, parent: &Inherited, prefix: &str, depth: u8) {
+    fn walk(&mut self, dict: &Dict<'a>, parent: &Inherited, prefix: &str, depth: u8) {
         if depth > MAX_DEPTH || self.fields.len() >= MAX_FIELDS || self.budget.is_none() {
             return;
         }
@@ -286,8 +301,10 @@ impl Reader<'_> {
             (Some(t), false) => format!("{prefix}.{t}"),
             (None, _) => prefix.to_owned(),
         };
-        let kids: Vec<Dict<'_>> =
-            dict.get::<Array<'_>>("Kids").map(|k| k.iter::<Dict<'_>>().take(MAX_FIELDS).collect()).unwrap_or_default();
+        let kids: Vec<Dict<'a>> = dict
+            .get::<Array<'_>>("Kids")
+            .map(|k| crate::structure::dicts(self.pdf, &k).take(MAX_FIELDS).collect())
+            .unwrap_or_default();
         let (children, widgets): (Vec<_>, Vec<_>) = kids.into_iter().partition(|k| k.contains_key("T"));
         for child in &children {
             self.walk(child, &inherited, &name, depth + 1);
@@ -335,7 +352,7 @@ impl Reader<'_> {
                     .xref()
                     .get::<Dict<'_>>(hayro::hayro_syntax::object::ObjectIdentifier::new(w.obj.0, w.obj.1 as i32))?;
                 let state = state.get::<Name<'_>>("AS")?;
-                (state.as_str() != "Off").then(|| state.as_str().to_owned())
+                state_of(&state)
             })),
             (_, Some(Value::Text(t))) => Value::Text(t),
             _ => Value::Text(String::new()),
@@ -357,6 +374,7 @@ impl Reader<'_> {
             font_size: size,
             color,
             quadding: inherited.q.min(2),
+            comb: inherited.max_len.filter(|n| ff & COMB != 0 && ff & (MULTILINE | PASSWORD) == 0 && *n > 0),
         });
     }
 
@@ -373,7 +391,7 @@ impl Reader<'_> {
         let on = dict
             .get::<Dict<'_>>("AP")
             .and_then(|ap| ap.get::<Dict<'_>>("N"))
-            .and_then(|n| n.keys().map(|k| k.as_str().to_owned()).find(|k| k != "Off"));
+            .and_then(|n| n.keys().find_map(|k| state_of(&k)));
         Some(Widget { page, rect, obj, on, size: (user.width(), user.height()) })
     }
 }
@@ -385,7 +403,7 @@ pub(crate) fn fill(doc: &mut lopdf::IncrementalDocument, field: &Field, value: &
     doc.opt_clone_object_to_new_document(field.obj)?;
     let v = match value {
         Value::Text(t) => pdf_text(t),
-        Value::State(Some(s)) => LObject::Name(s.as_bytes().to_vec()),
+        Value::State(Some(s)) => LObject::Name(state_bytes(s)),
         Value::State(None) => LObject::Name(b"Off".to_vec()),
     };
     doc.new_document.get_dictionary_mut(field.obj)?.set("V", v);
@@ -395,7 +413,7 @@ pub(crate) fn fill(doc: &mut lopdf::IncrementalDocument, field: &Field, value: &
             Value::State(state) => {
                 let on = widget.on.as_deref().unwrap_or("Yes");
                 let shown = if state.as_deref() == Some(on) { on } else { "Off" };
-                doc.new_document.get_dictionary_mut(widget.obj)?.set("AS", LObject::Name(shown.as_bytes().to_vec()));
+                doc.new_document.get_dictionary_mut(widget.obj)?.set("AS", LObject::Name(state_bytes(shown)));
             }
             Value::Text(t) => {
                 let shown = match &field.kind {
@@ -405,7 +423,9 @@ pub(crate) fn fill(doc: &mut lopdf::IncrementalDocument, field: &Field, value: &
                     Kind::Text { password: true, .. } => "•".repeat(t.chars().count()),
                     _ => t.clone(),
                 };
-                let stream = text_appearance(field, widget, &shown);
+                let look = Look::of(doc, widget);
+                let font = TextFont::for_text(&mut doc.new_document, &shown);
+                let stream = text_appearance(field, widget, &shown, &look, &font);
                 let ap = doc.new_document.add_object(stream);
                 doc.new_document.get_dictionary_mut(widget.obj)?.set("AP", dictionary! { "N" => ap });
             }
@@ -414,40 +434,124 @@ pub(crate) fn fill(doc: &mut lopdf::IncrementalDocument, field: &Field, value: &
     Ok(())
 }
 
-fn text_appearance(field: &Field, widget: &Widget, shown: &str) -> lopdf::Stream {
-    let (w, h) = widget.size;
-    let size = field.text_size(h.min(widget.rect.height().max(widget.rect.width())));
+/// How a widget looks besides its text, from its `/MK` and `/BS`.
+#[derive(Default)]
+struct Look {
+    /// Degrees the text is turned against the page, counterclockwise.
+    turn: i64,
+    background: Option<String>,
+    border: Option<String>,
+    border_width: f64,
+    dashed: bool,
+}
+
+impl Look {
+    fn of(doc: &lopdf::IncrementalDocument, widget: &Widget) -> Self {
+        let mut look = Self { border_width: 1.0, ..Self::default() };
+        let prev = doc.get_prev_documents();
+        let Ok(dict) = prev.get_dictionary(widget.obj) else { return look };
+        let sub = |key: &[u8]| {
+            let found = prev.dereference(dict.get(key).ok()?).ok()?.1;
+            found.as_dict().ok().cloned()
+        };
+        if let Some(style) = sub(b"BS") {
+            look.border_width = style.get(b"W").and_then(LObject::as_float).map_or(1.0, f64::from).clamp(0.0, 20.0);
+            look.dashed = style.get(b"S").and_then(LObject::as_name).is_ok_and(|s| s == b"D");
+        }
+        if let Some(mk) = sub(b"MK") {
+            look.turn = mk.get(b"R").and_then(LObject::as_float).map_or(0, |r| (r as i64).rem_euclid(360));
+            let color = |key: &[u8], op: [&str; 3]| {
+                let parts = prev.dereference(mk.get(key).ok()?).ok()?.1.as_array().ok()?;
+                let parts: Vec<f32> = parts.iter().filter_map(|v| v.as_float().ok()).collect();
+                let op = match parts.len() {
+                    1 => op[0],
+                    3 => op[1],
+                    4 => op[2],
+                    _ => return None,
+                };
+                Some(parts.iter().fold(String::new(), |s, v| format!("{s}{v:.3} ")) + op)
+            };
+            look.background = color(b"BG", ["g", "rg", "k"]);
+            look.border = color(b"BC", ["G", "RG", "K"]);
+        }
+        look
+    }
+}
+
+fn text_appearance(field: &Field, widget: &Widget, shown: &str, look: &Look, font: &TextFont) -> lopdf::Stream {
+    let (rect_w, rect_h) = widget.size;
+    // The text runs along the widget as the page is read, which may be turned.
+    let (w, h) = if look.turn % 180 == 90 { (rect_h, rect_w) } else { (rect_w, rect_h) };
+    let matrix = match look.turn {
+        90 => [0.0, 1.0, -1.0, 0.0, rect_w, 0.0],
+        180 => [-1.0, 0.0, 0.0, -1.0, rect_w, rect_h],
+        270 => [0.0, -1.0, 1.0, 0.0, 0.0, rect_h],
+        _ => [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+    };
+    let size = field.text_size(h);
     let [r, g, b] = field.color;
-    let mut c =
-        format!("/Tx BMC q 1 1 {:.2} {:.2} re W n BT /Helv {size:.2} Tf {r:.3} {g:.3} {b:.3} rg\n", w - 2.0, h - 2.0);
+    let mut c = String::new();
+    if let Some(fill) = &look.background {
+        let _ = writeln!(c, "q {fill} 0 0 {w:.2} {h:.2} re f Q");
+    }
+    let edge = if look.border.is_some() { look.border_width } else { 0.0 };
+    if let Some(stroke) = look.border.as_ref().filter(|_| edge > 0.0) {
+        let dash = if look.dashed { "[3] 0 d" } else { "" };
+        let (x, bw, bh) = (edge / 2.0, w - edge, h - edge);
+        let _ = writeln!(c, "q {stroke} {edge:.2} w {dash} {x:.2} {x:.2} {bw:.2} {bh:.2} re S Q");
+    }
+    let inset = 1.0 + edge;
+    let _ = writeln!(
+        c,
+        "/Tx BMC q {inset:.2} {inset:.2} {:.2} {:.2} re W n BT /Helv {size:.2} Tf {r:.3} {g:.3} {b:.3} rg",
+        (w - 2.0 * inset).max(0.0),
+        (h - 2.0 * inset).max(0.0)
+    );
+    let pad = inset + 1.0;
     let multiline = matches!(field.kind, Kind::Text { multiline: true, .. });
-    let lines: Vec<&str> =
-        if multiline { shown.split('\n').collect() } else { vec![shown.lines().next().unwrap_or("")] };
-    for (i, line) in lines.iter().enumerate() {
-        // Helvetica averages about half an em per character; good enough to centre or right-align.
-        let width = line.chars().count() as f64 * size * 0.5;
-        let x = match field.quadding {
-            1 => (w - width) / 2.0,
-            2 => w - 2.0 - width,
-            _ => 2.0,
+    let middle = (h - size * 0.7) / 2.0;
+    let mut show = |x: f64, y: f64, line: &str| {
+        let _ = writeln!(c, "1 0 0 1 {x:.2} {y:.2} Tm <{}> Tj", font.encoded(line));
+    };
+    if let Some(cells) = field.comb {
+        let cell = w / cells as f64;
+        // The text sits at the side (or in the middle) of the row of cells.
+        let count = shown.chars().count().min(cells);
+        let first = match field.quadding {
+            1 => (cells - count) / 2,
+            2 => cells - count,
+            _ => 0,
+        };
+        for (i, ch) in shown.chars().take(cells).enumerate() {
+            let ch = ch.to_string();
+            show(cell * ((first + i) as f64 + 0.5) - font.width(&ch) * size / 2.0, middle, &ch);
         }
-        .max(2.0);
-        let y = if multiline { h - 2.0 - size * (i as f64 + 1.0) * 1.15 + size * 0.15 } else { (h - size * 0.7) / 2.0 };
-        let _ = write!(c, "1 0 0 1 {x:.2} {y:.2} Tm <");
-        for ch in line.chars().map(win_ansi) {
-            let _ = write!(c, "{ch:02X}");
+    } else {
+        let lines = if multiline {
+            wrapped(shown, font, (w - 2.0 * pad).max(size) / size)
+        } else {
+            vec![shown.lines().next().unwrap_or("").to_owned()]
+        };
+        for (i, line) in lines.iter().enumerate() {
+            let line = line.trim_end();
+            let width = font.width(line) * size;
+            let x = match field.quadding {
+                1 => (w - width) / 2.0,
+                2 => w - pad - width,
+                _ => pad,
+            }
+            .max(pad);
+            let y = if multiline { h - pad - size * (i as f64 + 1.0) * 1.15 + size * 0.15 } else { middle };
+            show(x, y, line);
         }
-        c.push_str("> Tj\n");
     }
     c.push_str("ET Q EMC\n");
-    let font = dictionary! {
-        "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica", "Encoding" => "WinAnsiEncoding",
-    };
     let dict = dictionary! {
         "Type" => "XObject",
         "Subtype" => "Form",
         "BBox" => vec![0.into(), 0.into(), LObject::Real(w as f32), LObject::Real(h as f32)],
-        "Resources" => dictionary! { "Font" => dictionary! { "Helv" => font } },
+        "Matrix" => matrix.iter().map(|v: &f64| LObject::Real(*v as f32)).collect::<Vec<_>>(),
+        "Resources" => dictionary! { "Font" => dictionary! { "Helv" => font.resource() } },
     };
     let mut stream = lopdf::Stream::new(dict, c.into_bytes());
     let _ = stream.compress();
@@ -533,6 +637,106 @@ pub(crate) mod tests {
         read(&Pdf::new(bytes.to_vec()).unwrap())
     }
 
+    /// A form of one page with `fields` (each its own widget), and a null before them.
+    fn form_of(fields: Vec<lopdf::Dictionary>) -> Vec<u8> {
+        let mut doc = Document::with_version("1.7");
+        let mut ids: Vec<O> = vec![O::Null, O::Reference((999, 0))];
+        ids.extend(fields.into_iter().map(|f| O::Reference(doc.add_object(f))));
+        let pages = doc.new_object_id();
+        let media: Vec<O> = vec![0.into(), 0.into(), 300.into(), 300.into()];
+        let page = dictionary! { "Type" => "Page", "Parent" => pages, "MediaBox" => media, "Annots" => ids.clone() };
+        let page = doc.add_object(page);
+        let tree = dictionary! { "Type" => "Pages", "Kids" => vec![page.into()], "Count" => 1 };
+        doc.objects.insert(pages, tree.into());
+        let acro = doc.add_object(dictionary! { "Fields" => ids, "DA" => O::string_literal("/Helv 10 Tf 0 g") });
+        let root = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages, "AcroForm" => acro });
+        doc.trailer.set("Root", root);
+        let mut out = Vec::new();
+        doc.save_to(&mut out).unwrap();
+        out
+    }
+
+    fn rect(w: i64, h: i64) -> Vec<O> {
+        vec![10.into(), 10.into(), (10 + w).into(), (10 + h).into()]
+    }
+
+    /// `bytes` with its first field set, and the appearance that gave it.
+    fn filled(bytes: &[u8], value: Value) -> (Vec<u8>, lopdf::Stream) {
+        let form = read_bytes(bytes);
+        let fill = crate::annotate::pdf::Fill { field: &form.fields[0], value: &value };
+        let (saved, _) = crate::annotate::pdf::save(bytes, &[], &[fill], None).unwrap();
+        let doc = Document::load_mem(&saved).unwrap();
+        let widget = doc.get_dictionary(form.fields[0].obj).unwrap();
+        let ap = widget.get(b"AP").unwrap().as_dict().unwrap().get(b"N").unwrap().as_reference();
+        let mut look = ap
+            .ok()
+            .and_then(|id| doc.get_object(id).ok()?.as_stream().ok().cloned())
+            .unwrap_or(Stream::new(dictionary! {}, Vec::new()));
+        let _ = look.decompress();
+        (saved, look)
+    }
+
+    #[test]
+    fn a_state_whose_name_is_not_text_survives() {
+        let name = b"S\xed".to_vec();
+        let on = O::Dictionary(lopdf::Dictionary::from_iter([(name.clone(), O::Null), (b"Off".to_vec(), O::Null)]));
+        let bytes = form_of(vec![dictionary! {
+            "Subtype" => "Widget", "FT" => "Btn", "T" => O::string_literal("c"), "Rect" => rect(12, 12),
+            "AP" => dictionary! { "N" => on },
+        }]);
+        let form = read_bytes(&bytes);
+        assert_eq!(form.fields.len(), 1, "the null before it does not end the form");
+        let state = form.fields[0].widgets[0].on.clone().unwrap();
+        let value = Value::State(Some(state));
+        let fill = crate::annotate::pdf::Fill { field: &form.fields[0], value: &value };
+        let (saved, _) = crate::annotate::pdf::save(&bytes, &[], &[fill], None).unwrap();
+        let doc = Document::load_mem(&saved).unwrap();
+        let widget = doc.get_dictionary(form.fields[0].obj).unwrap();
+        assert_eq!(widget.get(b"V").unwrap().as_name().unwrap(), name);
+        assert_eq!(widget.get(b"AS").unwrap().as_name().unwrap(), name);
+        assert_eq!(read_bytes(&saved).fields[0].value, value);
+    }
+
+    #[test]
+    fn a_saved_field_keeps_its_turn_its_border_and_its_background() {
+        let colors = |v: &[f32]| v.iter().map(|v| O::Real(*v)).collect::<Vec<_>>();
+        let bytes = form_of(vec![dictionary! {
+            "Subtype" => "Widget", "FT" => "Tx", "T" => O::string_literal("t"), "Rect" => rect(20, 100),
+            "BS" => dictionary! { "W" => 2, "S" => "D" },
+            "MK" => dictionary! { "R" => 90, "BG" => colors(&[1.0, 1.0, 0.5]), "BC" => colors(&[0.25]) },
+        }]);
+        let (saved, look) = filled(&bytes, Value::Text("turned".into()));
+        let numbers = |key: &[u8]| -> Vec<f32> {
+            look.dict.get(key).unwrap().as_array().unwrap().iter().map(|v| v.as_float().unwrap()).collect()
+        };
+        assert_eq!(numbers(b"BBox"), [0.0, 0.0, 100.0, 20.0]);
+        assert_eq!(numbers(b"Matrix"), [0.0, 1.0, -1.0, 0.0, 20.0, 0.0]);
+        let drawn = String::from_utf8(look.content).unwrap();
+        assert!(drawn.contains("1.000 1.000 0.500 rg 0 0 100.00 20.00 re f"), "{drawn}");
+        assert!(drawn.contains("0.250 G 2.00 w [3] 0 d"), "{drawn}");
+        Pdf::new(saved).unwrap();
+    }
+
+    #[test]
+    fn long_text_is_wrapped_and_combs_are_filled_cell_by_cell() {
+        let bytes = form_of(vec![dictionary! {
+            "Subtype" => "Widget", "FT" => "Tx", "T" => O::string_literal("t"), "Rect" => rect(100, 100),
+            "Ff" => MULTILINE as i64,
+        }]);
+        let text = "several words that do not fit on a single line of this box";
+        let drawn = String::from_utf8(filled(&bytes, Value::Text(text.into())).1.content).unwrap();
+        assert!(drawn.matches(" Tj").count() >= 3, "{drawn}");
+        let bytes = form_of(vec![dictionary! {
+            "Subtype" => "Widget", "FT" => "Tx", "T" => O::string_literal("t"), "Rect" => rect(100, 20),
+            "Ff" => COMB as i64, "MaxLen" => 5,
+        }]);
+        let drawn = String::from_utf8(filled(&bytes, Value::Text("123".into())).1.content).unwrap();
+        // Digits are 5.56 wide at size 10, in the middle of cells 20 wide.
+        for x in ["7.22", "27.22", "47.22"] {
+            assert!(drawn.contains(&format!("1 0 0 1 {x} ")), "{drawn}");
+        }
+    }
+
     #[test]
     fn many_fields_sharing_one_list_of_options_do_not_fill_the_memory() {
         let mut doc = Document::with_version("1.7");
@@ -610,7 +814,7 @@ pub(crate) mod tests {
             .map(|(field, value)| crate::annotate::pdf::Fill { field, value })
             .collect();
         assert_eq!(fills.len(), 4);
-        let saved = crate::annotate::pdf::save(&bytes, &[], &fills, None).unwrap();
+        let saved = crate::annotate::pdf::save(&bytes, &[], &fills, None).unwrap().0;
         assert!(saved.starts_with(&bytes));
         let back = read_bytes(&saved);
         assert_eq!(back.values(), values);

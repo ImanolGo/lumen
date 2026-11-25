@@ -14,7 +14,7 @@
 //! page's `to_view` transform (hayro's initial transform, which also handles
 //! /Rotate) maps PDF user space to it.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
 
 use anyhow::{Context, Result, bail};
@@ -27,6 +27,7 @@ use lopdf::{Dictionary, Object, ObjectId, Stream, StringFormat, dictionary};
 use super::model::{Annotation, AnnotationLayer, Color, Note, Point, Rect, Shape, Style};
 use super::paint::{self, LINE_HEIGHT, TEXT_PAD};
 use crate::structure::decode_text;
+use crate::textfont::TextFont;
 
 /// An annotation object: number and generation.
 pub type ObjRef = (u32, u16);
@@ -71,7 +72,7 @@ pub fn import(pdf: &Pdf) -> Imported {
     for (index, page) in pages.iter().enumerate() {
         let Some(annots) = page.raw().get::<Array<'_>>("Annots") else { continue };
         let to_view = page.initial_transform(true).to_kurbo();
-        for annot in annots.iter::<Dict<'_>>().take(MAX_PER_PAGE) {
+        for annot in crate::structure::dicts(pdf, &annots).take(MAX_PER_PAGE) {
             // Inline dictionaries cannot be hidden or replaced by reference; leave them to hayro.
             let Some(id) = annot.obj_id() else { continue };
             let Ok(generation) = u16::try_from(id.gen_number) else { continue };
@@ -89,6 +90,7 @@ pub fn import(pdf: &Pdf) -> Imported {
             if note != Note::default() {
                 layer.notes.insert(new_id, note);
             }
+            layer.origins.insert(new_id, (id.obj_number, generation));
             out.refs[index].push((id.obj_number, generation));
         }
     }
@@ -332,11 +334,22 @@ pub struct Fill<'a> {
     pub value: &'a crate::forms::Value,
 }
 
-/// `bytes` with the pages in `edits` carrying their new annotations, and the fields in `fills` filled in.
-pub fn save(bytes: &[u8], edits: &[PageEdit<'_>], fills: &[Fill<'_>], password: Option<&str>) -> Result<Vec<u8>> {
+/// Which object each annotation that was not in the file before became: its page, its id, the object.
+pub type Placed = Vec<(usize, u64, ObjRef)>;
+
+/// `bytes` with the pages in `edits` carrying their new annotations, and the fields in `fills` filled
+/// in. An annotation that was not changed keeps its object as it is; one that was keeps
+/// everything about it that Lumen does not model.
+pub fn save(
+    bytes: &[u8],
+    edits: &[PageEdit<'_>],
+    fills: &[Fill<'_>],
+    password: Option<&str>,
+) -> Result<(Vec<u8>, Placed)> {
     let hayro_doc = Pdf::new_with_password(bytes.to_vec(), password.unwrap_or(""))
         .map_err(|_| anyhow::anyhow!("the PDF could not be read"))?;
     let to_view = transforms(&hayro_doc);
+    let before = if edits.is_empty() { Imported::default() } else { import(&hayro_doc) };
     drop(hayro_doc);
 
     let mut doc = load(bytes, password)?;
@@ -344,9 +357,68 @@ pub fn save(bytes: &[u8], edits: &[PageEdit<'_>], fills: &[Fill<'_>], password: 
     if pages.len() != to_view.len() {
         bail!("the pages of this PDF could not be matched up for saving");
     }
+    let mut placed = Placed::new();
     for edit in edits {
         let Some(&page_id) = pages.get(&(edit.page as u32 + 1)) else { continue };
-        let replaced: HashSet<ObjectId> = edit.replaces.iter().copied().collect();
+        let to_view = to_view[edit.page];
+        let to_user = to_view.inverse();
+        // The annotations of the file, as they were read.
+        let originals: HashMap<ObjRef, (&Annotation, Option<&Note>)> = before
+            .layers
+            .get(&edit.page)
+            .into_iter()
+            .flat_map(|l| l.items.iter().map(|a| (l.origins[&a.id], (a, l.notes.get(&a.id)))))
+            .collect();
+
+        // First what each annotation becomes: the object it was, changed or not, or a new one.
+        let mut now: Vec<ObjectId> = Vec::new();
+        for a in edit.layer.iter().flat_map(|l| &l.items) {
+            let layer = edit.layer.expect("there are items");
+            let note = layer.notes.get(&a.id);
+            let wanted = annotation_dict(a, note, page_id, to_user);
+            let origin = layer.origins.get(&a.id).filter(|o| {
+                // A copy of an annotation is a new one.
+                !now.contains(o) && doc.get_prev_documents().get_dictionary(**o).is_ok()
+            });
+            let was = origin.and_then(|o| originals.get(o)).map(|(a, n)| annotation_dict(a, *n, page_id, to_user));
+            if let (Some(&origin), Some(was)) = (origin, &was)
+                && same_dict(was, &wanted)
+            {
+                now.push(origin);
+                continue;
+            }
+            let text = if let Shape::Text { text, .. } = &a.shape { text.as_str() } else { "" };
+            let font = TextFont::for_text(&mut doc.new_document, text);
+            let ap = doc.new_document.add_object(appearance(a, to_view, &font));
+            let changed = match (origin, was) {
+                (Some(&origin), Some(was)) if same(was.get(b"Subtype").ok(), wanted.get(b"Subtype").ok()) => {
+                    let old = doc.get_prev_documents().get_dictionary(origin)?.clone();
+                    Some((origin, overlaid(old, &was, &wanted)))
+                }
+                _ => None,
+            };
+            let id = match changed {
+                Some((origin, mut dict)) => {
+                    dict.set("AP", dictionary! { "N" => ap });
+                    dict.remove(b"AS");
+                    doc.new_document.set_object(origin, dict);
+                    origin
+                }
+                None => {
+                    let mut dict = wanted;
+                    dict.set("AP", dictionary! { "N" => ap });
+                    let id = doc.new_document.add_object(dict);
+                    placed.push((edit.page, a.id, id));
+                    id
+                }
+            };
+            now.push(id);
+        }
+
+        // Then the page's list: what is gone is taken out (with its pop-up note), the rest keeps
+        // its place, and what is new comes last.
+        let kept: HashSet<ObjectId> = now.iter().copied().collect();
+        let gone: HashSet<ObjectId> = edit.replaces.iter().copied().filter(|r| !kept.contains(r)).collect();
         let prev = doc.get_prev_documents();
         let old: Vec<Object> = prev
             .get_dictionary(page_id)
@@ -355,31 +427,28 @@ pub fn save(bytes: &[u8], edits: &[PageEdit<'_>], fills: &[Fill<'_>], password: 
             .and_then(|a| prev.dereference(a).ok())
             .and_then(|(_, a)| a.as_array().ok().cloned())
             .unwrap_or_default();
-        // Keep everything that was not replaced, except pop-up notes belonging to what was.
         let mut annots: Vec<Object> = old
             .into_iter()
             .filter(|o| match o {
-                Object::Reference(id) if replaced.contains(id) => false,
+                Object::Reference(id) if gone.contains(id) => false,
                 Object::Reference(id) => !prev
                     .get_dictionary(*id)
                     .ok()
                     .and_then(|d| d.get(b"Parent").ok())
                     .and_then(|p| p.as_reference().ok())
-                    .is_some_and(|parent| replaced.contains(&parent)),
+                    .is_some_and(|parent| gone.contains(&parent)),
                 _ => true,
             })
             .collect();
-
-        let to_view = to_view[edit.page];
-        let to_user = to_view.inverse();
-        if let Some(layer) = edit.layer {
-            for a in &layer.items {
-                let note = layer.notes.get(&a.id);
-                let (dict, appearance) = annotation_dict(a, note, page_id, to_view, to_user);
-                let ap = doc.new_document.add_object(appearance);
-                let mut dict = dict;
-                dict.set("AP", dictionary! { "N" => ap });
-                annots.push(Object::Reference(doc.new_document.add_object(dict)));
+        let listed: HashSet<ObjectId> = annots.iter().filter_map(|o| o.as_reference().ok()).collect();
+        annots.extend(now.iter().filter(|id| !listed.contains(id)).map(|id| Object::Reference(*id)));
+        // Those Lumen edits are drawn in the layer's order, whichever places they have.
+        let mut in_order = now.iter();
+        for slot in &mut annots {
+            if slot.as_reference().is_ok_and(|id| kept.contains(&id))
+                && let Some(id) = in_order.next()
+            {
+                *slot = Object::Reference(*id);
             }
         }
         doc.opt_clone_object_to_new_document(page_id)?;
@@ -393,7 +462,89 @@ pub fn save(bytes: &[u8], edits: &[PageEdit<'_>], fills: &[Fill<'_>], password: 
     for fill in fills {
         crate::forms::fill(&mut doc, fill.field, fill.value).context("a form field could not be filled in")?;
     }
-    finish(doc)
+    Ok((finish(doc)?, placed))
+}
+
+/// What says nothing about how an annotation looks, or is new every time.
+const NOT_MODELLED: [&[u8]; 4] = [b"NM", b"P", b"F", b"Type"];
+
+/// Whether two values are the same but for rounding.
+fn same(a: Option<&Object>, b: Option<&Object>) -> bool {
+    match (a, b) {
+        (Some(Object::Array(a)), Some(Object::Array(b))) => {
+            a.len() == b.len() && a.iter().zip(b).all(|(a, b)| same(Some(a), Some(b)))
+        }
+        (Some(Object::Dictionary(a)), Some(Object::Dictionary(b))) => same_dict(a, b),
+        (Some(a), Some(b)) => match (a.as_float(), b.as_float()) {
+            (Ok(a), Ok(b)) => (a - b).abs() < 0.02,
+            _ => a == b,
+        },
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+fn same_dict(a: &Dictionary, b: &Dictionary) -> bool {
+    a.iter()
+        .map(|(k, _)| k)
+        .chain(b.iter().map(|(k, _)| k))
+        .all(|key| NOT_MODELLED.contains(&key.as_slice()) || same(a.get(key).ok(), b.get(key).ok()))
+}
+
+/// The annotation `old` of the file, which Lumen read as `was`, now that it should be `wanted`:
+/// only what differs between those two is changed.
+fn overlaid(old: Dictionary, was: &Dictionary, wanted: &Dictionary) -> Dictionary {
+    let mut out = old.clone();
+    let differs = |key: &[u8]| !same(was.get(key).ok(), wanted.get(key).ok());
+    let moved = differs(b"Rect");
+    let keys: Vec<Vec<u8>> = was.iter().chain(wanted.iter()).map(|(k, _)| k.clone()).collect();
+    for key in keys {
+        // The inset goes with the rectangle: the file's own need not be the one Lumen would write.
+        let inset = key == b"RD" && moved;
+        if NOT_MODELLED.contains(&key.as_slice()) || !(differs(&key) || inset) {
+            continue;
+        }
+        match wanted.get(&key) {
+            // The width changes; whether it is dashed does not.
+            Ok(Object::Dictionary(border)) if key == b"BS" => {
+                let mut style = old.get(b"BS").and_then(Object::as_dict).cloned().unwrap_or_else(|_| border.clone());
+                if let Ok(width) = border.get(b"W") {
+                    style.set("W", width.clone());
+                }
+                out.set("BS", style);
+            }
+            Ok(value) => out.set(key, value.clone()),
+            Err(_) => drop(out.remove(&key)),
+        }
+    }
+    if wanted.get(b"Subtype").and_then(Object::as_name).is_ok_and(|s| s == b"Line") {
+        // Read backwards, because only its start has an arrow head.
+        let heads = old.get(b"LE").and_then(Object::as_array).cloned().unwrap_or_default();
+        let head = |i: usize| heads.get(i).and_then(|o| o.as_name().ok()).is_some_and(|n| n.ends_with(b"Arrow"));
+        if !differs(b"LE")
+            && head(0)
+            && !head(1)
+            && let Ok(Object::Array(l)) = out.get(b"L").cloned()
+            && differs(b"L")
+            && let [a, b, c, d] = l.as_slice()
+        {
+            out.set("L", vec![c.clone(), d.clone(), a.clone(), b.clone()]);
+        }
+    }
+    if differs(b"Contents") {
+        // The same text, formatted.
+        out.remove(b"RC");
+    }
+    if moved && wanted.get(b"Subtype").and_then(Object::as_name).is_ok_and(|s| s == b"FreeText") {
+        // A callout line would point from where the box was.
+        for key in [&b"CL"[..], b"RD"] {
+            out.remove(key);
+        }
+        if out.get(b"IT").and_then(Object::as_name).is_ok_and(|n| n == b"FreeTextCallout") {
+            out.remove(b"IT");
+        }
+    }
+    out
 }
 
 fn real(v: f64) -> Object {
@@ -425,13 +576,7 @@ pub(crate) fn pdf_text(s: &str) -> Object {
     }
 }
 
-fn annotation_dict(
-    a: &Annotation,
-    note: Option<&Note>,
-    page: ObjectId,
-    to_view: Affine,
-    to_user: Affine,
-) -> (Dictionary, Stream) {
+fn annotation_dict(a: &Annotation, note: Option<&Note>, page: ObjectId, to_user: Affine) -> Dictionary {
     let style = &a.style;
     let outer = paint::outer_bounds(a);
     let mut d = dictionary! {
@@ -527,12 +672,13 @@ fn annotation_dict(
             d.set("BS", dictionary! { "W" => 0 });
         }
     }
-    (d, appearance(a, outer, to_view))
+    d
 }
 
 /// The appearance stream: drawn in view coordinates, with a /Matrix that maps them to
 /// user space, so the same code serves rotated and unrotated pages.
-fn appearance(a: &Annotation, outer: Rect, to_view: Affine) -> Stream {
+fn appearance(a: &Annotation, to_view: Affine, font: &TextFont) -> Stream {
+    let outer = paint::outer_bounds(a);
     let mut c = String::new();
     let mut resources = Dictionary::new();
     let mut states = Dictionary::new();
@@ -576,12 +722,7 @@ fn appearance(a: &Annotation, outer: Rect, to_view: Affine) -> Stream {
         c.push_str("Q\n");
     }
     if let Some(block) = paint::text(a) {
-        resources.set(
-            "Font",
-            dictionary! { "Helv" => dictionary! {
-                "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica", "Encoding" => "WinAnsiEncoding",
-            }},
-        );
+        resources.set("Font", dictionary! { "Helv" => font.resource() });
         let col = block.color;
         let _ = writeln!(c, "q BT /Helv {:.2} Tf {:.3} {:.3} {:.3} rg", block.size, col.r, col.g, col.b);
         if alpha < 1.0 {
@@ -591,11 +732,7 @@ fn appearance(a: &Annotation, outer: Rect, to_view: Affine) -> Stream {
         for (i, line) in block.lines.iter().enumerate() {
             let baseline = block.bounds.y + pad + block.size * (i as f64 * LINE_HEIGHT + 0.95);
             // y is flipped in view space, so the glyphs are flipped back.
-            let _ = write!(c, "1 0 0 -1 {:.2} {:.2} Tm <", block.bounds.x + pad, baseline);
-            for b in line.chars().map(win_ansi) {
-                let _ = write!(c, "{b:02X}");
-            }
-            c.push_str("> Tj\n");
+            let _ = writeln!(c, "1 0 0 -1 {:.2} {:.2} Tm <{}> Tj", block.bounds.x + pad, baseline, font.encoded(line));
         }
         c.push_str("ET Q\n");
     }
@@ -613,29 +750,6 @@ fn appearance(a: &Annotation, outer: Rect, to_view: Affine) -> Stream {
     let mut stream = Stream::new(form, c.into_bytes());
     let _ = stream.compress();
     stream
-}
-
-/// The WinAnsiEncoding byte for `c` (the standard fonts' encoding), or `?`.
-pub(crate) fn win_ansi(c: char) -> u8 {
-    match c as u32 {
-        0x20..=0x7E | 0xA0..=0xFF => c as u8,
-        _ => match c {
-            '€' => 0x80,
-            '‚' => 0x82,
-            '„' => 0x84,
-            '…' => 0x85,
-            '‘' => 0x91,
-            '’' => 0x92,
-            '“' => 0x93,
-            '”' => 0x94,
-            '•' => 0x95,
-            '–' => 0x96,
-            '—' => 0x97,
-            '™' => 0x99,
-            '\t' => b' ',
-            _ => b'?',
-        },
-    }
 }
 
 #[cfg(test)]
@@ -757,7 +871,8 @@ mod tests {
                 layer.add(shape, style.clone());
             }
             let edit = PageEdit { page: 0, layer: Some(&layer), replaces: &imported.refs[0] };
-            let saved = save(&bytes, &[edit], &[], None).unwrap();
+            let (saved, placed) = save(&bytes, &[edit], &[], None).unwrap();
+            assert_eq!(placed.len(), shapes.len());
             assert!(saved.starts_with(&bytes));
 
             let back = read(&saved);
@@ -796,10 +911,142 @@ mod tests {
             assert!(rgba.chunks(4).any(|p| p[0] > 150 && p[2] < 100), "the amber shapes are drawn");
 
             // Deleting everything removes the list.
-            let empty = save(&saved, &[PageEdit { page: 0, layer: None, replaces: &back.refs[0] }], &[], None).unwrap();
+            let nothing = PageEdit { page: 0, layer: None, replaces: &back.refs[0] };
+            let empty = save(&saved, &[nothing], &[], None).unwrap().0;
             assert!(read(&empty).is_empty());
             assert_eq!(crate::structure::read(&Pdf::new(empty).unwrap()).1[0].len(), 1);
         }
+    }
+
+    /// A page with annotations as another program writes them (and a null among them).
+    fn foreign() -> Vec<u8> {
+        use pdf_writer::types::AnnotationType;
+        use pdf_writer::{Date, Finish, Name, Rect as PRect, Ref, TextStr};
+        let r = Ref::new;
+        let mut w = pdf_writer::Pdf::new();
+        w.catalog(r(1)).pages(r(2));
+        w.pages(r(2)).kids([r(3)]).count(1);
+        let mut page = w.page(r(3));
+        page.parent(r(2)).media_box(PRect::new(0.0, 0.0, 600.0, 800.0));
+        let mut list = page.insert(Name(b"Annots")).array();
+        list.item(r(4)).item(pdf_writer::Null).item(r(99)).item(r(5)).item(r(6)).item(r(7));
+        list.finish();
+        page.finish();
+        let mut square = w.annotation(r(4));
+        square
+            .subtype(AnnotationType::Square)
+            .rect(PRect::new(100.0, 100.0, 200.0, 150.0))
+            .color_rgb(1.0, 0.0, 0.0)
+            .modified(Date::new(2020).month(5).day(6))
+            .contents(TextStr("look here"));
+        square.pair(Name(b"CreationDate"), pdf_writer::Str(b"D:20200101"));
+        square.insert(Name(b"BE")).dict().pair(Name(b"S"), Name(b"C"));
+        square.insert(Name(b"BS")).dict().pair(Name(b"W"), 2).pair(Name(b"S"), Name(b"D"));
+        square.insert(Name(b"AP")).dict().pair(Name(b"N"), r(8));
+        square.finish();
+        let mut line = w.annotation(r(5));
+        line.subtype(AnnotationType::Line).rect(PRect::new(10.0, 10.0, 90.0, 60.0)).color_rgb(0.0, 0.0, 1.0);
+        line.insert(Name(b"L")).array().items([10.0, 10.0, 90.0, 60.0]);
+        line.insert(Name(b"LE")).array().items([Name(b"ClosedArrow"), Name(b"Circle")]);
+        line.finish();
+        let mut popup = w.annotation(r(6));
+        popup.pair(Name(b"Subtype"), Name(b"Popup"));
+        popup.rect(PRect::new(300.0, 300.0, 400.0, 400.0));
+        popup.pair(Name(b"Parent"), r(4));
+        popup.finish();
+        let mut link = w.annotation(r(7));
+        link.subtype(AnnotationType::Link).rect(PRect::new(72.0, 690.0, 200.0, 720.0));
+        link.action().action_type(pdf_writer::types::ActionType::Uri).uri(pdf_writer::Str(b"https://example.com/"));
+        link.finish();
+        w.form_xobject(r(8), b"1 0 0 RG 0 0 100 50 re S").bbox(PRect::new(0.0, 0.0, 100.0, 50.0));
+        w.finish()
+    }
+
+    fn object(bytes: &[u8], id: ObjectId) -> Dictionary {
+        lopdf::Document::load_mem(bytes).unwrap().get_dictionary(id).unwrap().clone()
+    }
+
+    fn annots(bytes: &[u8]) -> Vec<Object> {
+        let page = object(bytes, (3, 0));
+        page.get(b"Annots").unwrap().as_array().unwrap().clone()
+    }
+
+    #[test]
+    fn a_null_among_the_annotations_does_not_hide_the_rest() {
+        let imported = read(&foreign());
+        assert_eq!(imported.refs[0], [(4, 0), (5, 0)]);
+        assert_eq!(crate::structure::read(&Pdf::new(foreign()).unwrap()).1[0].len(), 1, "the link too");
+    }
+
+    #[test]
+    fn annotations_of_other_programs_keep_what_lumen_does_not_model() {
+        let bytes = foreign();
+        let imported = read(&bytes);
+        let mut layer = imported.layers[&0].clone();
+        // Something new on the page: the others are not touched at all.
+        let new = layer.add(Shape::Rect(Rect::new(400.0, 400.0, 20.0, 20.0)), Style::default());
+        let replaces = &imported.refs[0];
+        let (saved, placed) = save(&bytes, &[PageEdit { page: 0, layer: Some(&layer), replaces }], &[], None).unwrap();
+        assert_eq!((placed.len(), placed[0].1), (1, new));
+        for id in [(4, 0), (5, 0), (6, 0), (7, 0)] {
+            assert_eq!(object(&saved, id), object(&bytes, id), "{id:?}");
+        }
+        let appended = String::from_utf8_lossy(&saved[bytes.len()..]).into_owned();
+        assert!(!appended.contains("4 0 obj") && !appended.contains("5 0 obj"), "nor written again");
+        assert_eq!(annots(&saved)[..annots(&bytes).len()], annots(&bytes), "and the list keeps its order");
+
+        // Moved, and wider: only that changes.
+        let style = &mut layer.items[0].style;
+        style.width = 5.0;
+        layer.items[0].shape = Shape::Rect(Rect::new(120.0, 620.0, 100.0, 50.0));
+        let (saved, _) = save(&bytes, &[PageEdit { page: 0, layer: Some(&layer), replaces }], &[], None).unwrap();
+        let (old, now) = (object(&bytes, (4, 0)), object(&saved, (4, 0)));
+        for key in [&b"M"[..], b"CreationDate", b"BE", b"Contents", b"C"] {
+            assert_eq!(now.get(key).unwrap(), old.get(key).unwrap(), "{}", String::from_utf8_lossy(key));
+        }
+        let border = now.get(b"BS").unwrap().as_dict().unwrap();
+        assert_eq!(border.get(b"S").unwrap().as_name().unwrap(), b"D", "still dashed");
+        assert_eq!(border.get(b"W").unwrap().as_float().unwrap(), 5.0);
+        assert_ne!(now.get(b"AP").unwrap(), old.get(b"AP").unwrap());
+        assert!(annots(&saved).contains(&Object::Reference((6, 0))), "its pop-up stays");
+        let Shape::Rect(r) = read(&saved).layers[&0].items[0].shape else { panic!() };
+        assert!((r.x - 120.0).abs() < 0.1 && (r.y - 620.0).abs() < 0.1 && (r.w - 100.0).abs() < 0.1, "{r:?}");
+
+        // A line with its arrow at the start keeps it there.
+        let mut layer = imported.layers[&0].clone();
+        let Shape::Arrow(tail, tip) = layer.items[1].shape else { panic!() };
+        let moved = |p: Point| Point::new(p.x + 10.0, p.y);
+        layer.items[1].shape = Shape::Arrow(moved(tail), moved(tip));
+        let (saved, _) = save(&bytes, &[PageEdit { page: 0, layer: Some(&layer), replaces }], &[], None).unwrap();
+        let line = object(&saved, (5, 0));
+        assert_eq!(line.get(b"LE").unwrap(), object(&bytes, (5, 0)).get(b"LE").unwrap());
+        assert_eq!(read(&saved).layers[&0].items[1].shape, layer.items[1].shape);
+
+        // Deleted: it goes, with its pop-up.
+        layer.remove(layer.items[0].id);
+        let (saved, _) = save(&bytes, &[PageEdit { page: 0, layer: Some(&layer), replaces }], &[], None).unwrap();
+        assert!(!annots(&saved).contains(&Object::Reference((4, 0))));
+        assert!(!annots(&saved).contains(&Object::Reference((6, 0))));
+    }
+
+    #[test]
+    fn text_in_other_scripts_reads_back_from_the_page() {
+        let mut layer = AnnotationLayer::default();
+        let text = "Škoda œuvre Привет";
+        layer.add(
+            Shape::Text { bounds: Rect::new(50.0, 50.0, 400.0, 40.0), text: text.into() },
+            Style { font_size: 20.0, ..Style::default() },
+        );
+        let edit = PageEdit { page: 0, layer: Some(&layer), replaces: &[] };
+        let (saved, _) = save(&fixture(false), &[edit], &[], None).unwrap();
+        let Shape::Text { text: back, .. } = &read(&saved).layers[&0].items[1].shape else { panic!() };
+        assert_eq!(back, text);
+        let doc = lopdf::Document::load_mem(&saved).unwrap();
+        let embedded = doc.objects.values().any(|o| {
+            o.as_dict().is_ok_and(|d| d.get(b"Subtype").and_then(Object::as_name).is_ok_and(|s| s == b"Type0"))
+        });
+        // Every machine the tests run on need not have a Cyrillic font.
+        eprintln!("embedded a font: {embedded}");
     }
 
     #[test]

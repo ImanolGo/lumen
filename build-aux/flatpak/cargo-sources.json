@@ -5865,6 +5865,19 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/subsetter/subsetter-0.2.6.crate",
+        "sha256": "38803281d1c23166c5ebcb455439a5d2afe711cc909cf88af72448c297756ad6",
+        "dest": "cargo/vendor/subsetter-0.2.6"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"38803281d1c23166c5ebcb455439a5d2afe711cc909cf88af72448c297756ad6\", \"files\": {}}",
+        "dest": "cargo/vendor/subsetter-0.2.6",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
         "url": "https://static.crates.io/crates/svg_fmt/svg_fmt-0.4.5.crate",
         "sha256": "0193cc4331cfd2f3d2011ef287590868599a2f33c3e69bc22c1a3d3acf9e02fb",
         "dest": "cargo/vendor/svg_fmt-0.4.5"

@@ -855,3 +855,9 @@ msgstr "No se pudieron leer las firmas guardadas. Se han conservado como {}"
 
 msgid "“{}” changed on disk. Your unsaved changes are kept; saving asks first."
 msgstr "«{}» ha cambiado en el disco. Tus cambios sin guardar se conservan; antes de guardar se te preguntará."
+
+msgid "Saved “{}” at {} dpi: the page is very large"
+msgstr "Se ha guardado «{}» a {} ppp: la página es muy grande"
+
+msgid "Saved {} images in “{}”, some at {} dpi: the pages are very large"
+msgstr "Se han guardado {} imágenes en «{}», algunas a {} ppp: las páginas son muy grandes"

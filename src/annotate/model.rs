@@ -415,6 +415,8 @@ pub struct AnnotationLayer {
     pub items: Vec<Annotation>,
     /// The comment and author a PDF annotation came with, kept so saving does not drop them.
     pub notes: BTreeMap<u64, Note>,
+    /// The PDF object (number, generation) an annotation was read from or saved as.
+    pub origins: BTreeMap<u64, (u32, u16)>,
     next_id: u64,
 }
 

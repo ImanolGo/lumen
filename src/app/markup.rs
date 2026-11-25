@@ -83,6 +83,28 @@ impl DocMarkup {
         !self.store.pages.is_empty()
     }
 
+    fn each_state(&mut self, change: impl Fn(&mut Layers)) {
+        self.history.map_all(&change);
+        change(&mut self.store.pages.layers);
+        change(&mut self.saved);
+    }
+
+    /// Notes which objects new annotations became in the file.
+    fn place(&mut self, placed: &crate::annotate::pdf::Placed) {
+        self.each_state(|layers| {
+            for (page, id, object) in placed {
+                // Only where it is the same annotation: after an undo, its id may be given out again.
+                if let Some(layer) = layers.get_mut(page).filter(|l| l.get(*id).is_some()) {
+                    layer.origins.insert(*id, *object);
+                }
+            }
+        });
+    }
+
+    fn forget_origins(&mut self) {
+        self.each_state(|layers| layers.values_mut().for_each(|l| l.origins.clear()));
+    }
+
     /// The picture underneath turned: carry every state along.
     pub fn apply(&mut self, change: GeometryChange) {
         let turn = |layers: &mut Layers| layers.values_mut().for_each(|l| l.apply(change));
@@ -404,6 +426,10 @@ impl App {
                 None => {
                     self.marks = Some(match self.stash.remove(&path) {
                         Some(mut waiting) => {
+                            if waiting.refs != refs {
+                                // Not the file it was: its objects are others now.
+                                waiting.forget_origins();
+                            }
                             waiting.refs = refs;
                             waiting
                         }
@@ -809,6 +835,7 @@ impl App {
                         if let (Some(marks), Some(imported)) = (&mut self.marks, opened.imported) {
                             marks.refs = imported.refs;
                             marks.saved = layers;
+                            marks.place(&opened.placed);
                         }
                         Task::batch([shown, self.notice(trf!("Saved “{}”", file_name(&target)))])
                     }

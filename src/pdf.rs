@@ -86,6 +86,8 @@ impl Queue {
 pub struct Opened {
     /// Why part of its form or markup was not read, if so.
     pub warning: Option<&'static str>,
+    /// Which objects new annotations became, when it was just saved.
+    pub placed: annotate::pdf::Placed,
     pub doc: Document,
     /// Editable annotations, when opened for markup.
     pub imported: Option<Imported>,
@@ -233,14 +235,21 @@ impl Document {
         } else {
             None
         };
-        Ok(Opened { doc: Self::from_bytes(path, shown, bytes, password)?, imported, form: Arc::new(form), warning })
+        Ok(Opened {
+            doc: Self::from_bytes(path, shown, bytes, password)?,
+            imported,
+            form: Arc::new(form),
+            warning,
+            placed: Vec::new(),
+        })
     }
 
     /// Writes `changes` into this PDF and saves the result to `target` (which may be its own
     /// file), then opens it again. Blocking.
     pub fn save_changes(&self, target: &Path, changes: &Changes<'_>, markup: bool) -> Result<Opened> {
-        let bytes = self.with_changes(changes)?;
-        Self::save_bytes(target, bytes, markup, changes.password, self.page_count())
+        let (bytes, placed) = self.changed(changes)?;
+        let opened = Self::save_bytes(target, bytes, markup, changes.password, self.page_count())?;
+        Ok(Opened { placed, ..opened })
     }
 
     /// Saves a PDF Lumen made to `target`, but only if it opens again with all its `pages`. Blocking.
@@ -269,6 +278,10 @@ impl Document {
 
     /// The bytes of this PDF with `changes` written in. Blocking.
     pub fn with_changes(&self, changes: &Changes<'_>) -> Result<Vec<u8>> {
+        Ok(self.changed(changes)?.0)
+    }
+
+    fn changed(&self, changes: &Changes<'_>) -> Result<(Vec<u8>, annotate::pdf::Placed)> {
         let bytes = self.original();
         let edits: Vec<PageEdit<'_>> = changes
             .pages
@@ -354,6 +367,12 @@ impl Document {
 
     pub fn links(&self, page: usize) -> &[Link] {
         self.inner.links.get(page).map_or(&[], Vec::as_slice)
+    }
+
+    /// The scale `page` is really rendered at when asked for `scale`; `None` if it is too large.
+    pub fn real_scale(&self, page: usize, scale: f32) -> Option<f32> {
+        let (w, h) = *self.inner.pages.get(page)?;
+        render_scale(scale, w, h)
     }
 
     /// Renders `page` at `scale` pixels per point, off the UI thread.
@@ -659,6 +678,47 @@ pub(crate) mod tests {
         assert_eq!(text.find("HELLO LUMEN world").len(), 1);
         assert_eq!(doc.text(1).await.find("second").len(), 1);
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn destinations_on_turned_pages_are_where_they_are_seen() {
+        use crate::structure::Target;
+        use lopdf::{Object, dictionary};
+        let dest = |kind: &str, n: &[i64], turn: i64| {
+            let mut pdf = lopdf::Document::with_version("1.7");
+            let (pages, page) = (pdf.new_object_id(), pdf.new_object_id());
+            let mut to: Vec<Object> = vec![page.into(), Object::Name(kind.into())];
+            to.extend(n.iter().map(|v| Object::Integer(*v)));
+            let rect: Vec<Object> = [10, 10, 50, 50].map(Object::Integer).to_vec();
+            let link = pdf.add_object(dictionary! { "Subtype" => "Link", "Rect" => rect, "Dest" => to });
+            let media: Vec<Object> = [0, 0, 600, 800].map(Object::Integer).to_vec();
+            pdf.objects.insert(page, dictionary! {
+                "Type" => "Page", "Parent" => pages, "MediaBox" => media, "Rotate" => turn, "Annots" => vec![link.into()],
+            }.into());
+            let tree = dictionary! { "Type" => "Pages", "Kids" => vec![page.into()], "Count" => 1 };
+            pdf.objects.insert(pages, tree.into());
+            let root = pdf.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages });
+            pdf.trailer.set("Root", root);
+            let mut out = Vec::new();
+            pdf.save_to(&mut out).unwrap();
+            let links = structure::read(&parse(out, None).unwrap()).1;
+            match links[0][0].target {
+                Target::Page { top, .. } => top,
+                _ => panic!(),
+            }
+        };
+        // The point 100 from the left and 700 up, as each turn shows it.
+        assert_eq!(dest("XYZ", &[100, 700, 0], 0), Some(100.0));
+        assert_eq!(dest("XYZ", &[100, 700, 0], 90), Some(100.0));
+        assert_eq!(dest("XYZ", &[100, 700, 0], 180), Some(700.0));
+        assert_eq!(dest("XYZ", &[100, 700, 0], 270), Some(500.0));
+        // A height says nothing about a page on its side; a distance from the left does.
+        assert_eq!(dest("FitH", &[700], 0), Some(100.0));
+        assert_eq!(dest("FitH", &[700], 90), None);
+        assert_eq!(dest("FitV", &[100], 90), Some(100.0));
+        for (turn, top) in [(0, 100.0), (90, 100.0), (180, 600.0), (270, 400.0)] {
+            assert_eq!(dest("FitR", &[100, 600, 200, 700], turn), Some(top), "{turn}");
+        }
     }
 
     /// Prints what Lumen reads from a PDF: `LUMEN_PDF=file.pdf cargo test inspect -- --ignored --nocapture`.

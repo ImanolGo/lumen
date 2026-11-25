@@ -102,11 +102,9 @@ fn inherited(doc: &Document, page: ObjectId, key: &[u8]) -> Option<Object> {
 }
 
 fn rotation_of(doc: &Document, page: ObjectId) -> i64 {
-    match inherited(doc, page, b"Rotate") {
-        Some(Object::Integer(r)) => r,
-        Some(Object::Reference(id)) => doc.get_object(id).ok().and_then(|o| o.as_i64().ok()).unwrap_or(0),
-        _ => 0,
-    }
+    let Some(turn) = inherited(doc, page, b"Rotate") else { return 0 };
+    // Any kind of number: some programs write 90.0.
+    doc.dereference(&turn).ok().and_then(|(_, o)| o.as_float().ok()).map_or(0, |r| r.round() as i64)
 }
 
 fn kids_of(doc: &Document, node: ObjectId) -> Vec<ObjectId> {
@@ -125,12 +123,19 @@ pub fn compose(base: &Source, extras: &[Source], plan: &[Entry]) -> Result<Vec<u
 
     // Pull the other documents' objects in, renumbered so they do not clash.
     let mut pages: Vec<BTreeMap<u32, ObjectId>> = vec![doc.get_pages()];
+    let root = doc.trailer.get(b"Root").and_then(Object::as_reference).context("the document has no catalog")?;
     for extra in extras {
         let mut other = load(extra)?;
         other.renumber_objects_with(doc.max_id + 1);
-        pages.push(other.get_pages());
+        let their_pages = other.get_pages();
+        let their_root = other.trailer.get(b"Root").and_then(Object::as_reference);
         doc.max_id = doc.max_id.max(other.max_id);
         doc.objects.extend(other.objects);
+        if let Ok(from) = their_root {
+            let all: Vec<ObjectId> = their_pages.values().copied().collect();
+            crate::merge::adopt(&mut doc, root, from, &all);
+        }
+        pages.push(their_pages);
     }
 
     // Make every page self-contained, and note how far each one is turned now.
@@ -150,7 +155,7 @@ pub fn compose(base: &Source, extras: &[Source], plan: &[Entry]) -> Result<Vec<u
         }
     }
 
-    let root: ObjectId =
+    let tree_id: ObjectId =
         doc.catalog()?.get(b"Pages").and_then(Object::as_reference).context("the document has no page tree")?;
     let mut kids = Vec::with_capacity(plan.len());
     let mut used = std::collections::HashSet::new();
@@ -164,20 +169,20 @@ pub fn compose(base: &Source, extras: &[Source], plan: &[Entry]) -> Result<Vec<u
         }
         let total = (turn[&id] + entry.rotate as i64).rem_euclid(360);
         let dict = doc.get_object_mut(id)?.as_dict_mut()?;
-        dict.set("Parent", Object::Reference(root));
+        dict.set("Parent", Object::Reference(tree_id));
         if total != 0 || dict.has(b"Rotate") {
             dict.set("Rotate", Object::Integer(total));
         }
         kids.push(Object::Reference(id));
     }
-    let tree = doc.get_object_mut(root)?.as_dict_mut()?;
+    let tree = doc.get_object_mut(tree_id)?.as_dict_mut()?;
     tree.set("Kids", Object::Array(kids));
     tree.set("Count", Object::Integer(plan.len() as i64));
     for key in INHERITED {
         tree.remove(key);
     }
 
-    let kept: Vec<ObjectId> = kids_of(&doc, root);
+    let kept: Vec<ObjectId> = kids_of(&doc, tree_id);
     let removed = pages.iter().flat_map(|p| p.values().copied()).filter(|id| !used.contains(id)).collect();
     crate::redact::remove_pages(&mut doc, &removed, &kept);
     doc.prune_objects();
@@ -409,11 +414,49 @@ mod tests {
         let form = crate::forms::read(&pdf);
         assert_eq!(form.fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), ["shared", "own1", "own2"]);
         assert_eq!(form.fields[0].widgets.len(), 2);
+        // Inserted into another document, pages bring their fields, their links and their entries along.
+        let plan = [e(0), Entry { source: 1, index: 2, rotate: 0 }, Entry { source: 1, index: 0, rotate: 0 }];
+        let base = Source { bytes: connected(), password: None };
+        let merged = compose(&base, &[source()], &plan).unwrap();
+        assert!(!unpacked(&merged).contains("secret2"));
+        let pdf = Pdf::new(merged).unwrap();
+        let (outline, links) = crate::structure::read(&pdf);
+        let target = |n: usize| Some(crate::structure::Target::Page { page: n, top: None });
+        let entries: Vec<_> = outline.iter().map(|o| (o.title.as_str(), o.target.clone())).collect();
+        assert_eq!(
+            entries,
+            [
+                ("title1", target(0)),
+                ("title1", target(2)),
+                ("title2", None),
+                ("title3", target(1)),
+                ("title3 by name", target(1))
+            ]
+        );
+        assert_eq!(links.iter().map(Vec::len).collect::<Vec<_>>(), [0, 2, 2]);
+        assert!(links[2].iter().all(|l| Some(l.target.clone()) == target(1)), "{links:?}");
+        let form = crate::forms::read(&pdf);
+        let names: Vec<&str> = form.fields.iter().map(|f| f.name.as_str()).collect();
+        // Told apart from the fields the document had before its other pages went, too.
+        assert_eq!(names, ["shared", "own1", "shared 2", "own1 2", "own3 2"]);
         // Taking one page of it into another document brings nothing else along.
         let base = Source { bytes: crate::pdf::tests::structured_bytes(), password: None };
         let plan = [e(0), Entry { source: 1, index: 0, rotate: 0 }];
         let text = unpacked(&compose(&base, &[source()], &plan).unwrap());
         assert!(text.contains("secret1") && !text.contains("secret2") && !text.contains("widget3"), "{text}");
+    }
+
+    #[test]
+    fn a_turn_written_as_a_real_number_counts() {
+        let mut doc = Document::load_mem(&connected()).unwrap();
+        for (i, turn) in [(1, Object::Real(90.0)), (2, Object::Integer(180))] {
+            let id = doc.get_pages()[&i];
+            doc.get_dictionary_mut(id).unwrap().set("Rotate", turn);
+        }
+        let mut bytes = Vec::new();
+        doc.save_to(&mut bytes).unwrap();
+        let out = compose(&Source { bytes, password: None }, &[], &[e(1), e(0)]).unwrap();
+        assert_eq!(texts(out, "").iter().map(|t| t.1).collect::<Vec<_>>(), [180, 90]);
     }
 
     #[test]

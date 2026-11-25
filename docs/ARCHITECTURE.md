@@ -8,7 +8,7 @@
 | App structure | iced's Elm architecture: `App` state, `Message`, `update`, `view` | One place decides what a click or a key does; easy to test without a window |
 | Pictures | [`image`](https://github.com/image-rs/image), `jxl-oxide`, `hayro-jpeg2000`, `png`, `jpeg-decoder`, [`resvg`](https://github.com/linebender/resvg) | All pure Rust. JPEG XL, JPEG 2000 and OpenEXR are decoded here too; AVIF and HEIC need the optional `heif` feature (libheif, C) |
 | PDF reading | [`hayro`](https://github.com/LaurenzV/hayro) | Pure Rust, `forbid(unsafe_code)`, renders on a pool of background threads |
-| PDF writing | [`lopdf`](https://github.com/J-F-Liu/lopdf) | Annotations, form values, page restructuring, incremental updates |
+| PDF writing | [`lopdf`](https://github.com/J-F-Liu/lopdf), `subsetter` | Annotations, form values, page restructuring, incremental updates |
 | Sandbox | `landlock`, `seccompiler` | Pictures are decoded in a locked-down child process |
 | Desktop | [`ashpd`](https://github.com/bilelmoussaoui/ashpd) / `zbus` (XDG portals, D-Bus) | File and print dialogs, opening links, the control interface |
 | Printing without a portal | A small IPP client over CUPS's socket (`src/cups.rs`) | No libcups |
@@ -82,6 +82,8 @@ dependencies (touchpad pinch); see `vendor/README.md`.
 | `src/pages.rs`, `src/app/pages.rs` | Page plans (reorder, turn, delete, insert), writing them, and the page organiser |
 | `src/app/pagelist.rs` | The Pages sidebar tab and the go-to-page box |
 | `src/redact.rs` | Taking removed pages out of a PDF for good, with everything that leads to them |
+| `src/merge.rs` | What inserted pages bring along: fields, named places, outline |
+| `src/textfont.rs` | Fonts for text written into PDFs: Helvetica, or an embedded part of a system font |
 | `src/properties.rs` | What the Properties dialog shows |
 | `src/export.rs`, `src/app/export.rs` | Exporting pages as PNG or PDF, pictures as PDF; the Export dialog |
 

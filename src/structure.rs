@@ -53,6 +53,16 @@ pub fn read(pdf: &Pdf) -> (Vec<OutlineItem>, Vec<Vec<Link>>) {
     (outline, links)
 }
 
+/// The dictionaries in `array`, whatever else (a null, a reference to nothing) is among them:
+/// `Array::iter` ends at the first thing that is something else.
+pub fn dicts<'a>(pdf: &'a Pdf, array: &Array<'a>) -> impl Iterator<Item = Dict<'a>> + use<'a> {
+    array.raw_iter().filter_map(|item| match item {
+        MaybeRef::Ref(r) => pdf.xref().get::<Dict<'_>>(r.into()),
+        MaybeRef::NotRef(Object::Dict(d)) => Some(d),
+        MaybeRef::NotRef(_) => None,
+    })
+}
+
 struct Resolver<'a> {
     pdf: &'a Pdf,
     catalog: Option<Dict<'a>>,
@@ -103,7 +113,7 @@ impl<'a> Resolver<'a> {
         let Some(annots) = page.raw().get::<Array<'_>>("Annots") else { return Vec::new() };
         let to_view = page.initial_transform(true).to_kurbo();
         let mut links = Vec::new();
-        for annot in annots.iter::<Dict<'_>>().take(MAX_LINKS_PER_PAGE * 4) {
+        for annot in dicts(self.pdf, &annots).take(MAX_LINKS_PER_PAGE * 4) {
             if annot.get::<Name<'_>>("Subtype").is_none_or(|s| s.as_str() != "Link") {
                 continue;
             }
@@ -168,22 +178,25 @@ impl<'a> Resolver<'a> {
             Some(MaybeRef::NotRef(Object::Number(n))) => Some(n.as_f64()),
             _ => None,
         };
-        let top = match kind.as_str() {
-            "XYZ" => {
-                let _left = items.next();
-                number(items.next())
-            }
-            "FitH" | "FitBH" => number(items.next()),
+        let mut next = || number(items.next());
+        // A point, as far as the destination gives one: left, top.
+        let (left, top) = match kind.as_str() {
+            "XYZ" => (next(), next()),
+            "FitH" | "FitBH" => (None, next()),
+            "FitV" | "FitBV" => (next(), None),
             "FitR" => {
-                let _ = (items.next(), items.next(), items.next());
-                number(items.next())
+                let (l, b, r, t) = (next(), next(), next(), next());
+                // On a turned page another side of the rectangle is the upper one.
+                let to_view = self.pdf.pages()[page].initial_transform(true).to_kurbo().as_coeffs();
+                (if to_view[1] < 0.0 { r } else { l }, if to_view[3] > 0.0 { b } else { t })
             }
-            _ => None,
+            _ => (None, None),
         };
-        let top = top.map(|y| {
-            let to_view = self.pdf.pages()[page].initial_transform(true).to_kurbo();
-            (to_view * Point::new(0.0, y)).y.max(0.0) as f32
-        });
+        let c = self.pdf.pages()[page].initial_transform(true).to_kurbo().as_coeffs();
+        // Which of the two says how far down the page it is depends on how the page is turned.
+        let part = |factor: f64, v: Option<f64>| if factor.abs() < 1e-6 { Some(0.0) } else { v.map(|v| v * factor) };
+        let top = part(c[1], left).zip(part(c[3], top)).map(|(x, y)| (x + y + c[5]).max(0.0) as f32);
+        // Without any number at all, it is the page as a whole.
         Some(Target::Page { page, top })
     }
 
@@ -246,7 +259,7 @@ impl<'a> Resolver<'a> {
             }
         }
         if let Some(kids) = node.get::<Array<'_>>("Kids") {
-            for kid in kids.iter::<Dict<'_>>() {
+            for kid in dicts(self.pdf, &kids) {
                 self.name_tree(&kid, depth + 1, out, seen);
             }
         }

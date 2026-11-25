@@ -42,11 +42,15 @@ pub fn png_bytes(img: &RgbaImage, dpi: u32) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-/// One page of `doc` as a PNG at `dpi`, turned by `rotate` degrees, written to `target`.
-pub fn page_to_png(doc: &pdf::Document, page: usize, rotate: i32, dpi: u32, target: &Path) -> Result<()> {
-    let pic = futures_lite_block_on(doc.render(page, scale_for(dpi)))?;
-    let bytes = png_bytes(&turned(&pic, rotate)?, dpi)?;
-    crate::fsio::write_atomic(target, &bytes)
+/// One page of `doc` as a PNG at `dpi`, turned by `rotate` degrees, written to `target`. Returns the
+/// resolution it really has: a very large page is drawn at a lower one.
+pub fn page_to_png(doc: &pdf::Document, page: usize, rotate: i32, dpi: u32, target: &Path) -> Result<u32> {
+    let scale = doc.real_scale(page, scale_for(dpi)).context("the page is too large")?;
+    let real = ((scale * 72.0).round() as u32).min(dpi);
+    let pic = futures_lite_block_on(doc.render(page, scale))?;
+    let bytes = png_bytes(&turned(&pic, rotate)?, real)?;
+    crate::fsio::write_atomic(target, &bytes)?;
+    Ok(real)
 }
 
 /// File names for several pages of `stem` in a folder: `stem-3.png`, padded so they sort.
@@ -96,6 +100,35 @@ mod tests {
         assert_eq!(scale_for(72), 1.0);
         assert_eq!(scale_for(150), 150.0 / 72.0);
         assert!((scale_for(300) - 4.1667).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_large_page_says_the_resolution_it_really_has() {
+        let mut pdf = lopdf::Document::with_version("1.7");
+        let pages = pdf.new_object_id();
+        let media: Vec<lopdf::Object> = vec![0.into(), 0.into(), 4096.into(), 100.into()];
+        let page = pdf.add_object(lopdf::Dictionary::from_iter([
+            ("Type", "Page".into()),
+            ("Parent", pages.into()),
+            ("MediaBox", media.into()),
+        ]));
+        let kids: Vec<lopdf::Object> = vec![page.into()];
+        let tree = [("Type", "Pages".into()), ("Kids", kids.into()), ("Count", 1.into())];
+        pdf.objects.insert(pages, lopdf::Dictionary::from_iter(tree).into());
+        let catalog = [("Type", "Catalog".into()), ("Pages", pages.into())];
+        let root = pdf.add_object(lopdf::Dictionary::from_iter(catalog));
+        pdf.trailer.set("Root", root);
+        let dir = std::env::temp_dir().join(format!("lumen-rs-dpi-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        pdf.save(dir.join("big.pdf")).unwrap();
+        let doc = pdf::Document::open(&dir.join("big.pdf")).unwrap();
+        let out = dir.join("out.png");
+        assert_eq!(page_to_png(&doc, 0, 0, 72, &out).unwrap(), 72);
+        assert_eq!(page_to_png(&doc, 0, 0, 300, &out).unwrap(), 144);
+        let reader =
+            png::Decoder::new(std::io::BufReader::new(std::fs::File::open(&out).unwrap())).read_info().unwrap();
+        assert_eq!((reader.info().width, reader.info().pixel_dims.unwrap().xppu), (8192, 5669));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

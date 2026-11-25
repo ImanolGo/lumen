@@ -198,19 +198,33 @@ fn run(job: ExportJob, target: &Path) -> anyhow::Result<String> {
         ExportJob::Png { pages, docs, dpi, stem } => {
             export::need_pages(pages.len())?;
             if let [one] = pages.as_slice() {
-                export::page_to_png(&docs[one.source], one.index, one.rotate, dpi, target)?;
+                let real = export::page_to_png(&docs[one.source], one.index, one.rotate, dpi, target)?;
+                if real < dpi {
+                    return Ok(trf!("Saved “{}” at {} dpi: the page is very large", file_name(target), real));
+                }
                 return Ok(trf!("Saved “{}”", file_name(target)));
             }
             let indexes: Vec<usize> = (0..pages.len()).collect();
             let names = export::numbered_names(&stem, &indexes, "png");
+            let mut least = dpi;
             for (entry, name) in pages.iter().zip(&names) {
-                export::page_to_png(
+                let real = export::page_to_png(
                     &docs[entry.source],
                     entry.index,
                     entry.rotate,
                     dpi,
                     &export::free_path(target, name),
                 )?;
+                least = least.min(real);
+            }
+            if least < dpi {
+                let folder = file_name(target);
+                return Ok(trf!(
+                    "Saved {} images in “{}”, some at {} dpi: the pages are very large",
+                    pages.len(),
+                    folder,
+                    least
+                ));
             }
             Ok(trf!("Saved {} images in “{}”", pages.len(), file_name(target)))
         }

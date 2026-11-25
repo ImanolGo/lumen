@@ -22,6 +22,13 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - Moving a file with unsaved changes to the trash asks first, and Undo brings the changes back too.
 - A damaged signatures file is kept (`signatures.toml.bak`) instead of written over; several windows, and the GTK Lumen, no longer overwrite each other's signatures, recent files or preferences.
 - One recent file with a name that is not UTF-8 no longer empties the list; files on a disk that is not mounted are remembered.
+- Annotations other programs made keep everything Lumen does not model (flags, dates, dashed and cloudy borders, line endings, pop-ups, their own look): those you did not change are not written at all, and those you did only change in what you changed.
+- Saved form fields honour the turn, border and background of the field, wrap long text with real character widths, and fill comb fields cell by cell.
+- Text beyond Western European letters (Škoda, œuvre, Cyrillic, Greek, CJK…) is written with a part of a system font embedded, instead of question marks.
+- Check boxes whose state has a name that is not text are saved right; a null among a page's annotations or a form's fields no longer hides the rest.
+- Inserting another PDF brings its form fields, named link targets and outline along.
+- Reorganising keeps the turn of pages that give it as a real number; outline entries and links land at the right height on turned pages.
+- Exporting a very large page as PNG records (and tells) the resolution it really has; exporting a small picture as a PDF no longer crops it.
 - A saved picture only carries its colour profile over when that is an RGB one.
 - Printing a picture whose decoded size is refused no longer waits for ever.
 - A PDF page that cannot be rendered says so instead of being asked for again without end.

@@ -181,7 +181,10 @@ pub fn picture_to_pdf_native(path: &Path, dpi: f32) -> Result<Vec<u8>> {
 
 fn image_to_pdf(mut img: image::RgbImage, paper: &Paper) -> Result<Vec<u8>> {
     let (page_w, page_h, [top, right, bottom, left]) = (paper.width, paper.height, paper.margins);
-    let (box_w, box_h) = ((page_w - left - right).max(36.0), (page_h - top - bottom).max(36.0));
+    let (box_w, box_h) = (page_w - left - right, page_h - top - bottom);
+    // Margins that leave no room on the paper are not margins anyone meant.
+    let (box_w, left) = if box_w > 0.0 { (box_w, left) } else { (page_w, 0.0) };
+    let (box_h, bottom) = if box_h > 0.0 { (box_h, bottom) } else { (page_h, 0.0) };
 
     // Fit the printable area, keeping the aspect ratio.
     let (iw, ih) = (img.width() as f32, img.height() as f32);
@@ -276,6 +279,24 @@ mod tests {
             .is_err()
         );
         assert!(!left.parent().unwrap().exists());
+    }
+
+    #[test]
+    fn a_small_picture_is_not_cropped() {
+        let banner =
+            image::RgbImage::from_fn(1000, 50, |_, y| image::Rgb(if y < 12 { [255, 0, 0] } else { [0, 0, 255] }));
+        let dir = std::env::temp_dir().join(format!("lumen-rs-banner-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("b.png");
+        banner.save(&path).unwrap();
+        let bytes = picture_to_pdf_native(&path, 150.0).unwrap();
+        let pdf = hayro::hayro_syntax::Pdf::new(bytes.clone()).unwrap();
+        let (w, h) = pdf.pages()[0].render_dimensions();
+        assert!((w - 480.0).abs() < 0.1 && (h - 24.0).abs() < 0.1, "{w}×{h}");
+        // The picture is drawn at exactly the page's size.
+        let content = String::from_utf8_lossy(&bytes).into_owned();
+        assert!(content.contains("480 0 0 24 0 0 cm"), "{content}");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
