@@ -34,6 +34,9 @@ pub type ObjRef = (u32, u16);
 /// Protects against hostile files.
 const MAX_PER_PAGE: usize = 5_000;
 const MAX_POINTS: usize = 100_000;
+/// Points (and a point's worth of text) in all annotations of a document together: many of them can
+/// share one big array in the file, but not in memory.
+const MAX_TOTAL_POINTS: usize = 2_000_000;
 
 /// The editable annotations of a document.
 #[derive(Debug, Clone, Default)]
@@ -42,6 +45,8 @@ pub struct Imported {
     /// Per page, the objects that became editable: hidden from hayro while they are
     /// edited, and replaced by the layer's contents when the page is saved.
     pub refs: Vec<Vec<ObjRef>>,
+    /// There was more than is kept in memory; the rest is left to hayro, as it is in the file.
+    pub truncated: bool,
 }
 
 impl Imported {
@@ -61,7 +66,8 @@ pub fn transforms(pdf: &Pdf) -> Vec<Affine> {
 /// Reads the annotations Lumen can edit. Cheap: no page content is interpreted.
 pub fn import(pdf: &Pdf) -> Imported {
     let pages = pdf.pages();
-    let mut out = Imported { layers: BTreeMap::new(), refs: vec![Vec::new(); pages.len()] };
+    let mut out = Imported { layers: BTreeMap::new(), refs: vec![Vec::new(); pages.len()], truncated: false };
+    let mut budget = MAX_TOTAL_POINTS;
     for (index, page) in pages.iter().enumerate() {
         let Some(annots) = page.raw().get::<Array<'_>>("Annots") else { continue };
         let to_view = page.initial_transform(true).to_kurbo();
@@ -73,7 +79,11 @@ pub fn import(pdf: &Pdf) -> Imported {
             if annot.get::<u32>("F").unwrap_or(0) & 0b10 != 0 {
                 continue;
             }
-            let Some((annotation, note)) = read_one(&annot, to_view) else { continue };
+            let Ok(read) = read_one(&annot, to_view, &mut budget) else {
+                out.truncated = true;
+                return out;
+            };
+            let Some((annotation, note)) = read else { continue };
             let layer = out.layers.entry(index).or_default();
             let new_id = layer.add(annotation.shape, annotation.style);
             if note != Note::default() {
@@ -87,7 +97,48 @@ pub fn import(pdf: &Pdf) -> Imported {
 
 fn numbers(dict: &Dict<'_>, key: &str) -> Option<Vec<f64>> {
     let array = dict.get::<Array<'_>>(key)?;
-    Some(array.iter::<Number>().take(MAX_POINTS).map(|n| n.as_f64()).collect())
+    Some(array.iter::<Number>().take(MAX_FEW).map(|n| n.as_f64()).collect())
+}
+
+/// For arrays that are short by nature (a rectangle, a colour).
+const MAX_FEW: usize = 64;
+
+/// The document's annotations are too big to keep.
+#[derive(Debug)]
+struct OutOfBudget;
+
+fn spend(budget: &mut usize, amount: usize) -> Result<(), OutOfBudget> {
+    *budget = budget.checked_sub(amount).ok_or(OutOfBudget)?;
+    Ok(())
+}
+
+/// The numbers of an array that may be long, paid for from `budget`.
+fn many(array: &Array<'_>, budget: &mut usize) -> Result<Vec<f64>, OutOfBudget> {
+    let v: Vec<f64> = array.iter::<Number>().take(MAX_POINTS).map(|n| n.as_f64()).collect();
+    spend(budget, v.len() / 2 + 1)?;
+    Ok(v)
+}
+
+/// One annotation as the model has it: `None` if Lumen does not edit this kind.
+fn read_one(annot: &Dict<'_>, to_view: Affine, budget: &mut usize) -> Result<Option<(Annotation, Note)>, OutOfBudget> {
+    let mut points = match annot.get::<Name<'_>>("Subtype").as_ref().map(Name::as_str) {
+        Some("Ink") => {
+            let Some(list) = annot.get::<Array<'_>>("InkList") else { return Ok(None) };
+            list.iter::<Array<'_>>().take(1000).map(|stroke| many(&stroke, budget)).collect::<Result<_, _>>()?
+        }
+        Some("Highlight") => match annot.get::<Array<'_>>("QuadPoints") {
+            Some(quads) => vec![many(&quads, budget)?],
+            None => return Ok(None),
+        },
+        _ => Vec::new(),
+    };
+    let read = read_shape(annot, to_view, &mut points);
+    if let Some((annotation, note)) = &read {
+        let typed = if let Shape::Text { text, .. } = &annotation.shape { text.len() } else { 0 };
+        let noted = [&note.contents, &note.author].into_iter().flatten().map(String::len).sum::<usize>();
+        spend(budget, (typed + noted) / size_of::<Point>() + 1)?;
+    }
+    Ok(read)
 }
 
 fn color(dict: &Dict<'_>, key: &str, alpha: f32) -> Option<Color> {
@@ -118,7 +169,8 @@ fn view_point(to_view: Affine, x: f64, y: f64) -> Point {
     Point::new(p.x, p.y)
 }
 
-fn read_one(annot: &Dict<'_>, to_view: Affine) -> Option<(Annotation, Note)> {
+/// `points`: the strokes of ink, or the corners of a highlight.
+fn read_shape(annot: &Dict<'_>, to_view: Affine, points: &mut Vec<Vec<f64>>) -> Option<(Annotation, Note)> {
     let subtype = annot.get::<Name<'_>>("Subtype")?;
     let rect: [f64; 4] = numbers(annot, "Rect")?.try_into().ok()?;
     let alpha = annot.get::<f32>("CA").unwrap_or(1.0).clamp(0.0, 1.0);
@@ -162,14 +214,9 @@ fn read_one(annot: &Dict<'_>, to_view: Affine) -> Option<(Annotation, Note)> {
             }
         }
         "Ink" => {
-            let list = annot.get::<Array<'_>>("InkList")?;
-            let strokes: Vec<Vec<Point>> = list
-                .iter::<Array<'_>>()
-                .take(1000)
-                .map(|s| {
-                    let v: Vec<f64> = s.iter::<Number>().take(MAX_POINTS).map(|n| n.as_f64()).collect();
-                    v.as_chunks::<2>().0.iter().map(|[x, y]| view_point(to_view, *x, *y)).collect::<Vec<_>>()
-                })
+            let strokes: Vec<Vec<Point>> = std::mem::take(points)
+                .into_iter()
+                .map(|v| v.as_chunks::<2>().0.iter().map(|[x, y]| view_point(to_view, *x, *y)).collect::<Vec<_>>())
                 .filter(|s: &Vec<Point>| !s.is_empty())
                 .collect();
             match strokes.len() {
@@ -179,7 +226,7 @@ fn read_one(annot: &Dict<'_>, to_view: Affine) -> Option<(Annotation, Note)> {
             }
         }
         "Highlight" => {
-            let quads = numbers(annot, "QuadPoints").filter(|q| q.len() >= 8)?;
+            let quads = points.pop().filter(|q| q.len() >= 8)?;
             let rects = quads
                 .as_chunks::<8>()
                 .0
@@ -643,6 +690,41 @@ mod tests {
         let r = rects[0];
         assert!((r.x - 70.0).abs() < 1e-3 && (r.y - 80.0).abs() < 1e-3 && (r.h - 25.0).abs() < 1e-3, "{r:?}");
         assert_eq!(layer.notes[&layer.items[0].id].contents.as_deref(), Some("Important"));
+    }
+
+    /// `n` ink annotations that all draw the same stroke of `points` points.
+    fn shared_ink(n: usize, points: usize) -> Vec<u8> {
+        let mut doc = lopdf::Document::with_version("1.7");
+        let stroke = doc.add_object(vec![Object::Real(5.0); points * 2]);
+        let pages = doc.new_object_id();
+        let annots: Vec<Object> = (0..n)
+            .map(|_| {
+                let rect: Vec<Object> = vec![0.into(), 0.into(), 10.into(), 10.into()];
+                let ink = dictionary! { "Subtype" => "Ink", "Rect" => rect, "InkList" => vec![stroke.into()] };
+                doc.add_object(ink).into()
+            })
+            .collect();
+        let media: Vec<Object> = vec![0.into(), 0.into(), 100.into(), 100.into()];
+        let page = doc
+            .add_object(dictionary! { "Type" => "Page", "Parent" => pages, "MediaBox" => media, "Annots" => annots });
+        let tree = dictionary! { "Type" => "Pages", "Kids" => vec![page.into()], "Count" => 1 };
+        doc.objects.insert(pages, tree.into());
+        let root = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages });
+        doc.trailer.set("Root", root);
+        let mut out = Vec::new();
+        doc.save_to(&mut out).unwrap();
+        out
+    }
+
+    #[test]
+    fn many_annotations_sharing_one_stroke_do_not_fill_the_memory() {
+        let small = read(&shared_ink(20, 50));
+        assert!(!small.truncated && small.layers[&0].items.len() == 20);
+        let hostile = read(&shared_ink(200, 50_000));
+        assert!(hostile.truncated);
+        let kept: usize = hostile.layers[&0].items.len();
+        assert!(kept > 0 && kept * 50_000 <= MAX_TOTAL_POINTS, "{kept}");
+        assert_eq!(hostile.refs[0].len(), kept, "what was not read is not replaced when saving");
     }
 
     #[test]

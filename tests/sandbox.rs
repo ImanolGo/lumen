@@ -26,9 +26,17 @@ fn worker(mode: &str, ext: &str, input: Option<&Path>) -> Output {
         .unwrap()
 }
 
+/// What follows the byte a worker sends once it is shut in.
+fn after_ready(out: &Output) -> &[u8] {
+    match out.stdout.split_first() {
+        Some((b'S', rest)) => rest,
+        _ => &[],
+    }
+}
+
 /// width, height of a successful answer.
 fn answer(out: &Output) -> Result<(u32, u32), String> {
-    match out.stdout.split_first() {
+    match after_ready(out).split_first() {
         Some((0, rest)) => {
             let n = |i: usize| u32::from_le_bytes(rest[i..i + 4].try_into().unwrap());
             let (w, h) = (n(0), n(4));
@@ -92,7 +100,7 @@ fn a_damaged_picture_is_an_error_message_not_a_crash() {
 #[test]
 fn the_sandbox_stops_file_access_sockets_and_programs() {
     assert!(sandbox_available(), "this machine cannot sandbox: the test cannot say anything");
-    for test in ["open", "list", "socket", "exec", "write-file"] {
+    for test in ["open", "list", "socket", "exec", "write-file", "stat", "read-other", "dumpable"] {
         let out = worker(&format!("selftest-{test}"), "x", None);
         assert_eq!(
             out.status.signal(),
@@ -103,4 +111,71 @@ fn the_sandbox_stops_file_access_sockets_and_programs() {
         );
     }
     assert!(!Path::new("/tmp/lumen-rs-sandbox-escape").exists());
+}
+
+#[test]
+fn threads_and_the_memory_limit_work_inside() {
+    for test in ["thread", "memory"] {
+        let out = worker(&format!("selftest-{test}"), "x", None);
+        assert_eq!(out.status.code(), Some(0), "{test}: {:?} {}", out.status, String::from_utf8_lossy(&out.stderr));
+    }
+}
+
+#[test]
+fn a_panic_is_not_taken_for_a_missing_sandbox() {
+    let out = worker("selftest-panic", "x", None);
+    assert_eq!(out.status.code(), Some(101), "{:?} {}", out.status, String::from_utf8_lossy(&out.stderr));
+    assert_eq!(out.stdout, b"S", "it had shut itself in");
+}
+
+#[test]
+fn a_picture_that_claims_to_be_huge_is_refused() {
+    let path = std::env::temp_dir().join(format!("lumen-rs-sandbox-huge-{}.png", std::process::id()));
+    let mut encoder = png::Encoder::new(std::fs::File::create(&path).unwrap(), 50_000, 50_000);
+    encoder.set_color(png::ColorType::Rgba);
+    let mut writer = encoder.write_header().unwrap();
+    writer.write_chunk(png::chunk::IDAT, &[0x78, 0x9c]).unwrap();
+    drop(writer);
+    for mode in ["load", "print"] {
+        let out = worker(mode, "png", Some(&path));
+        assert!(answer(&out).unwrap_err().contains("too large"), "{mode}");
+    }
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn animations_are_decoded_inside_too() {
+    use std::io::Read;
+    for (name, ext) in [("anim.png", "png")] {
+        let mut child = Command::new(WORKER)
+            .args(["--decode-worker", "frames", ext])
+            .stdin(std::fs::File::open(fixtures().join("pictures").join(name)).unwrap())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut out = child.stdout.take().unwrap();
+        let mut byte = [0u8; 1];
+        out.read_exact(&mut byte).unwrap();
+        assert_eq!(byte, [b'S']);
+        // Frames, then the end of the pass, then frames again.
+        let (mut frames, mut passes) = (0, 0);
+        while passes < 2 {
+            out.read_exact(&mut byte).unwrap();
+            match byte[0] {
+                0 => {
+                    let mut head = [0u8; 12];
+                    out.read_exact(&mut head).unwrap();
+                    let n = |i: usize| u32::from_le_bytes(head[i..i + 4].try_into().unwrap()) as usize;
+                    out.read_exact(&mut vec![0u8; n(0) * n(4) * 4]).unwrap();
+                    frames += 1;
+                }
+                2 => passes += 1,
+                other => panic!("{name}: unexpected {other}"),
+            }
+        }
+        assert!(frames >= 4);
+        // Nobody listens any more: it ends by itself.
+        drop(out);
+        assert_ne!(child.wait().unwrap().signal(), Some(31));
+    }
 }

@@ -426,7 +426,11 @@ impl App {
             Some((signature, page, target)) => self.place_signature(signature, page, target),
             None => Task::none(),
         };
-        Task::batch([shown, signed])
+        let warned = match opened.warning {
+            Some(warning) => self.notice(tr(warning)),
+            None => Task::none(),
+        };
+        Task::batch([shown, signed, warned])
     }
 
     /// Replaces the open PDF's renderer, keeping the view where it is; pages re-render.
@@ -440,6 +444,7 @@ impl App {
                 *scale = -1.0;
             }
             slot.pending = None;
+            slot.failed = false;
             slot.text_pending = false;
         }
         self.request_pages()

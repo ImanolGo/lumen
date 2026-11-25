@@ -729,7 +729,7 @@ say exactly which systems those are.
 
 | # | Package | Status |
 |---|---|---|
-| 1 | The decoder fails closed and stays within limits | |
+| 1 | The decoder fails closed and stays within limits | Done. The worker keeps `prctl`, for naming threads and mappings only. `clone3` is answered with `ENOSYS`. JPEG XL and JPEG 2000 memory is bounded by the worker's 8 GB address-space limit; their internals were not read. Also found and fixed: the size check on the worker's answer overflowed, and a page that failed to render was requested in a loop. |
 | 2 | Saving does not lose or expose data | |
 | 3 | PDF writing keeps what other programs wrote | |
 | 4 | Smaller defects, things that disagree, finish the review | |

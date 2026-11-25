@@ -84,6 +84,8 @@ impl Queue {
 /// A PDF opened with what Lumen shows on top of it.
 #[derive(Debug, Clone)]
 pub struct Opened {
+    /// Why part of its form or markup was not read, if so.
+    pub warning: Option<&'static str>,
     pub doc: Document,
     /// Editable annotations, when opened for markup.
     pub imported: Option<Imported>,
@@ -217,7 +219,14 @@ impl Document {
                 Err(e) => return Err(e),
             }
         };
-        Ok(Opened { doc: Self::from_bytes(path, shown, password)?, imported, form: Arc::new(form) })
+        let warning = if form.truncated {
+            Some("This form is too large: the rest of its fields cannot be filled in")
+        } else if imported.as_ref().is_some_and(|i| i.truncated) {
+            Some("This PDF has too much markup: the rest of it cannot be edited")
+        } else {
+            None
+        };
+        Ok(Opened { doc: Self::from_bytes(path, shown, password)?, imported, form: Arc::new(form), warning })
     }
 
     /// Writes `changes` into the PDF at `source` and saves the result to `target` (which may
@@ -342,6 +351,14 @@ impl Document {
     }
 }
 
+/// `scale` brought down so that a page of `w` × `h` points stays within [`MAX_SIDE`] whatever the
+/// zoom; `None` when even the smallest scale does not.
+fn render_scale(scale: f32, w: f32, h: f32) -> Option<f32> {
+    let longest = w.max(h).max(1.0);
+    let scale = scale.min(MAX_SIDE / longest).max(0.01);
+    (longest.is_finite() && longest * scale <= MAX_SIDE + 1.0).then_some(scale)
+}
+
 fn worker(bytes: Arc<Vec<u8>>, password: Option<&str>, queue: &Queue) {
     let Ok(pdf) = parse(bytes, password) else { return };
     let pages = pdf.pages();
@@ -370,7 +387,10 @@ fn worker(bytes: Arc<Vec<u8>>, password: Option<&str>, queue: &Queue) {
             Work::Render { scale, night, reply } => {
                 let (w, h) = page.render_dimensions();
                 // Keep the bitmap within limits whatever the zoom.
-                let scale = scale.min(MAX_SIDE / w.max(h).max(1.0)).max(0.01);
+                let Some(scale) = render_scale(scale, w, h) else {
+                    let _ = reply.send(Err(anyhow!("page {} is too large to show", job.page + 1)));
+                    continue;
+                };
                 let pixmap_settings = PixmapSettings {
                     x_scale: scale,
                     y_scale: scale,
@@ -696,6 +716,31 @@ pub(crate) mod tests {
         let unlocked = Document::open_full(&copy, true, None).unwrap();
         assert_eq!(unlocked.imported.unwrap().layers[&0].items.len(), 1);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_page_of_absurd_size_is_refused_instead_of_rendered() {
+        use lopdf::dictionary;
+        assert_eq!(render_scale(2.0, 612.0, 792.0), Some(2.0));
+        assert_eq!(render_scale(100.0, 612.0, 819.2), Some(10.0));
+        assert!(render_scale(1.0, 100_000.0, 800_000.0).is_some());
+        assert_eq!(render_scale(1.0, 6_553_500.0, 6_553_500.0), None);
+        assert_eq!(render_scale(1.0, f32::INFINITY, 1.0), None);
+        // Its thumbnail too.
+        let mut pdf = lopdf::Document::with_version("1.7");
+        let pages = pdf.new_object_id();
+        let page = pdf.add_object(dictionary! {
+            "Type" => "Page", "Parent" => pages, "MediaBox" => vec![0.into(), 0.into(), 6_553_500.into(), 6_553_500.into()],
+        });
+        pdf.objects.insert(pages, dictionary! { "Type" => "Pages", "Kids" => vec![page.into()], "Count" => 1 }.into());
+        let root = pdf.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages });
+        pdf.trailer.set("Root", root);
+        let path = std::env::temp_dir().join(format!("lumen-rs-huge-page-{}.pdf", std::process::id()));
+        pdf.save(&path).unwrap();
+        if let Ok(t) = thumbnail(&path, 64, None) {
+            assert!(t.width <= 64 && t.height <= 64);
+        }
+        std::fs::remove_file(&path).unwrap();
     }
 
     #[test]

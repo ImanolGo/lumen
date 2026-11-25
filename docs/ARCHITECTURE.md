@@ -32,7 +32,7 @@ dependencies (touchpad pinch); see `vendor/README.md`.
  clicks, keys, timers ──► Message ──► App::update ──► new state (+ a Task for the slow part) ──► view
 ```
 
-- **Pictures.** `raster::load` asks `sandbox::run` to decode in `lumen-rs --decode-worker`. The parent hands the open file to the worker as its standard input; the worker shuts itself in (Landlock, then seccomp) before reading it, and writes the pixels back over a pipe. The same worker makes thumbnails and print copies. If the sandbox cannot start, the decoders run in-process. SVG and PDF are not sandboxed: they need fonts and file access, and they are memory-safe Rust.
+- **Pictures.** `raster::load` asks `sandbox::run` to decode in `lumen-rs --decode-worker`. The parent hands the open file to the worker as its standard input; the worker shuts itself in (Landlock, then seccomp) before reading it, and writes the pixels back over a pipe. The same worker makes thumbnails and print copies, and streams the frames of animations. It sends one byte once it is shut in; only a worker that ends without it, with the "no sandbox" status, means the sandbox is unavailable. Only then do the decoders run in-process; any other failure is an error for that picture. SVG and PDF are not sandboxed: they need fonts and file access, and they are memory-safe Rust.
 - **PDFs.** `pdf::Document` parses the file once per render thread. Only the pages near the view are rendered, newest request first, and re-rendered at every zoom level. Text, links and the outline are read lazily (`structure.rs`) for search and selection.
 - **Editing.** A picture keeps the original and an `Edits` value (turns, mirror, crop, resize, colour); the shown picture is computed in the background. Markup is kept in picture or page coordinates and follows every edit. Saving flattens it (pictures) or writes real annotations (PDFs).
 - **Saving a PDF** appends an incremental update, so the original bytes stay as they were. Page changes rewrite the file (`pages.rs`), carrying markup, form values and a password along.
@@ -63,7 +63,7 @@ dependencies (touchpad pinch); see `vendor/README.md`.
 |---|---|
 | `src/raster.rs` | Picture decoding (every format), SVG rendering, thumbnails |
 | `src/sandbox.rs` | The sandboxed decoder process, and the parent side that runs it |
-| `src/animation.rs`, `src/app/anim.rs` | Animated pictures: the decoder thread, and playing the frames |
+| `src/animation.rs`, `src/app/anim.rs` | Animated pictures: decoding the frames (in the worker), and playing them |
 | `src/heif.rs` | AVIF and HEIC through libheif (only with `--features heif`) |
 | `src/library.rs` | Which files to browse: folders, natural sort order |
 | `src/edit/` | Picture edits: turns, mirrors, crop geometry, resizing, colour adjustments, and how each moves markup |

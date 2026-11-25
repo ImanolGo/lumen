@@ -78,9 +78,9 @@ fn prefer_integrated_gpu() {
 fn main() -> iced::Result {
     STARTED.get_or_init(Instant::now);
     // The sandboxed decoder: a separate, tiny job that must not start the app.
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.first().map(String::as_str) == Some("--decode-worker") {
-        sandbox::worker_main(&args[1..]);
+    if std::env::args_os().nth(1).is_some_and(|a| a == "--decode-worker") {
+        let args: Vec<String> = std::env::args_os().skip(2).map(|a| a.to_string_lossy().into_owned()).collect();
+        sandbox::worker_main(&args);
     }
     prefer_integrated_gpu();
     tracing_subscriber::fmt()

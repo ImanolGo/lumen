@@ -4,6 +4,20 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Security
+- A decoder that panics, or whose answer is cut short, is an error for that picture; it is no longer decoded again outside the sandbox. A worker says when it has shut itself in, so one that was taken over cannot claim there is no sandbox.
+- Animation frames are decoded in the sandbox too, under the same limits as still pictures. Animations with very large frames (over about 5 megapixels) show their first frame only.
+- The decoding limit covers the pixels themselves (a small PNG could ask for 10 GB), and the worker's address space is capped at 8 GB.
+- An SVG can no longer pull in other picture files from disk.
+- The sandbox allows fewer system calls: no new processes, reading only the picture, no `newfstatat`, signals only to itself.
+- The worker still starts after a package upgrade replaced the binary while Lumen was running.
+- PDF pages of absurd size, and annotations and form fields that share one huge array, no longer exhaust the memory.
+
+### Fixed
+- Printing a picture whose decoded size is refused no longer waits for ever.
+- A PDF page that cannot be rendered says so instead of being asked for again without end.
+- A file name that is not UTF-8 no longer crashes Lumen at start.
+
 ## [0.1.0] - 2026-11-24
 
 First release. Lumen (Rust/iced) is a rewrite of the GTK Lumen without GTK, poppler or any C library in the document path.

@@ -136,7 +136,7 @@ that have no entry. To add a language, add `po/<code>.po` and one line to `CATAL
 1. Add its extensions to `RASTER` in `src/library.rs`, and its MIME types to `data/*.desktop` and the filter in `src/portal.rs`.
 2. Decode it from bytes in `src/raster.rs` (`special()` and `decode()`), so it also runs inside the sandbox.
 3. Add a small fixture to `tests/fixtures/` and a test in `src/raster.rs`; `tests/sandbox.rs` then picks it up from `tests/fixtures/pictures/`.
-4. If it needs a new system call, the sandbox kills the worker: run the new test through the sandbox (`cargo test --test sandbox`) and add the call to `allowed_syscalls()` in `src/sandbox.rs` only if the decoder really needs it. `gdb -batch` with `catch syscall` on `--decode-worker load EXT --unsandboxed` lists what a decoder uses.
+4. If it needs a new system call, the sandbox kills the worker: run the new test through the sandbox (`cargo test --test sandbox`) and add the call to `allowed_syscalls()` in `src/sandbox.rs` only if the decoder really needs it. `gdb -batch` with `catch syscall` on `--decode-worker load EXT --unsandboxed` (debug builds only) lists what a decoder uses.
 
 ## Icons
 

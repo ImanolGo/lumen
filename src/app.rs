@@ -439,6 +439,8 @@ struct PdfView {
 struct Slot {
     shown: Option<(image::Handle, f32)>,
     pending: Option<f32>,
+    /// It could not be rendered: not asked for again.
+    failed: bool,
     /// The page's text, for selection; asked for once the page comes into view.
     text: Option<Arc<PageText>>,
     text_pending: bool,
@@ -1072,7 +1074,10 @@ impl App {
                         }
                         slot.shown = Some((image::Handle::from_rgba(p.width, p.height, p.rgba.clone()), scale))
                     }
-                    Err(e) => tracing::warn!("page {}: {e}", page + 1),
+                    Err(e) => {
+                        tracing::warn!("page {}: {e}", page + 1);
+                        slot.failed = true;
+                    }
                 }
                 self.request_pages()
             }
@@ -1492,10 +1497,7 @@ impl App {
             Message::Slideshow => self.slideshow_toggle(),
             Message::SlideshowPause => self.slideshow_pause(),
             Message::SlideshowTick(now) => self.slideshow_tick(now),
-            Message::AnimTick(now) => {
-                self.anim_tick(now);
-                Task::none()
-            }
+            Message::AnimTick(now) => self.anim_tick(now),
             Message::ShowInFolder => {
                 self.menu = None;
                 let Some(path) = self.current_file() else { return Task::none() };
@@ -2650,7 +2652,7 @@ impl App {
         for i in order {
             let slot = &mut view.slots[i];
             let good = slot.shown.as_ref().is_some_and(|(_, s)| (s / wanted - 1.0).abs() < 0.02);
-            if good || slot.pending == Some(wanted) {
+            if good || slot.failed || slot.pending == Some(wanted) {
                 continue;
             }
             slot.pending = Some(wanted);
@@ -3095,6 +3097,12 @@ impl App {
                     .content_fit(ContentFit::Fill)
                     .filter_method(image::FilterMethod::Linear)
                     .into(),
+                None if view.slots[i].failed => {
+                    container(text(tr("This page cannot be shown")).size(13).color(iced::Color::from_rgb8(90, 90, 90)))
+                        .center_x(w)
+                        .center_y(h)
+                        .into()
+                }
                 None => space().width(w).height(h).into(),
             };
             let mut layers = stack![inner].width(w).height(h);

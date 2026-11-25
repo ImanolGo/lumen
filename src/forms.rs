@@ -8,6 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
+use std::rc::Rc;
 
 use hayro::hayro_interpret::TransformExt;
 use hayro::hayro_syntax::Pdf;
@@ -20,6 +21,9 @@ use crate::structure::decode_text;
 
 const MAX_FIELDS: usize = 5_000;
 const MAX_DEPTH: u8 = 16;
+/// Bytes (about) that a whole form may take in memory: many fields can share one big array in
+/// the file, but not here.
+const MAX_FORM_BYTES: usize = 32 << 20;
 
 const READ_ONLY: u32 = 1;
 const MULTILINE: u32 = 1 << 12;
@@ -118,6 +122,8 @@ impl Field {
 #[derive(Debug, Clone, Default)]
 pub struct Form {
     pub fields: Vec<Field>,
+    /// There was more than is kept in memory; the rest is only shown, not filled in.
+    pub truncated: bool,
 }
 
 impl Form {
@@ -151,7 +157,7 @@ struct Inherited {
     da: Option<Vec<u8>>,
     q: u8,
     max_len: Option<usize>,
-    options: Option<Vec<Choice>>,
+    options: Option<Rc<Vec<Choice>>>,
 }
 
 struct Reader<'a> {
@@ -160,6 +166,8 @@ struct Reader<'a> {
     pdf: &'a Pdf,
     seen: HashSet<ObjRef>,
     fields: Vec<Field>,
+    /// What is left of [`MAX_FORM_BYTES`]; `None` once it has run out.
+    budget: Option<usize>,
 }
 
 /// Reads the form of `pdf`; empty if it has none.
@@ -182,7 +190,8 @@ pub fn read(pdf: &Pdf) -> Form {
         }
     }
     let to_view = pdf.pages().iter().map(|p| p.initial_transform(true).to_kurbo()).collect();
-    let mut reader = Reader { annot_pages, to_view, pdf, seen: HashSet::new(), fields: Vec::new() };
+    let mut reader =
+        Reader { annot_pages, to_view, pdf, seen: HashSet::new(), fields: Vec::new(), budget: Some(MAX_FORM_BYTES) };
     let base = Inherited {
         da: acro.get::<PdfString<'_>>("DA").map(|s| s.as_bytes().to_vec()),
         q: acro.get::<u32>("Q").unwrap_or(0).min(2) as u8,
@@ -191,27 +200,27 @@ pub fn read(pdf: &Pdf) -> Form {
     for field in fields.iter::<Dict<'_>>() {
         reader.walk(&field, &base, "", 0);
     }
-    Form { fields: reader.fields }
+    Form { truncated: reader.budget.is_none(), fields: reader.fields }
 }
 
-fn options(array: &Array<'_>) -> Vec<Choice> {
-    array
-        .iter::<Object<'_>>()
-        .take(10_000)
-        .filter_map(|o| match o {
-            Object::String(s) => {
-                let t = decode_text(s.as_bytes());
-                Some(Choice { export: t.clone(), display: t })
-            }
-            Object::Array(pair) => {
-                let mut it = pair.iter::<PdfString<'_>>();
-                let export = decode_text(it.next()?.as_bytes());
-                let display = it.next().map(|d| decode_text(d.as_bytes())).unwrap_or_else(|| export.clone());
-                Some(Choice { export, display })
-            }
-            _ => None,
-        })
-        .collect()
+fn choice(option: Object<'_>) -> Option<Choice> {
+    match option {
+        Object::String(s) => {
+            let t = decode_text(s.as_bytes());
+            Some(Choice { export: t.clone(), display: t })
+        }
+        Object::Array(pair) => {
+            let mut it = pair.iter::<PdfString<'_>>();
+            let export = decode_text(it.next()?.as_bytes());
+            let display = it.next().map(|d| decode_text(d.as_bytes())).unwrap_or_else(|| export.clone());
+            Some(Choice { export, display })
+        }
+        _ => None,
+    }
+}
+
+fn choice_bytes(c: &Choice) -> usize {
+    size_of::<Choice>() + c.export.len() + c.display.len()
 }
 
 fn value_of(dict: &Dict<'_>) -> Option<Value> {
@@ -224,8 +233,26 @@ fn value_of(dict: &Dict<'_>) -> Option<Value> {
 }
 
 impl Reader<'_> {
+    /// Takes `bytes` from the budget; false (from then on) when it has run out.
+    fn spend(&mut self, bytes: usize) -> bool {
+        self.budget = self.budget.and_then(|left| left.checked_sub(bytes));
+        self.budget.is_some()
+    }
+
+    fn options(&mut self, array: &Array<'_>) -> Vec<Choice> {
+        let mut out = Vec::new();
+        for option in array.iter::<Object<'_>>().take(10_000) {
+            let Some(choice) = choice(option) else { continue };
+            if !self.spend(choice_bytes(&choice)) {
+                break;
+            }
+            out.push(choice);
+        }
+        out
+    }
+
     fn walk(&mut self, dict: &Dict<'_>, parent: &Inherited, prefix: &str, depth: u8) {
-        if depth > MAX_DEPTH || self.fields.len() >= MAX_FIELDS {
+        if depth > MAX_DEPTH || self.fields.len() >= MAX_FIELDS || self.budget.is_none() {
             return;
         }
         let Some(obj) = obj_ref(dict) else { return };
@@ -252,7 +279,7 @@ impl Reader<'_> {
             inherited.max_len = Some(n as usize);
         }
         if let Some(opt) = dict.get::<Array<'_>>("Opt") {
-            inherited.options = Some(options(&opt));
+            inherited.options = Some(Rc::new(self.options(&opt)));
         }
         let name = match (text(dict, "T"), prefix.is_empty()) {
             (Some(t), true) => t,
@@ -279,6 +306,12 @@ impl Reader<'_> {
         if widgets.is_empty() {
             return;
         }
+        let choices = inherited.options.iter().flat_map(|o| o.iter()).map(choice_bytes).sum::<usize>();
+        let typed = if let Some(Value::Text(t)) = &inherited.v { t.len() } else { 0 };
+        let shapes = widgets.iter().map(|w| size_of::<Widget>() + w.on.as_ref().map_or(0, String::len)).sum::<usize>();
+        if !self.spend(size_of::<Field>() + name.len() + choices + typed + shapes) {
+            return;
+        }
         let ff = inherited.ff;
         let kind = match inherited.ft.as_deref() {
             Some("Tx") => Kind::Text {
@@ -289,7 +322,7 @@ impl Reader<'_> {
             Some("Btn") if ff & PUSH != 0 => Kind::Push,
             Some("Btn") if ff & RADIO != 0 => Kind::Radio,
             Some("Btn") => Kind::Check,
-            Some("Ch") => Kind::Choice { options: inherited.options.clone().unwrap_or_default() },
+            Some("Ch") => Kind::Choice { options: inherited.options.as_deref().cloned().unwrap_or_default() },
             Some("Sig") => Kind::Signature,
             _ => return,
         };
@@ -498,6 +531,40 @@ pub(crate) mod tests {
 
     pub fn read_bytes(bytes: &[u8]) -> Form {
         read(&Pdf::new(bytes.to_vec()).unwrap())
+    }
+
+    #[test]
+    fn many_fields_sharing_one_list_of_options_do_not_fill_the_memory() {
+        let mut doc = Document::with_version("1.7");
+        let list: Vec<O> = (0..10_000).map(|i| O::string_literal(format!("option number {i}"))).collect();
+        let list = doc.add_object(list);
+        let rect: Vec<O> = vec![0.into(), 0.into(), 50.into(), 20.into()];
+        let fields: Vec<O> = (0..500)
+            .map(|i| {
+                doc.add_object(dictionary! {
+                    "Subtype" => "Widget", "FT" => "Ch", "T" => O::string_literal(format!("f{i}")),
+                    "Rect" => rect.clone(), "Opt" => list,
+                })
+                .into()
+            })
+            .collect();
+        let pages = doc.new_object_id();
+        let media: Vec<O> = vec![0.into(), 0.into(), 100.into(), 100.into()];
+        let page = dictionary! { "Type" => "Page", "Parent" => pages, "MediaBox" => media, "Annots" => fields.clone() };
+        let page = doc.add_object(page);
+        let tree = dictionary! { "Type" => "Pages", "Kids" => vec![page.into()], "Count" => 1 };
+        doc.objects.insert(pages, tree.into());
+        let acro = doc.add_object(dictionary! { "Fields" => fields });
+        let root = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages, "AcroForm" => acro });
+        doc.trailer.set("Root", root);
+        let mut bytes = Vec::new();
+        doc.save_to(&mut bytes).unwrap();
+        let form = read_bytes(&bytes);
+        assert!(form.truncated);
+        let kept = form.fields.iter().map(|f| if let Kind::Choice { options } = &f.kind { options.len() } else { 0 });
+        let kept: usize = kept.sum();
+        assert!(kept > 0 && kept < MAX_FORM_BYTES / size_of::<Choice>(), "{kept}");
+        assert!(!read_bytes(&fixture()).truncated);
     }
 
     #[test]

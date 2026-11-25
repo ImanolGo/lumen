@@ -825,3 +825,15 @@ msgstr "Archivo anterior (←)"
 
 msgid "Next file (→)"
 msgstr "Archivo siguiente (→)"
+
+msgid "This animation is too large to play: only its first frame is shown"
+msgstr "Esta animación es demasiado grande para reproducirla: solo se muestra el primer fotograma"
+
+msgid "This form is too large: the rest of its fields cannot be filled in"
+msgstr "Este formulario es demasiado grande: el resto de sus campos no se puede rellenar"
+
+msgid "This PDF has too much markup: the rest of it cannot be edited"
+msgstr "Este PDF tiene demasiadas anotaciones: el resto no se puede editar"
+
+msgid "This page cannot be shown"
+msgstr "Esta página no se puede mostrar"

@@ -156,7 +156,7 @@ pub fn pixel_count(path: &Path) -> Option<u64> {
     Some(w as u64 * h as u64)
 }
 
-fn limits() -> Limits {
+pub(crate) fn limits() -> Limits {
     let mut limits = Limits::default();
     limits.max_alloc = Some(MAX_ALLOC);
     limits
@@ -291,6 +291,10 @@ fn decode(data: &[u8], ext: &str) -> Result<DynamicImage> {
     reader.limits(limits());
     let mut decoder = reader.into_decoder().context("unsupported picture format")?;
     let orientation = decoder.orientation().unwrap_or(Orientation::NoTransforms);
+    // `from_decoder` does not count its own buffer.
+    let mut limits = limits();
+    limits.reserve(decoder.total_bytes()).map_err(|_| anyhow::anyhow!("the picture is too large"))?;
+    decoder.set_limits(limits).context("the picture is too large")?;
     let mut img = DynamicImage::from_decoder(decoder).context("the picture is damaged")?;
     img.apply_orientation(orientation);
     Ok(img)
@@ -305,8 +309,12 @@ pub(crate) fn svg_options() -> usvg::Options<'static> {
             Arc::new(db)
         })
         .clone();
-    // No resources_dir: an SVG cannot pull in other files from disk.
-    usvg::Options { fontdb, ..Default::default() }
+    // Pictures inside an SVG come from the SVG itself (`data:` URLs), never from other files.
+    let image_href_resolver = usvg::ImageHrefResolver {
+        resolve_data: usvg::ImageHrefResolver::default_data_resolver(),
+        resolve_string: Box::new(|_, _| None),
+    };
+    usvg::Options { fontdb, image_href_resolver, ..Default::default() }
 }
 
 fn load_svg(path: &Path, target_side: u32) -> Result<Picture> {
@@ -448,6 +456,49 @@ fn exif_thumbnail(data: &[u8]) -> Option<Picture> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A PNG header and nothing else: 50 000 × 50 000 pixels.
+    fn huge_png() -> Vec<u8> {
+        let mut data = Vec::new();
+        let mut encoder = png::Encoder::new(&mut data, 50_000, 50_000);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().unwrap();
+        writer.write_chunk(png::chunk::IDAT, &[0x78, 0x9c]).unwrap();
+        drop(writer);
+        data
+    }
+
+    #[test]
+    fn the_limit_covers_the_pixels_too() {
+        let e = load_bytes(&huge_png(), "png").unwrap_err();
+        assert!(e.to_string().contains("too large"), "{e:#}");
+    }
+
+    #[test]
+    fn an_svg_reads_no_other_files() {
+        use base64_png::PNG;
+        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/pictures/g.png");
+        let dir = std::env::temp_dir().join(format!("lumen-rs-svg-href-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("t.svg");
+        let opaque = |href: &str| {
+            let svg = format!(
+                r#"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><image href="{href}" width="40" height="40"/></svg>"#
+            );
+            std::fs::write(&path, svg).unwrap();
+            load_svg(&path, 40).unwrap().rgba.chunks(4).any(|p| p[3] > 0)
+        };
+        assert!(!opaque(file.to_str().unwrap()), "the other file was read");
+        assert!(opaque(&format!("data:image/png;base64,{PNG}")), "what the SVG holds is shown");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    mod base64_png {
+        /// One opaque pixel.
+        pub const PNG: &str =
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    }
 
     #[test]
     fn decodes_png_and_thumbnails() {

@@ -3,13 +3,13 @@
 //! The thread starts over at the end (the app stops it when it has the whole loop cached,
 //! or when the picture is left and the channel is dropped).
 
-use std::io::BufReader;
+use std::io::Cursor;
 use std::path::Path;
-use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
+use std::sync::mpsc::{Receiver, sync_channel};
 use std::time::Duration;
 
 use image::codecs::{gif::GifDecoder, png::PngDecoder, webp::WebPDecoder};
-use image::{AnimationDecoder, Frames};
+use image::{AnimationDecoder, Frames, ImageDecoder};
 
 use crate::raster::Picture;
 
@@ -18,6 +18,8 @@ pub enum Item {
     Frame(Picture, Duration),
     /// The last frame of one pass has been sent.
     LoopEnd,
+    /// The frames are too large to play; nothing else follows.
+    TooBig,
 }
 
 /// Frames at most this far ahead are decoded (more would only fill memory).
@@ -35,10 +37,14 @@ pub fn may_animate(path: &Path) -> bool {
 /// animation flag of a WebP. A plain look at the first few kilobytes, decided at once (unlike
 /// playing it, which only finds out when it reaches the end). A GIF is never judged here.
 pub fn looks_animated(path: &Path) -> bool {
+    header_says_animated(path, 64 * 1024)
+}
+
+fn header_says_animated(path: &Path, limit: u64) -> bool {
     use std::io::Read;
     let mut head = Vec::new();
     let Ok(file) = std::fs::File::open(path) else { return false };
-    if file.take(64 * 1024).read_to_end(&mut head).is_err() {
+    if file.take(limit).read_to_end(&mut head).is_err() {
         return false;
     }
     animated_header(&head)
@@ -66,41 +72,68 @@ fn animated_header(head: &[u8]) -> bool {
     false
 }
 
-/// Starts decoding `path`'s frames. Pictures that are not animated send a single
-/// `LoopEnd` (or one frame and then `LoopEnd`) and finish.
+/// The most decoded frames kept for replaying.
+pub const CACHE_BYTES: usize = 96 << 20;
+
+/// Whether frames of this size can be played: the one on screen, the next, and those waiting
+/// must fit in the memory meant for animations.
+pub fn fits(width: u32, height: u32) -> bool {
+    u64::from(width) * u64::from(height) <= CACHE_BYTES as u64 / (4 * (AHEAD as u64 + 2))
+}
+
+/// Starts decoding `path`'s frames, in the sandbox when that is on. Pictures that are not
+/// animated send a single `LoopEnd` (or one frame and then `LoopEnd`) and finish.
 pub fn stream(path: &Path) -> Receiver<Item> {
     let (tx, rx) = sync_channel(AHEAD);
     let path = path.to_path_buf();
     let _ = std::thread::Builder::new().name("lumen-anim".into()).spawn(move || {
-        loop {
-            match pass(&path, &tx) {
-                // Went through the frames: start again (the receiver ends the thread by dropping).
-                Ok(frames) if frames > 1 => {}
-                // A still picture, an error, or the receiver is gone: nothing to loop.
-                _ => return,
-            }
+        // Still pictures are not worth a decoder: their header says so.
+        let ext = crate::raster::extension(&path);
+        if ext != "gif" && !header_says_animated(&path, 4 << 20) {
+            let _ = tx.send(Item::LoopEnd);
+            return;
+        }
+        let mut emit = |item| tx.send(item).map_err(drop);
+        if crate::sandbox::enabled() && crate::sandbox::run_frames(&path, &mut emit) {
+            return;
+        }
+        match std::fs::read(&path) {
+            Ok(data) => play(&data, &ext, &mut emit),
+            Err(_) => drop(emit(Item::LoopEnd)),
         }
     });
     rx
 }
 
-/// Sends one pass of frames; returns how many were sent, or an error when the receiver is gone.
-fn pass(path: &Path, tx: &SyncSender<Item>) -> Result<usize, ()> {
-    let Some(frames) = open(path) else {
-        tx.send(Item::LoopEnd).map_err(|_| ())?;
-        return Ok(0);
-    };
+/// Decodes the frames of `data` (a file with extension `ext`) over and over until `emit`
+/// refuses one. What is not animated is sent once.
+pub fn play(data: &[u8], ext: &str, emit: &mut dyn FnMut(Item) -> Result<(), ()>) {
+    // Anything else is a still picture, an error, or nobody listening: nothing to loop.
+    while matches!(pass(data, ext, emit), Ok(frames) if frames > 1) {}
+}
+
+/// Sends one pass of frames; returns how many were sent, or an error when nobody wants them.
+fn pass(data: &[u8], ext: &str, emit: &mut dyn FnMut(Item) -> Result<(), ()>) -> Result<usize, ()> {
     let mut count = 0;
-    for frame in frames {
-        let Ok(frame) = frame else { break };
-        let delay = frame_delay(frame.delay());
-        let buffer = frame.into_buffer();
-        let (width, height) = buffer.dimensions();
-        let picture = Picture { width, height, original: (width, height), rgba: buffer.into_raw().into() };
-        tx.send(Item::Frame(picture, delay)).map_err(|_| ())?;
-        count += 1;
+    match open(data, ext) {
+        Opened::Still => {}
+        Opened::TooBig => {
+            emit(Item::TooBig)?;
+            return Ok(0);
+        }
+        Opened::Frames(frames) => {
+            for frame in frames {
+                let Ok(frame) = frame else { break };
+                let delay = frame_delay(frame.delay());
+                let buffer = frame.into_buffer();
+                let (width, height) = buffer.dimensions();
+                let picture = Picture { width, height, original: (width, height), rgba: buffer.into_raw().into() };
+                emit(Item::Frame(picture, delay))?;
+                count += 1;
+            }
+        }
     }
-    tx.send(Item::LoopEnd).map_err(|_| ())?;
+    emit(Item::LoopEnd)?;
     Ok(count)
 }
 
@@ -110,26 +143,44 @@ pub fn frame_delay(delay: image::Delay) -> Duration {
     if d <= Duration::from_millis(10) { Duration::from_millis(100) } else { d }
 }
 
-/// The frames of `path` if it is animated, else none.
-fn open(path: &Path) -> Option<Frames<'static>> {
-    let reader = BufReader::new(std::fs::File::open(path).ok()?);
-    match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
-        "gif" => Some(GifDecoder::new(reader).ok()?.into_frames()),
+enum Opened<'a> {
+    Still,
+    /// Its frames are too large to play.
+    TooBig,
+    Frames(Frames<'a>),
+}
+
+/// The frames of `data` if it is animated, decoded under the same limits as still pictures.
+fn open<'a>(data: &'a [u8], ext: &str) -> Opened<'a> {
+    fn frames<'a, D: ImageDecoder + AnimationDecoder<'a>>(mut decoder: D) -> Opened<'a> {
+        let (width, height) = decoder.dimensions();
+        if !fits(width, height) {
+            return Opened::TooBig;
+        }
+        if decoder.set_limits(crate::raster::limits()).is_err() {
+            return Opened::Still;
+        }
+        Opened::Frames(decoder.into_frames())
+    }
+    let reader = Cursor::new(data);
+    match ext {
+        "gif" => GifDecoder::new(reader).map_or(Opened::Still, frames),
         "png" | "apng" => {
-            let decoder = PngDecoder::new(reader).ok()?;
-            if !decoder.is_apng().ok()? {
-                return None;
+            let Ok(decoder) = PngDecoder::with_limits(reader, crate::raster::limits()) else { return Opened::Still };
+            if !decoder.is_apng().unwrap_or(false) {
+                return Opened::Still;
             }
-            Some(decoder.apng().ok()?.into_frames())
-        }
-        "webp" => {
-            let decoder = WebPDecoder::new(reader).ok()?;
-            if !decoder.has_animation() {
-                return None;
+            let (width, height) = decoder.dimensions();
+            if !fits(width, height) {
+                return Opened::TooBig;
             }
-            Some(decoder.into_frames())
+            decoder.apng().map_or(Opened::Still, |d| Opened::Frames(d.into_frames()))
         }
-        _ => None,
+        "webp" => match WebPDecoder::new(reader) {
+            Ok(decoder) if decoder.has_animation() => frames(decoder),
+            _ => Opened::Still,
+        },
+        _ => Opened::Still,
     }
 }
 
@@ -187,6 +238,7 @@ mod tests {
                     seen.push("frame");
                 }
                 Item::LoopEnd => seen.push("end"),
+                Item::TooBig => panic!("not a large one"),
             }
         }
         assert_eq!(seen, ["frame", "frame", "frame", "end", "frame", "frame", "frame", "end"]);
@@ -213,6 +265,22 @@ mod tests {
         let rx = stream(&png);
         assert!(matches!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), Item::LoopEnd));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn frames_too_large_for_the_memory_meant_for_them_are_not_decoded() {
+        assert!(fits(1920, 1080));
+        assert!(!fits(16_000, 16_000) && !fits(u32::MAX, u32::MAX));
+        // A GIF of one tiny frame on a canvas of 16 000 × 16 000.
+        let mut gif = b"GIF89a".to_vec();
+        gif.extend([0x80, 0x3E, 0x80, 0x3E, 0x80, 0, 0, 0, 0, 0, 255, 255, 255]);
+        gif.extend([0x2C, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 2, 0x44, 1, 0, 0x3B]);
+        let mut items = Vec::new();
+        play(&gif, "gif", &mut |item| {
+            items.push(item);
+            Ok(())
+        });
+        assert!(matches!(items[..], [Item::TooBig]));
     }
 
     #[test]

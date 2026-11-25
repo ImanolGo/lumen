@@ -5,14 +5,12 @@
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Duration, Instant};
 
-use iced::Subscription;
 use iced::widget::image;
+use iced::{Subscription, Task};
 
-use super::{App, Doc, Message};
-use crate::animation::{self, Item};
+use super::{App, Doc, Message, tr};
+use crate::animation::{self, CACHE_BYTES, Item};
 
-/// The most decoded frames kept for replaying.
-const CACHE_BYTES: usize = 96 << 20;
 /// Waiting for the decoder: look again this soon.
 const POLL: Duration = Duration::from_millis(30);
 
@@ -26,6 +24,8 @@ pub struct Anim {
     /// Which cached frame is up, when replaying.
     index: usize,
     current: Option<(image::Handle, Duration)>,
+    /// Its frames are too large to play.
+    too_big: bool,
 }
 
 impl Anim {
@@ -39,6 +39,7 @@ impl Anim {
             seen: 0,
             index: 0,
             current: None,
+            too_big: false,
         })
     }
 
@@ -92,6 +93,10 @@ impl Anim {
                 }
                 true
             }
+            Ok(Item::TooBig) => {
+                self.too_big = true;
+                false
+            }
             Err(TryRecvError::Empty) => true,
             Err(TryRecvError::Disconnected) => self.current.is_some(),
         }
@@ -122,14 +127,18 @@ impl App {
         }
     }
 
-    pub(super) fn anim_tick(&mut self, _now: Instant) {
+    pub(super) fn anim_tick(&mut self, _now: Instant) -> Task<Message> {
         if !self.anim_visible() {
-            return;
+            return Task::none();
         }
-        let Doc::Image(view) = &mut self.doc else { return };
+        let Doc::Image(view) = &mut self.doc else { return Task::none() };
         if view.anim.as_mut().is_some_and(|a| !a.advance()) {
-            view.anim = None;
+            let too_big = view.anim.take().is_some_and(|a| a.too_big);
+            if too_big {
+                return self.notice(tr("This animation is too large to play: only its first frame is shown"));
+            }
         }
+        Task::none()
     }
 
     pub(super) fn anim_subscription(&self) -> Subscription<Message> {
@@ -163,7 +172,16 @@ mod tests {
         }
         // Keep the sender alive so an empty channel means "not yet", like the real thread.
         std::mem::forget(tx);
-        Anim { rx: Some(rx), cache: Vec::new(), caching: true, cache_bytes: 0, seen: 0, index: 0, current: None }
+        Anim {
+            rx: Some(rx),
+            cache: Vec::new(),
+            caching: true,
+            cache_bytes: 0,
+            seen: 0,
+            index: 0,
+            current: None,
+            too_big: false,
+        }
     }
 
     #[test]
@@ -189,6 +207,13 @@ mod tests {
         let mut a = anim(vec![frame(100), Item::LoopEnd]);
         assert!(a.advance());
         assert!(!a.advance());
+    }
+
+    #[test]
+    fn an_animation_that_is_too_large_is_given_up_and_said_so() {
+        let mut a = anim(vec![Item::TooBig]);
+        assert!(!a.advance());
+        assert!(a.too_big);
     }
 
     #[test]
