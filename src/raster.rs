@@ -176,6 +176,30 @@ pub fn pixel_count(path: &Path) -> Option<u64> {
     Some(w as u64 * h as u64)
 }
 
+/// The size a picture is shown at, from its header alone (it is not decoded here).
+pub fn shown_size(path: &Path) -> Option<(u32, u32)> {
+    if Kind::of(path) != Some(Kind::Image) {
+        return None;
+    }
+    let read = || {
+        let mut reader = ImageReader::open(path).ok()?.with_guessed_format().ok()?;
+        reader.limits(limits());
+        let mut decoder = reader.into_decoder().ok()?;
+        let turned = decoder.orientation().is_ok_and(|o| {
+            matches!(
+                o,
+                Orientation::Rotate90
+                    | Orientation::Rotate270
+                    | Orientation::Rotate90FlipH
+                    | Orientation::Rotate270FlipH
+            )
+        });
+        let (w, h) = decoder.dimensions();
+        Some(if turned { (h, w) } else { (w, h) })
+    };
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(read)).ok().flatten()
+}
+
 pub(crate) fn limits() -> Limits {
     let mut limits = Limits::default();
     limits.max_alloc = Some(MAX_ALLOC);

@@ -1241,3 +1241,27 @@ fn putting_a_file_in_the_trash_shows_what_would_be_browsed_to() {
     let _ = app.update(Message::Restored(1, Ok(mixed()[1].clone())));
     assert_eq!((app.files.clone(), app.current, app.browsed()), (mixed(), 1, vec![1]));
 }
+
+#[test]
+fn the_size_made_for_a_picture_is_not_remembered() {
+    let _inside = runtime().enter();
+    let mut app = app();
+    let id = iced::window::Id::unique();
+    let event = |e| Message::WindowEvent(id, e);
+    app.first_picture = Some((1000, 600));
+    let asked = crate::firstsize::guess((1000, 600));
+    let _ = app.update(event(window::Event::Opened { position: None, size: asked }));
+    let _ = app.update(event(window::Event::Resized(asked)));
+    assert_eq!(app.state.window, None);
+    let _ = app.update(Message::MonitorSize(Some(Size::new(1920.0, 1080.0))));
+    let _ = app.update(event(window::Event::Resized(Size::new(1024.0, 672.0))));
+    assert_eq!((app.state.window, app.first_picture), (None, None));
+    // What the person makes it is.
+    let _ = app.update(event(window::Event::Resized(Size::new(900.0, 700.0))));
+    assert_eq!(app.state.window, Some((900, 700)));
+    // A window that was given another size than it asked for is left as it is.
+    let mut app = super::tests::app();
+    app.first_picture = Some((1000, 600));
+    let _ = app.update(event(window::Event::Opened { position: None, size: Size::new(640.0, 1400.0) }));
+    assert!(app.first_picture.is_none() && app.own_sizes.is_empty());
+}

@@ -15,6 +15,7 @@ mod cups;
 mod edit;
 mod ellipsis;
 mod export;
+mod firstsize;
 mod forms;
 mod frame;
 mod fsio;
@@ -112,13 +113,16 @@ fn main() -> iced::Result {
         }
     }
 
+    let first = firstsize::picture(&paths).map(firstsize::guess);
     let result = iced::application(move || app::App::new(paths.clone()), app::App::update, app::App::view)
         .title(app::App::title)
         .theme(app::App::theme)
         .subscription(app::App::subscription)
         .window(iced::window::Settings {
-            size: state::State::load().window_size().map_or(iced::Size::from(WINDOW), iced::Size::from),
-            min_size: Some(iced::Size::new(520.0, 360.0)),
+            size: first.unwrap_or_else(|| {
+                state::State::load().window_size().map_or(iced::Size::from(WINDOW), iced::Size::from)
+            }),
+            min_size: Some(firstsize::SMALLEST),
             icon: window_icon(),
             // Closing asks first while there is unsaved markup.
             exit_on_close_request: false,

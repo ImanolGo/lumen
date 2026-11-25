@@ -51,6 +51,7 @@ dependencies (touchpad pinch); see `vendor/README.md`.
 | `src/style.rs`, `src/icons.rs` | Design tokens, widget styles, symbolic icons |
 | `src/ui.rs` | Controls that come styled, and dialogs; views use these, never iced's bare ones |
 | `src/ellipsis.rs` | One line of text that ends in “…” when there is no room |
+| `src/firstsize.rs` | The size of a window that opens on a picture |
 | `src/settle.rs` | Motion: what appears slides or fades in; reduced motion |
 | `src/frame.rs` | A title, a body and buttons, where only the body gives way |
 | `src/settings.rs`, `src/app/prefs.rs` | Preferences: the settings file, and the dialog |

@@ -309,6 +309,9 @@ pub struct App {
     tools_were: bool,
     /// The size of the view has been heard of.
     area_known: bool,
+    /// The picture the window opened on, until its size is settled; and the sizes it was given for it.
+    first_picture: Option<(u32, u32)>,
+    own_sizes: Vec<Size>,
     sidebar_w: f32,
     sidebar_drag: bool,
     /// Entries of the contents that are folded.
@@ -928,6 +931,8 @@ impl App {
             slow: None,
             tools_were: false,
             area_known: false,
+            first_picture: crate::firstsize::picture(&paths),
+            own_sizes: Vec::new(),
             sidebar_w: SIDEBAR_W,
             sidebar_drag: false,
             folded: HashSet::new(),
@@ -1783,6 +1788,23 @@ impl App {
             }
             Message::FileActionDone(Ok(())) => Task::none(),
             Message::FileActionDone(Err(e)) => self.toast(e),
+            Message::MonitorSize(size) if self.first_picture.is_some() => {
+                let picture = self.first_picture.take();
+                let (Some(id), Some(screen), Some(picture)) = (self.window, size, picture) else {
+                    return Task::none();
+                };
+                let size = crate::firstsize::fitting(picture, self.scale_factor, screen);
+                if self.own_sizes.iter().any(|own| crate::firstsize::same(*own, size)) {
+                    return Task::none();
+                }
+                self.own_sizes.push(size);
+                let resize = window::resize(id, size);
+                if crate::platform::caps().frameless {
+                    return resize;
+                }
+                let place = Point::new((screen.width - size.width) / 2.0, (screen.height - size.height) / 2.0);
+                Task::batch([resize, window::move_to(id, place)])
+            }
             Message::MonitorSize(size) => match (self.window, size) {
                 // A window larger than the screen would hang over its edge.
                 (Some(id), Some(screen)) => match self.fitted_to(screen) {
@@ -2048,7 +2070,7 @@ impl App {
 
     fn window_event(&mut self, id: window::Id, event: window::Event) -> Task<Message> {
         match event {
-            window::Event::Opened { .. } => {
+            window::Event::Opened { size, .. } => {
                 tracing::info!(ms = crate::since_start(), "window built");
                 self.window = Some(id);
                 if crate::platform::caps().menu_bar {
@@ -2062,15 +2084,30 @@ impl App {
                 };
                 let scale = window::scale_factor(id).map(Message::ScaleFactor);
                 // Where the system places windows itself, it knows best.
-                let monitor = if crate::platform::caps().frameless {
+                let monitor = if let Some(picture) = self.first_picture {
+                    let asked = crate::firstsize::guess(picture);
+                    // The system gave it a size of its own (it tiles windows, say): leave it.
+                    if crate::firstsize::same(asked, size) {
+                        self.own_sizes.push(asked);
+                        window::monitor_size(id).map(Message::MonitorSize)
+                    } else {
+                        self.first_picture = None;
+                        Task::none()
+                    }
+                } else if crate::platform::caps().frameless {
                     Task::none()
                 } else {
                     window::monitor_size(id).map(Message::MonitorSize)
                 };
-                Task::batch([scale, problem, monitor])
+                Task::batch([scale.chain(monitor), problem])
             }
             window::Event::CloseRequested => self.update(Message::Quit),
             window::Event::Resized(size) if !self.fullscreen => {
+                // What it was made for a picture is not how large the person likes it.
+                if self.own_sizes.iter().any(|own| crate::firstsize::same(*own, size)) {
+                    return Task::none();
+                }
+                self.first_picture = None;
                 self.state.window = Some((size.width.round() as u32, size.height.round() as u32));
                 Task::none()
             }

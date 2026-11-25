@@ -4,6 +4,9 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Changed
+- A window that opens on a picture is made to fit it: at its own size or smaller, at least 720×480 and at most 80 % of the screen. It stays that size while browsing, and where the system sizes windows itself it is left alone. PDFs and folders open at the remembered size, as before.
+
 ## [0.6.0] - 2026-11-25
 
 ### Changed
