@@ -743,7 +743,7 @@ say exactly which systems those are.
 | 6 | Compiles on Linux, macOS and Windows; CI on all three | Done. The first macOS run showed that private files were not private there; fixed. |
 | 7 | Each system's own services | Done in code; file watching and the trash are tested on the real systems in CI, the rest by nobody yet (package 11). Windows opens links with `url.dll`, not `cmd /C start` (a shell would read `&` in an address). `arboard` was not tried on Linux: decision 1 allows it on the other two only. |
 | 8 | Keys, menus and file opening per system | Done in code; compiled, not seen on a Mac yet. Shortcut signs are applied in `tr()` rather than in each string. The ☰ button stays on macOS until package 14 gives the menu bar every command. Quit from the Dock icon, or logging out, still ends Lumen without asking: that needs `applicationShouldTerminate:` in winit, which decision 4 does not cover. |
-| 9 | End-to-end tests on every system | |
+| 9 | End-to-end tests on every system | The ten scenarios pass over stdio and D-Bus on Linux; CI runs them on macOS and Windows too. |
 | 10 | Packages and releases | |
 | 11 | Checked by hand on macOS and Windows | |
 | 12 | Window frame per system | |

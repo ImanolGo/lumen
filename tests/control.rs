@@ -1,29 +1,76 @@
-//! The control interface, tried against the real app on a private session bus.
+//! The control interface, tried against the real app: over standard input and output everywhere,
+//! and on a private session bus on Linux with `LUMEN_CONTROL_TESTS=bus`.
 //!
 //! These open real windows on your desktop, so they only run when asked:
 //! `LUMEN_CONTROL_TESTS=1 cargo test --test control`. (CI has no display to open them on.)
 
-#![cfg(target_os = "linux")]
-
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
 const APP: &str = env!("CARGO_BIN_EXE_lumen-rs");
-const NAME: &str = "io.github.imanolgo.LumenRs";
-const PATH: &str = "/io/github/imanolgo/LumenRs/Control";
-const IFACE: &str = "io.github.imanolgo.LumenRs.Control1";
-
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)
 }
 
-/// A private bus, and the app on it.
+/// What a call takes: a tuple.
+#[cfg(target_os = "linux")]
+trait Body: serde::Serialize + zbus::zvariant::DynamicType {}
+#[cfg(target_os = "linux")]
+impl<T: serde::Serialize + zbus::zvariant::DynamicType> Body for T {}
+#[cfg(not(target_os = "linux"))]
+trait Body: serde::Serialize {}
+#[cfg(not(target_os = "linux"))]
+impl<T: serde::Serialize> Body for T {}
+
+/// How the app is reached.
+enum Transport {
+    Stdio(Mutex<(ChildStdin, BufReader<ChildStdout>)>),
+    #[cfg(target_os = "linux")]
+    Bus(zbus::Connection),
+}
+
+impl Transport {
+    async fn call<B: Body>(&self, method: &str, body: &B) -> Result<Value, String> {
+        match self {
+            Self::Stdio(pipes) => {
+                let mut pipes = pipes.lock().unwrap();
+                let call = serde_json::json!({ "method": method, "args": body });
+                writeln!(pipes.0, "{call}").and_then(|()| pipes.0.flush()).map_err(|e| e.to_string())?;
+                let mut line = String::new();
+                pipes.1.read_line(&mut line).map_err(|e| e.to_string())?;
+                let answer: Value = serde_json::from_str(&line).map_err(|e| format!("{e}: {line:?}"))?;
+                match answer.get("error") {
+                    Some(e) => Err(e.as_str().unwrap_or_default().to_owned()),
+                    None => Ok(answer["ok"].clone()),
+                }
+            }
+            #[cfg(target_os = "linux")]
+            Self::Bus(bus) => {
+                let reply =
+                    bus.call_method(Some(NAME), PATH, Some(IFACE), method, body).await.map_err(|e| e.to_string())?;
+                let json: String = reply.body().deserialize().map_err(|e| e.to_string())?;
+                serde_json::from_str(&json).map_err(|e| e.to_string())
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+const NAME: &str = "io.github.imanolgo.LumenRs";
+#[cfg(target_os = "linux")]
+const PATH: &str = "/io/github/imanolgo/LumenRs/Control";
+#[cfg(target_os = "linux")]
+const IFACE: &str = "io.github.imanolgo.LumenRs.Control1";
+
+/// The app, and what it needs to run.
 struct Lumen {
     children: Vec<Child>,
-    bus: zbus::Connection,
+    transport: Transport,
     dir: PathBuf,
 }
 
@@ -45,41 +92,53 @@ fn enabled(test: &str) -> bool {
     true
 }
 
+fn on_stdio_started(mut app: Command, dir: PathBuf) -> Lumen {
+    let mut app = app.env("LUMEN_CONTROL", "stdio").stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+    let pipes = (app.stdin.take().unwrap(), BufReader::new(app.stdout.take().unwrap()));
+    Lumen { children: vec![app], transport: Transport::Stdio(Mutex::new(pipes)), dir }
+}
+
+#[cfg(not(target_os = "linux"))]
+async fn on_bus_started(_app: Command, _dir: PathBuf) -> Lumen {
+    panic!("there is no session bus here")
+}
+
+#[cfg(target_os = "linux")]
+async fn on_bus_started(mut app: Command, dir: PathBuf) -> Lumen {
+    let mut daemon = Command::new("dbus-daemon")
+        .args(["--session", "--nofork", "--print-address=1"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("dbus-daemon is needed for these tests");
+    let mut address = String::new();
+    BufReader::new(daemon.stdout.take().unwrap()).read_line(&mut address).unwrap();
+    let address = address.trim().to_owned();
+    let app = app.env("DBUS_SESSION_BUS_ADDRESS", &address).env("LUMEN_CONTROL", "1").stdout(Stdio::null()).spawn();
+    let bus = zbus::connection::Builder::address(address.as_str()).build().await.unwrap();
+    Lumen { children: vec![daemon, app.unwrap()], transport: Transport::Bus(bus), dir }
+}
+
 impl Lumen {
     async fn start(test: &str, files: &[PathBuf]) -> Self {
         let dir = std::env::temp_dir().join(format!("lumen-rs-control-{test}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
-        let mut daemon = Command::new("dbus-daemon")
-            .args(["--session", "--nofork", "--print-address=1"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("dbus-daemon is needed for these tests");
-        let mut address = String::new();
-        std::io::BufRead::read_line(&mut std::io::BufReader::new(daemon.stdout.take().unwrap()), &mut address).unwrap();
-        let address = address.trim().to_owned();
-
         let log = std::fs::File::create(dir.join("lumen.log")).unwrap();
-        let app = Command::new(APP)
-            .args(files)
-            .env("DBUS_SESSION_BUS_ADDRESS", &address)
-            .env("LUMEN_CONTROL", "1")
+        let mut app = Command::new(APP);
+        app.args(files)
             .env("LUMEN_NO_PORTAL", "1")
             .env("XDG_CONFIG_HOME", dir.join("config"))
             .env("XDG_DATA_HOME", dir.join("data"))
             .env("XDG_STATE_HOME", dir.join("state"))
             .env("XDG_CACHE_HOME", dir.join("cache"))
-            .stdout(Stdio::null())
-            .stderr(log)
-            .spawn()
-            .unwrap();
-        let bus = zbus::connection::Builder::address(address.as_str()).build().await.unwrap();
-        let lumen = Self { children: vec![daemon, app], bus, dir };
+            .stderr(log);
+        let on_bus = std::env::var_os("LUMEN_CONTROL_TESTS").is_some_and(|v| v == "bus");
+        let lumen = if on_bus { on_bus_started(app, dir).await } else { on_stdio_started(app, dir) };
 
         // Wait until the app is on the bus and has opened what it was given.
-        let deadline = Instant::now() + Duration::from_secs(30);
+        let deadline = Instant::now() + Duration::from_secs(60);
         loop {
             if let Ok(state) = lumen.try_call("GetState", &()).await
                 && (files.is_empty() || !state["file"].is_null())
@@ -96,30 +155,24 @@ impl Lumen {
         }
     }
 
-    async fn try_call<B: serde::Serialize + zbus::zvariant::DynamicType>(
-        &self,
-        method: &str,
-        body: &B,
-    ) -> Result<Value, String> {
-        let reply =
-            self.bus.call_method(Some(NAME), PATH, Some(IFACE), method, body).await.map_err(|e| e.to_string())?;
-        let json: String = reply.body().deserialize().map_err(|e| e.to_string())?;
-        serde_json::from_str(&json).map_err(|e| e.to_string())
+    async fn try_call<B: Body>(&self, method: &str, body: &B) -> Result<Value, String> {
+        self.transport.call(method, body).await
     }
 
-    async fn call<B: serde::Serialize + zbus::zvariant::DynamicType>(&self, method: &str, body: &B) -> Value {
+    async fn call<B: Body>(&self, method: &str, body: &B) -> Value {
         self.try_call(method, body).await.unwrap_or_else(|e| panic!("{method}: {e}"))
     }
 
     /// Calls `method`, then waits until nothing is going on any more.
-    async fn settled<B: serde::Serialize + zbus::zvariant::DynamicType>(&self, method: &str, body: &B) -> Value {
+    async fn settled<B: Body>(&self, method: &str, body: &B) -> Value {
         self.call(method, body).await;
         self.wait(|s| s["busy"] == false).await
     }
 
     /// Polls the state until `done` says so.
     async fn wait(&self, done: impl Fn(&Value) -> bool) -> Value {
-        let deadline = Instant::now() + Duration::from_secs(20);
+        // Software rendering in a debug build can take most of this.
+        let deadline = Instant::now() + Duration::from_secs(150);
         loop {
             let state = self.call("GetState", &()).await;
             if done(&state) {

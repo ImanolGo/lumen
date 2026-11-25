@@ -43,6 +43,12 @@ jobs:
         run: cargo test --locked --bin lumen-rs trash -- --ignored
       - run: cargo build --release --locked
       - run: ./target/release/lumen-rs --version
+      - name: The app itself, driven over standard input
+        timeout-minutes: 15
+        env:
+          LUMEN_CONTROL_TESTS: "1"
+          ICED_BACKEND: tiny-skia
+        run: cargo test --release --locked --test control -- --test-threads=1
 
   # The oldest Rust the crate says it supports (rust-version in Cargo.toml).
   msrv:
@@ -151,7 +157,7 @@ jobs:
       - run: cargo build --locked
       - name: Control tests
         env:
-          LUMEN_CONTROL_TESTS: "1"
+          LUMEN_CONTROL_TESTS: bus
           ICED_BACKEND: tiny-skia
           WAYLAND_DISPLAY: wl-ci
         run: |

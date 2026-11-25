@@ -1,6 +1,10 @@
-//! The control interface: Lumen's state and a few operations on the session bus, for scripts
-//! and tests. It is off unless `LUMEN_CONTROL=1` is in the environment, since anything on the
-//! session bus could otherwise open files in your viewer.
+//! The control interface: Lumen's state and a few operations, for scripts and tests.
+//!
+//! With `LUMEN_CONTROL=1` it is on the session bus (Linux). It is off otherwise, since anything on
+//! the session bus could open files in your viewer. With `LUMEN_CONTROL=stdio` (every system) only
+//! the process that started Lumen reaches it: one JSON call per line on standard input,
+//! `{"method": "GotoPage", "args": [3]}`, and one JSON answer per line on standard output,
+//! `{"ok": …}` or `{"error": "why"}`, in order. Methods and answers are the same.
 //!
 //! `io.github.imanolgo.LumenRs.Control1` at `/io/github/imanolgo/LumenRs/Control`. Every
 //! method answers with the state afterwards as JSON (see `App::control_state`), except the two
@@ -33,6 +37,11 @@ use tokio::sync::oneshot;
 
 /// How long a call waits for the app to answer.
 const PATIENCE: Duration = Duration::from_secs(30);
+
+/// Whether it runs over standard input and output.
+pub fn stdio() -> bool {
+    std::env::var_os("LUMEN_CONTROL").is_some_and(|v| v == "stdio")
+}
 
 pub fn enabled() -> bool {
     std::env::var_os("LUMEN_CONTROL").is_some_and(|v| !v.is_empty() && v != "0")
@@ -119,5 +128,118 @@ pub async fn ask(to_app: &mpsc::Sender<Shared>, command: Command) -> Result<Stri
     match tokio::time::timeout(PATIENCE, answer).await {
         Ok(Ok(result)) => result,
         _ => Err("Lumen did not answer".into()),
+    }
+}
+
+/// The calls that arrive on standard input.
+pub fn stdio_requests() -> impl futures::Stream<Item = Shared> {
+    use futures::StreamExt;
+    iced::stream::channel(16, async |to_app: mpsc::Sender<Shared>| {
+        let (tx, mut lines) = mpsc::unbounded::<String>();
+        std::thread::spawn(move || {
+            for line in std::io::stdin().lines().map_while(Result::ok) {
+                if tx.unbounded_send(line).is_err() {
+                    return;
+                }
+            }
+        });
+        while let Some(line) = lines.next().await {
+            let result = match parse(&line) {
+                Ok(command) => ask(&to_app, command).await,
+                Err(e) => Err(e),
+            };
+            let answer = match result {
+                Ok(json) => format!("{{\"ok\":{json}}}"),
+                Err(why) => serde_json::json!({ "error": why }).to_string(),
+            };
+            use std::io::Write;
+            let mut out = std::io::stdout().lock();
+            if writeln!(out, "{answer}").and_then(|()| out.flush()).is_err() {
+                break;
+            }
+        }
+        std::future::pending::<()>().await;
+    })
+}
+
+/// A line of the stdio interface as the command it is.
+fn parse(line: &str) -> Result<Command, String> {
+    use serde_json::{Value, from_value};
+    #[derive(serde::Deserialize)]
+    struct Call {
+        method: String,
+        #[serde(default)]
+        args: Value,
+    }
+    let Call { method, args } = serde_json::from_str(line).map_err(|e| format!("not a call: {e}"))?;
+    fn take<T: serde::de::DeserializeOwned>(method: &str, args: Value) -> Result<T, String> {
+        from_value(args).map_err(|e| format!("wrong arguments for {method}: {e}"))
+    }
+    let m = method.as_str();
+    Ok(match m {
+        "GetState" => Command::State,
+        "Open" => {
+            let (paths, password): (Vec<PathBuf>, String) = take(m, args)?;
+            Command::Open { paths, password: Some(password).filter(|p| !p.is_empty()) }
+        }
+        "Next" => Command::Next,
+        "Previous" => Command::Previous,
+        "First" => Command::First,
+        "Last" => Command::Last,
+        "GotoPage" => Command::GotoPage(take::<(u32,)>(m, args)?.0),
+        "Zoom" => Command::Zoom(take::<(String,)>(m, args)?.0),
+        "Search" => Command::Search(take::<(String,)>(m, args)?.0),
+        "Quit" => Command::Quit,
+        "GetForm" => Command::GetForm,
+        "SetField" => {
+            let (name, value) = take(m, args)?;
+            Command::SetField { name, value }
+        }
+        "SetMarkup" => Command::SetMarkup(take::<(bool,)>(m, args)?.0),
+        "Annotate" => {
+            let (kind, page, x0, y0, x1, y1, text, color) = take(m, args)?;
+            Command::Annotate { kind, page, rect: [x0, y0, x1, y1], text, color }
+        }
+        "GetAnnotations" => Command::GetAnnotations,
+        "Edit" => {
+            let (op, arg) = take(m, args)?;
+            Command::Edit { op, arg }
+        }
+        "Save" => Command::Save,
+        "SaveCopy" => Command::SaveCopy(take::<(PathBuf,)>(m, args)?.0),
+        "Export" => {
+            let (kind, path, dpi) = take(m, args)?;
+            Command::Export { kind, path, dpi }
+        }
+        _ => return Err(format!("unknown method {method}")),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lines_are_the_calls_of_the_bus() {
+        assert_eq!(parse(r#"{"method":"GetState"}"#), Ok(Command::State));
+        assert_eq!(parse(r#"{"method":"GetState","args":null}"#), Ok(Command::State));
+        assert_eq!(parse(r#"{"method":"GotoPage","args":[3]}"#), Ok(Command::GotoPage(3)));
+        assert_eq!(
+            parse(r#"{"method":"Open","args":[["/a","/b"],""]}"#),
+            Ok(Command::Open { paths: vec!["/a".into(), "/b".into()], password: None })
+        );
+        assert_eq!(
+            parse(r##"{"method":"Annotate","args":["line",1,1.0,2.0,3.0,4.0,"","#fff"]}"##),
+            Ok(Command::Annotate {
+                kind: "line".into(),
+                page: 1,
+                rect: [1.0, 2.0, 3.0, 4.0],
+                text: String::new(),
+                color: "#fff".into()
+            })
+        );
+        assert!(parse(r#"{"method":"GotoPage","args":["x"]}"#).unwrap_err().contains("wrong arguments"));
+        assert!(parse(r#"{"method":"Fly"}"#).unwrap_err().contains("unknown method"));
+        assert!(parse("nonsense").unwrap_err().contains("not a call"));
     }
 }

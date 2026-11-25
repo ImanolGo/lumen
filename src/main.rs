@@ -8,7 +8,6 @@ mod animation;
 mod annotate;
 mod app;
 mod clipboard;
-#[cfg_attr(not(target_os = "linux"), allow(dead_code, reason = "until docs/improvement-plan.md package 9"))]
 mod control;
 mod cups;
 mod edit;
@@ -69,12 +68,16 @@ fn main() -> iced::Result {
         sandbox::worker_main(&args);
     }
     platform::startup::before_window();
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "warn,lumen_rs=info,wgpu=error,naga=error".into()),
-        )
-        .init();
+    let log = tracing_subscriber::fmt().with_env_filter(
+        tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| "warn,lumen_rs=info,wgpu=error,naga=error".into()),
+    );
+    if control::stdio() {
+        // Standard output carries the answers.
+        log.with_writer(std::io::stderr).init();
+    } else {
+        log.init();
+    }
 
     let mut paths = Vec::new();
     for arg in std::env::args_os().skip(1) {

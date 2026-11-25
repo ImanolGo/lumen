@@ -891,7 +891,9 @@ impl App {
             fading,
             self.slideshow_subscription(),
             self.anim_subscription(),
-            if crate::control::enabled() {
+            if crate::control::stdio() {
+                Subscription::run(crate::control::stdio_requests).map(Message::Control)
+            } else if crate::control::enabled() {
                 Subscription::run(crate::platform::control::requests).map(Message::Control)
             } else {
                 Subscription::none()

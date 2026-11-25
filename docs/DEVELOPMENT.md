@@ -32,7 +32,7 @@ send a change. Check lint by its exit status: `cargo clippy --all-targets --lock
 |---|---|---|
 | Unit tests (`src/**`) | Models, geometry, PDF reading and writing, IPP encoding, decoders, trash, settings, i18n, and `src/app/tests.rs`: the app's message flows with no window | `cargo test` |
 | `tests/sandbox.rs` | Every picture format through the real sandboxed worker, damaged files, and that opening files, sockets, programs and file writes are all stopped | `cargo test` (runs by default) |
-| `tests/control.rs` | The real app, driven over D-Bus on a private bus: open, browse, go to page, zoom, search, passwords, filling and saving a form, annotating and saving a PDF, editing and saving a picture, exporting | `LUMEN_CONTROL_TESTS=1 cargo test --test control -- --test-threads=1` (opens real windows, so it is opt-in) |
+| `tests/control.rs` | The real app, driven over standard input and output (or, with `LUMEN_CONTROL_TESTS=bus`, over a private D-Bus): open, browse, go to page, zoom, search, passwords, filling and saving a form, annotating and saving a PDF, editing and saving a picture, exporting | `LUMEN_CONTROL_TESTS=1 cargo test --test control -- --test-threads=1` (opens real windows, so it is opt-in; `xvfb-run -a` hides them, with `ICED_BACKEND=tiny-skia`, which in a debug build is slow) |
 
 `cargo test cups_live -- --ignored` asks the local CUPS server to validate a job (IPP
 Validate-Job); it never prints anything.
@@ -77,7 +77,7 @@ you cannot send real mouse or keyboard events (for example `/dev/uinput` is not 
 4. Say plainly what you could not check with real input.
 
 Useful switches: `LUMEN_THEME=light|dark`, `LUMEN_NO_PORTAL=1` (the built-in file chooser and
-print dialog), `LUMEN_NO_SANDBOX=1`, `LUMEN_CONTROL=1` (the D-Bus interface), `RUST_LOG=info`.
+print dialog), `LUMEN_NO_SANDBOX=1`, `LUMEN_CONTROL=1` (the D-Bus interface) or `stdio` (a line of JSON per call, such as `{"method":"GotoPage","args":[3]}`, and one per answer), `RUST_LOG=info`.
 
 ### Screenshots for the README
 
