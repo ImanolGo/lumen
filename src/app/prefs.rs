@@ -20,6 +20,7 @@ pub enum PrefMsg {
     Portals(bool),
     Sandbox(bool),
     WrapAround(bool),
+    ReduceMotion(bool),
     WindowButtons(bool),
     SelectOnDrag(bool),
     Language(&'static str),
@@ -67,6 +68,10 @@ impl App {
                 self.prefs.sandbox = on;
                 crate::sandbox::set_enabled(on);
             }
+            PrefMsg::ReduceMotion(on) => {
+                self.prefs.reduce_motion = on;
+                crate::settle::set_reduced(on);
+            }
             PrefMsg::WrapAround(on) => self.prefs.wrap_around = on,
             PrefMsg::SelectOnDrag(on) => {
                 self.prefs.select_on_drag = on;
@@ -95,6 +100,7 @@ impl App {
                 settings::set_portals(true);
                 crate::i18n::set_language("");
                 crate::sandbox::set_enabled(true);
+                crate::settle::set_reduced(false);
                 self.apply_theme();
             }
         }
@@ -197,6 +203,7 @@ impl App {
                 line(tr("Dragging over a picture"), drag),
                 toggle(tr("Show the sidebar when Lumen starts"), p.sidebar_open, PrefMsg::SidebarOpen),
                 toggle(tr("Zoom control and arrows over the picture"), p.floating_controls, PrefMsg::FloatingControls),
+                toggle(tr("Reduce motion"), p.reduce_motion, PrefMsg::ReduceMotion),
                 toggle(tr("Wrap around at the first and last file"), p.wrap_around, PrefMsg::WrapAround),
                 caps.frameless.then(|| toggle(
                     tr("Minimise and maximise buttons"),

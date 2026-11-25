@@ -15,6 +15,8 @@ pub enum Anchor {
     /// Under the base, their left or right edges in line.
     Start,
     End,
+    /// Over the base, in the middle.
+    Above,
     /// With its corner there.
     At(Point),
 }
@@ -50,6 +52,10 @@ impl<Message> Popup<'_, Message> {
 fn room(anchor: Anchor, base: Rectangle, window: Size) -> Size {
     let top = match anchor {
         Anchor::At(_) => EDGE,
+        Anchor::Above => {
+            let height = base.y - GAP - EDGE;
+            return Size::new((window.width - 2.0 * EDGE).max(0.0), height.max(0.0));
+        }
         _ => base.y + base.height + GAP,
     };
     Size::new((window.width - 2.0 * EDGE).max(0.0), (window.height - top - EDGE).max(0.0))
@@ -59,6 +65,7 @@ fn place(anchor: Anchor, base: Rectangle, panel: Size, window: Size) -> Point {
     let at = match anchor {
         Anchor::Start => Point::new(base.x, base.y + base.height + GAP),
         Anchor::End => Point::new(base.x + base.width - panel.width, base.y + base.height + GAP),
+        Anchor::Above => Point::new(base.x + (base.width - panel.width) / 2.0, base.y - GAP - panel.height),
         Anchor::At(p) => p,
     };
     let within = |v: f32, size: f32, all: f32| v.min(all - size - EDGE).max(EDGE);
@@ -251,6 +258,10 @@ mod tests {
         assert_eq!(place(Anchor::Start, button, panel, WINDOW), Point::new(262.0, 46.0));
         // A tall one gets what there is below the button.
         assert_eq!(room(Anchor::End, button, WINDOW), Size::new(504.0, 306.0));
+        // Over its button, in the middle of it.
+        let pill = Rectangle::new(Point::new(200.0, 310.0), Size::new(70.0, 30.0));
+        assert_eq!(place(Anchor::Above, pill, Size::new(150.0, 160.0), WINDOW), Point::new(160.0, 146.0));
+        assert_eq!(room(Anchor::Above, pill, WINDOW), Size::new(504.0, 298.0));
         // At the pointer, near the corner: moved back inside.
         assert_eq!(place(Anchor::At(Point::new(510.0, 350.0)), button, panel, WINDOW), Point::new(262.0, 152.0));
         assert_eq!(place(Anchor::At(Point::new(40.0, 50.0)), button, panel, WINDOW), Point::new(40.0, 50.0));

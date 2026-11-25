@@ -18,8 +18,6 @@ use crate::{icons, pdf, style};
 
 const CELL_W: f32 = 172.0;
 const CELL_H: f32 = 232.0;
-/// Empty space above the first row, so the floating toolbar does not cover it.
-const TOP_INSET: f32 = 56.0;
 /// Longest side of a thumbnail, in logical pixels.
 const THUMB: f32 = 150.0;
 const GAP: f32 = 6.0;
@@ -127,7 +125,7 @@ impl App {
                     saving: false,
                 });
                 let row = view.current_page / self.grid_columns();
-                let y = (TOP_INSET + row as f32 * CELL_H - 80.0).max(0.0);
+                let y = (self.inset + row as f32 * CELL_H - 80.0).max(0.0);
                 Task::batch([
                     done,
                     iced::widget::operation::scroll_to(grid_id(), scrollable::AbsoluteOffset { x: 0.0, y }),
@@ -364,7 +362,7 @@ impl App {
                 }
                 self.thumbs.remove(&target);
                 self.generation += 1;
-                self.doc = Doc::Loading(target.clone());
+                self.leave_for(target.clone());
                 Task::batch([
                     self.install_opened(target.clone(), opened),
                     self.notice(trf!("Saved “{}”", file_name(&target))),
@@ -446,8 +444,8 @@ impl App {
         let cols = self.grid_columns();
         let (offset, height) = o.scroll;
         let height = if height > 0.0 { height } else { self.area.height };
-        let first = ((offset - TOP_INSET) / CELL_H).floor().max(0.0) as usize;
-        let last = ((offset + height - TOP_INSET) / CELL_H).ceil().max(0.0) as usize + 1;
+        let first = ((offset - self.inset) / CELL_H).floor().max(0.0) as usize;
+        let last = ((offset + height - self.inset) / CELL_H).ceil().max(0.0) as usize + 1;
         let rows = o.plan.len().div_ceil(cols) + 1;
         first.min(rows)..last.min(rows)
     }
@@ -592,7 +590,7 @@ impl App {
         let cols = self.grid_columns();
         let rows = self.grid_rows();
         let total_rows = o.plan.len().div_ceil(cols) + usize::from(o.dragging);
-        let mut grid = column![space().height(TOP_INSET + rows.start as f32 * CELL_H)].padding([0.0, GAP]);
+        let mut grid = column![space().height(self.inset + rows.start as f32 * CELL_H)].padding([0.0, GAP]);
         for r in rows.clone().take_while(|&r| r < total_rows) {
             let mut line = row![].spacing(0);
             for c in 0..cols {

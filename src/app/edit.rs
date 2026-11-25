@@ -517,23 +517,24 @@ impl App {
                 );
             }
             let px = format!("{} × {}", state.rect.w.round(), state.rect.h.round());
-            row![
-                chips,
-                space().width(12),
-                text(px).size(style::SMALL).style(muted),
-                button(text(tr("Cancel")).size(style::BODY))
-                    .padding([6, 14])
-                    .style(style::secondary)
-                    .on_press(Message::Edit(EditMsg::CropCancel)),
-                button(text(tr("Crop")).size(style::BODY))
-                    .padding([6, 14])
-                    .style(style::primary)
-                    .on_press(Message::Edit(EditMsg::CropApply)),
-            ]
-            .spacing(8)
-            .align_y(Alignment::Center)
-            .wrap()
-            .into()
+            chips
+                .push(space().width(12))
+                .push(text(px).size(style::SMALL).style(muted))
+                .push(space().width(4))
+                .push(
+                    button(text(tr("Cancel")).size(style::BODY))
+                        .padding([6, 14])
+                        .style(style::secondary)
+                        .on_press(Message::Edit(EditMsg::CropCancel)),
+                )
+                .push(
+                    button(text(tr("Crop")).size(style::BODY))
+                        .padding([6, 14])
+                        .style(style::primary)
+                        .on_press(Message::Edit(EditMsg::CropApply)),
+                )
+                .wrap()
+                .into()
         } else {
             let edit = &view.edit;
             let busy = edit.is_busy();
@@ -607,6 +608,17 @@ impl App {
         container(content).padding([4, 6]).style(style::panel).into()
     }
 
+    /// A panel at the right of the view, below the tools; it scrolls when there is not room.
+    fn side_panel<'a>(&self, body: Element<'a, Message>) -> Element<'a, Message> {
+        let panel = container(ui::thin_scroll(body)).style(style::panel);
+        container(panel)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(Alignment::End)
+            .padding(Padding { top: TOOLBAR_H + self.inset + 4.0, right: 16.0, bottom: 12.0, left: 16.0 })
+            .into()
+    }
+
     pub(super) fn adjust_panel(&self) -> Element<'_, Message> {
         let Doc::Image(view) = &self.doc else { return space().into() };
         let a = view.edit.edits.adjust;
@@ -641,13 +653,8 @@ impl App {
             .spacing(12)
             .width(240),
         )
-        .padding(14)
-        .style(style::panel);
-        container(panel)
-            .width(Length::Fill)
-            .align_x(Alignment::End)
-            .padding(Padding { top: TOOLBAR_H + 64.0, right: 16.0, ..Padding::ZERO })
-            .into()
+        .padding(14);
+        self.side_panel(panel.into())
     }
 }
 
@@ -700,13 +707,8 @@ impl App {
             .spacing(10)
             .width(250),
         )
-        .padding(14)
-        .style(style::panel);
-        container(panel)
-            .width(Length::Fill)
-            .align_x(Alignment::End)
-            .padding(Padding { top: TOOLBAR_H + 64.0, right: 16.0, ..Padding::ZERO })
-            .into()
+        .padding(14);
+        self.side_panel(panel.into())
     }
 }
 

@@ -15,6 +15,8 @@ use crate::i18n::{msgid, tr};
 use crate::platform::keys;
 use crate::{icons, style, ui};
 
+const MENU_W: f32 = 262.0;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Menu {
     Open,
@@ -24,6 +26,8 @@ pub enum Menu {
     View,
     Export,
     File,
+    /// From the percentage in the zoom control.
+    Zoom,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,12 +59,13 @@ impl Menu {
             Menu::View => msgid("View"),
             Menu::Export => msgid("Export"),
             Menu::File => msgid("File"),
+            Menu::Zoom => msgid("Zoom"),
         }
     }
 
     /// Whether it hangs from the ☰ button.
     pub fn is_main(self) -> bool {
-        self != Menu::Open
+        !matches!(self, Menu::Open | Menu::Zoom)
     }
 }
 
@@ -183,6 +188,13 @@ impl App {
         };
         match menu {
             Menu::Open => self.lines(&["open", "open-folder"]),
+            Menu::Zoom => {
+                let mut lines = self.lines(&["fit", "fit-width", ""]);
+                lines.extend([50, 100, 200].map(|percent| {
+                    Line::Item(format!("{percent} %"), "", Some(Message::ZoomTo(percent as f32 / 100.0)))
+                }));
+                lines
+            }
             Menu::View => sub(Place::View),
             Menu::Export => sub(Place::Export),
             Menu::File => sub(Place::File),
@@ -286,9 +298,9 @@ impl App {
         }
     }
 
-    fn panel_of<'a>(lines: Vec<Line>) -> Element<'a, Message> {
+    fn panel_of<'a>(lines: Vec<Line>, width: f32) -> Element<'a, Message> {
         let list = column(lines.into_iter().map(Self::line_view)).spacing(1);
-        container(ui::scroll(list)).width(262).padding(6).style(style::panel).into()
+        crate::settle::down(container(ui::scroll(list)).width(width).padding(6).style(style::panel))
     }
 
     /// `base`, a button of the header, with the menu `which` says hangs from it, if it is open.
@@ -298,13 +310,16 @@ impl App {
         which: fn(Menu) -> bool,
         anchor: Anchor,
     ) -> Element<'a, Message> {
-        let panel = self.menu.filter(|m| which(*m)).map(|m| Self::panel_of(self.menu_lines(m)));
+        let panel = self.menu.filter(|m| which(*m)).map(|m| {
+            let width = if m == Menu::Zoom { 180.0 } else { MENU_W };
+            Self::panel_of(self.menu_lines(m), width)
+        });
         popup(base, panel, anchor, Message::Menu(None)).into()
     }
 
     /// The window, with the context menu over it.
     pub(super) fn with_context<'a>(&self, base: Element<'a, Message>) -> Element<'a, Message> {
-        let panel = self.context.map(|(on, _)| Self::panel_of(self.context_lines(on)));
+        let panel = self.context.map(|(on, _)| Self::panel_of(self.context_lines(on), MENU_W));
         let at = self.context.map_or(Point::ORIGIN, |(_, at)| at);
         popup(base, panel, Anchor::At(at), Message::Menu(None)).on_right_press(Message::RightPress).into()
     }

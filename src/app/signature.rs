@@ -145,7 +145,7 @@ impl App {
             Doc::Pdf(view) => {
                 let page = view.current_page;
                 let (pw, ph) = view.doc.page_size(page);
-                let mid = (self.viewport.y + self.area.height / 2.0 - view.tops[page]) / view.zoom;
+                let mid = (self.viewport.y + (self.area.height + self.inset) / 2.0 - view.tops[page]) / view.zoom;
                 let (w, h) = (160.0_f64, 56.0_f64);
                 let y = (mid as f64 - h / 2.0).clamp(0.0, (ph as f64 - h).max(0.0));
                 Some((page, Rect::new((pw as f64 - w) / 2.0, y, w, h)))

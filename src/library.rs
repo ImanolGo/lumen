@@ -82,6 +82,14 @@ pub fn expand(paths: &[PathBuf]) -> (Vec<PathBuf>, usize) {
         return (vec![single.clone()], 0);
     }
 
+    // Asked for by name, it is better to say why it cannot be shown than to show nothing.
+    if let [single] = paths.as_slice()
+        && single.is_file()
+        && crate::raster::left_out(single)
+    {
+        return (vec![single.clone()], 0);
+    }
+
     let mut files = Vec::new();
     for path in &paths {
         if path.is_dir() {
@@ -96,6 +104,13 @@ pub fn expand(paths: &[PathBuf]) -> (Vec<PathBuf>, usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_picture_of_a_kind_left_out_is_still_there_to_say_so() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/gradient.avif");
+        let (files, start) = expand(std::slice::from_ref(&path));
+        assert_eq!(files[start], path);
+    }
 
     #[test]
     #[cfg(unix)]

@@ -1037,3 +1037,97 @@ fn a_window_larger_than_the_screen_is_brought_down() {
     let fitted = app.fitted_to(iced::Size::new(1280.0, 800.0)).unwrap();
     assert_eq!((fitted.width, fitted.height), (1180.0, 690.0));
 }
+
+#[test]
+fn tools_over_the_view_do_not_cover_the_page() {
+    let mut app = pdf_app();
+    let top = |app: &App| match &app.doc {
+        Doc::Pdf(v) => v.tops[0] - app.viewport.y,
+        _ => panic!("no PDF"),
+    };
+    let before = top(&app);
+    let tools = |h: f32| Message::ToolsResized(iced::Size::new(900.0, h));
+    let _ = app.update(tools(1.0));
+    assert_eq!(top(&app), before, "nothing there");
+    // At the top the page moves down, and back.
+    let _ = app.update(tools(60.0));
+    assert_eq!(top(&app), before + 60.0);
+    let _ = app.update(tools(1.0));
+    assert_eq!(top(&app), before);
+    // Further down what is read stays where it is.
+    app.viewport.y = 500.0;
+    let reading = top(&app);
+    let _ = app.update(tools(60.0));
+    assert_eq!(top(&app), reading);
+    let _ = app.update(Message::GoToPage(1));
+    let Doc::Pdf(v) = &app.doc else { panic!("no PDF") };
+    assert!(v.tops[1] - app.viewport.y >= 60.0, "a page gone to is below the tools");
+}
+
+#[test]
+fn a_fitted_picture_fits_below_the_tools() {
+    let mut app = app();
+    let picture = raster::load(&fixture("pictures").join("g.png")).unwrap();
+    let _ = app.show_picture(PathBuf::from("g.png"), picture.into());
+    let _ = app.update(Message::AreaResized(iced::Size::new(100.0, 60.0)));
+    let Doc::Image(v) = &app.doc else { panic!("no picture") };
+    let all = app.image_fit_zoom(v);
+    let _ = app.update(Message::ToolsResized(iced::Size::new(100.0, 16.0)));
+    let Doc::Image(v) = &app.doc else { panic!("no picture") };
+    let fit = app.image_fit_zoom(v);
+    assert!(fit < all && v.shown.height as f32 * fit <= 60.0 - 16.0 - 24.0 + 0.01);
+}
+
+#[test]
+fn folded_contents_hide_what_is_under_them() {
+    // Part, chapter, section, chapter, part.
+    let depths = [0, 1, 2, 1, 0];
+    let rows = |folded: &[usize]| unfolded(depths.into_iter(), &folded.iter().copied().collect());
+    assert_eq!(rows(&[]), [0, 1, 2, 3, 4]);
+    assert_eq!(rows(&[1]), [0, 1, 3, 4]);
+    assert_eq!(rows(&[0, 1]), [0, 4]);
+    // An entry folded away is marked at the one it is under.
+    assert_eq!(row_of(&rows(&[0]), 2), Some(0));
+    assert_eq!(row_of(&rows(&[1]), 3), Some(2));
+    assert_eq!(row_of(&[], 0), None);
+}
+
+#[test]
+fn the_sidebar_can_be_made_wider_within_bounds() {
+    let mut app = pdf_app();
+    let _ = app.update(Message::SidebarGrip);
+    let _ = app.update(Message::SidebarDrag(300.0));
+    assert_eq!(app.sidebar_w, 300.0);
+    let _ = app.update(Message::SidebarDrag(9000.0));
+    assert_eq!(app.sidebar_w, SIDEBAR_WIDTHS.1);
+    let _ = app.update(Message::SidebarDrag(3.0));
+    assert_eq!(app.sidebar_w, SIDEBAR_WIDTHS.0);
+    let _ = app.update(Message::MouseUp);
+    assert!(!app.sidebar_drag && app.state.sidebar == Some(160));
+}
+
+#[test]
+fn the_file_before_is_drawn_until_the_next_is_ready() {
+    let _inside = runtime().enter();
+    let mut app = pdf_app();
+    let other = fixture("form.pdf");
+    let _ = app.update(Message::Expanded { files: vec![other.clone()], start: 0, append: false });
+    assert!(matches!(app.doc, Doc::Loading(_)) && matches!(app.shown_doc(), Doc::Pdf(_)));
+    assert!(app.slow_since().is_none(), "not said at once");
+    let _ = app.update(Message::LoadSlow(app.generation + 1));
+    assert!(app.slow_since().is_none(), "nor for another file");
+    let _ = app.update(Message::LoadSlow(app.generation));
+    assert!(app.slow_since().is_some());
+    let doc = pdf::Document::open(&other).unwrap();
+    let _ = app.open_pdf_view(other, doc);
+    assert!(app.previous.is_none() && app.slow_since().is_none());
+}
+
+#[test]
+fn the_zoom_menu_goes_to_a_zoom() {
+    let mut app = pdf_app();
+    let _ = app.update(Message::Menu(Some(Menu::Zoom)));
+    let _ = app.update(Message::MenuPick(Box::new(Message::ZoomTo(2.0))));
+    assert_eq!(app.menu, None);
+    assert_eq!(app.zoom_ease.map(|e| e.to), Some(2.0 * PT_TO_PX));
+}

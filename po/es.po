@@ -1038,3 +1038,21 @@ msgstr "Copiar ruta"
 
 msgid "Copied the path"
 msgstr "Ruta copiada"
+
+msgid "Reduce motion"
+msgstr "Reducir el movimiento"
+
+msgid "Zoom"
+msgstr "Zoom"
+
+msgid "This build of Lumen does not open HEIC and AVIF pictures."
+msgstr "Esta versión de Lumen no abre imágenes HEIC ni AVIF."
+
+msgid "Open Another File…"
+msgstr "Abrir otro archivo…"
+
+msgid "No results"
+msgstr "Sin resultados"
+
+msgid "{} matches"
+msgstr "{} coincidencias"

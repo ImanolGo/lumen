@@ -48,6 +48,8 @@ pub struct Settings {
     pub sandbox: bool,
     /// ← on the first file goes to the last, and → on the last goes to the first.
     pub wrap_around: bool,
+    /// Nothing slides, fades or eases.
+    pub reduce_motion: bool,
     /// Minimise and maximise buttons in the header, where the window has no frame.
     pub window_buttons: bool,
     /// Dragging over a picture selects a part of it (else it moves the picture).
@@ -74,6 +76,7 @@ impl Default for Settings {
             night_mode: false,
             sandbox: true,
             wrap_around: false,
+            reduce_motion: false,
             window_buttons: false,
             select_on_drag: true,
             language: String::new(),
@@ -134,6 +137,7 @@ impl Settings {
         get(&table, "night_mode", &mut out.night_mode);
         get(&table, "sandbox", &mut out.sandbox);
         get(&table, "wrap_around", &mut out.wrap_around);
+        get(&table, "reduce_motion", &mut out.reduce_motion);
         get(&table, "window_buttons", &mut out.window_buttons);
         get(&table, "select_on_drag", &mut out.select_on_drag);
         get(&table, "language", &mut out.language);
@@ -237,6 +241,7 @@ mod tests {
             night_mode: true,
             sandbox: false,
             wrap_around: true,
+            reduce_motion: true,
             window_buttons: true,
             select_on_drag: false,
             language: "es".into(),

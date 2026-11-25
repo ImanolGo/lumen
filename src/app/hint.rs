@@ -2,6 +2,8 @@
 //! when it is clicked or a key is pressed, until the pointer comes back: what the click opened is
 //! not to be covered by them. Nor do they show while a menu is open.
 
+use std::time::{Duration, Instant};
+
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::widget::{Operation, Tree, tree};
 use iced::advanced::{Clipboard, Shell, Widget, overlay, renderer};
@@ -10,6 +12,8 @@ use iced::{Element, Event, Length, Point, Rectangle, Renderer, Size, Theme, Vect
 /// Between the words and what they are about, and the window's edge.
 const GAP: f32 = 6.0;
 const EDGE: f32 = 4.0;
+/// How long the pointer rests before they show.
+const DELAY: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Side {
@@ -24,6 +28,8 @@ pub enum Side {
 enum State {
     #[default]
     Idle,
+    /// The pointer is there, since then.
+    Waiting(Point, Instant),
     /// With the pointer there.
     Shown(Point),
     /// Clicked: nothing until the pointer has left.
@@ -32,7 +38,7 @@ enum State {
 
 impl State {
     /// After `event`, with the pointer at `over` if it is over the content.
-    fn after(self, event: &Event, over: Option<Point>) -> State {
+    fn after(self, event: &Event, over: Option<Point>, now: Instant) -> State {
         let dismisses = matches!(
             event,
             Event::Mouse(mouse::Event::ButtonPressed(_)) | Event::Keyboard(keyboard::Event::KeyPressed { .. })
@@ -40,8 +46,11 @@ impl State {
         match (self, over) {
             (_, None) => State::Idle,
             (State::Dismissed, _) => State::Dismissed,
-            (State::Shown(_), _) if dismisses => State::Dismissed,
-            (State::Idle, _) if dismisses => State::Dismissed,
+            _ if dismisses => State::Dismissed,
+            (State::Idle, Some(p)) => State::Waiting(p, now),
+            (State::Waiting(_, since), Some(p)) if now.saturating_duration_since(since) < DELAY => {
+                State::Waiting(p, since)
+            }
             (_, Some(p)) => State::Shown(p),
         }
     }
@@ -124,7 +133,14 @@ impl<Message> Widget<Message, Theme, Renderer> for Hint<'_, Message> {
         ) {
             let state = tree.state.downcast_mut::<State>();
             let before = *state;
-            *state = before.after(event, cursor.position_over(layout.bounds()));
+            let now = match event {
+                Event::Window(iced::window::Event::RedrawRequested(now)) => *now,
+                _ => Instant::now(),
+            };
+            *state = before.after(event, cursor.position_over(layout.bounds()), now);
+            if let State::Waiting(_, since) = *state {
+                shell.request_redraw_at(since + DELAY);
+            }
             let shown = |s: State| matches!(s, State::Shown(_));
             if shown(before) != shown(*state) || (self.side == Side::Pointer && before != *state) {
                 shell.invalidate_layout();
@@ -231,15 +247,23 @@ mod tests {
         let moved = Event::Mouse(mouse::Event::CursorMoved { position: Point::ORIGIN });
         let press = Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left));
         let up = Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left));
-        let over = Some(Point::new(5.0, 5.0));
-        let shown = State::Idle.after(&moved, over);
-        assert_eq!(shown, State::Shown(Point::new(5.0, 5.0)));
-        let clicked = shown.after(&press, over);
-        assert_eq!(clicked, State::Dismissed);
-        assert_eq!(clicked.after(&up, over).after(&moved, over), State::Dismissed);
-        // Away (or under an open menu, which hides the pointer from it), then back.
-        assert_eq!(clicked.after(&moved, None), State::Idle);
-        assert_eq!(clicked.after(&moved, None).after(&moved, over), shown);
+        let at = Point::new(5.0, 5.0);
+        let over = Some(at);
+        let start = Instant::now();
+        let later = start + DELAY;
+        // Not at once: the pointer rests there for a while first, and may move meanwhile.
+        let waiting = State::Idle.after(&moved, over, start);
+        assert_eq!(waiting, State::Waiting(at, start));
+        assert_eq!(waiting.after(&moved, over, start + DELAY / 2), State::Waiting(at, start));
+        let shown = waiting.after(&moved, over, later);
+        assert_eq!(shown, State::Shown(at));
+        for state in [shown, waiting] {
+            let clicked = state.after(&press, over, later);
+            assert_eq!(clicked, State::Dismissed);
+            assert_eq!(clicked.after(&up, over, later).after(&moved, over, later + DELAY), State::Dismissed);
+            // Away (or under an open menu, which hides the pointer from it), then back.
+            assert_eq!(clicked.after(&moved, None, later), State::Idle);
+        }
     }
 
     #[test]

@@ -9,7 +9,7 @@ use iced::widget::{
 use iced::{Alignment, Element, Length, Padding};
 
 use crate::frame::frame;
-use crate::{icons, style};
+use crate::{icons, settle, style};
 
 /// A box to type into.
 pub fn input<'a, M: Clone + 'a>(placeholder: &str, value: &str) -> TextInput<'a, M> {
@@ -168,13 +168,13 @@ impl<'a, M: Clone + 'a> Dialog<'a, M> {
             Some(message) => backdrop.on_press(message),
             None => backdrop,
         };
-        let placed = container(opaque(card)).center(Length::Fill).padding(Padding {
+        let placed = container(settle::down(opaque(card))).center(Length::Fill).padding(Padding {
             top: header + 4.0,
             bottom: 8.0,
             left: 16.0,
             right: 16.0,
         });
-        opaque(stack![container(backdrop).style(style::scrim), placed])
+        opaque(stack![settle::fade(backdrop, style::scrim_color), placed])
     }
 }
 

@@ -556,9 +556,13 @@ pub fn text_box(
 }
 
 /// The dimmed backdrop and card of a confirmation dialog.
-pub fn scrim(theme: &Theme) -> container::Style {
-    let a = if is_dark(theme) { 0.5 } else { 0.25 };
-    container::Style { background: Some(Color::from_rgba(0.0, 0.0, 0.0, a).into()), ..Default::default() }
+pub fn scrim_color(theme: &Theme) -> Color {
+    Color::from_rgba(0.0, 0.0, 0.0, if is_dark(theme) { 0.5 } else { 0.25 })
+}
+
+/// The line that says something is loading.
+pub fn progress(theme: &Theme) -> container::Style {
+    container::Style { background: Some(theme.palette().primary.into()), ..Default::default() }
 }
 
 /// The tint of a form field waiting to be filled in, as most PDF viewers show it.

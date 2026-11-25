@@ -106,6 +106,12 @@ pub fn thumbnail_bytes(data: &[u8], ext: &str) -> Result<Picture> {
     Ok(Picture::from_rgba(to_rgba8(img), original))
 }
 
+/// Whether `path` is a kind of picture that this build was made without.
+pub fn left_out(path: &Path) -> bool {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
+    !cfg!(feature = "heif") && matches!(ext.as_str(), "heic" | "heif" | "hif" | "avif")
+}
+
 /// AVIF and HEIC go through the system's libheif, which needs a path and is not sandboxed.
 fn needs_path(ext: &str) -> bool {
     cfg!(feature = "heif") && matches!(ext, "heic" | "heif" | "hif" | "avif")

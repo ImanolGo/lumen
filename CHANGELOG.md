@@ -4,6 +4,23 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Added
+- The sidebar can be made wider or narrower by dragging its edge; its thumbnails grow with it.
+- The contents' entries can be folded.
+- The percentage in the zoom control opens a menu: best fit, fit width, 50 %, 100 %, 200 %.
+- Menus, dialogs and messages slide into place, and what is behind a dialog dims, in 120 ms; a Reduce motion preference turns this off, with the easing of the zoom and the fading of the controls.
+- A file that cannot be opened offers to open another one; HEIC and AVIF pictures are said not to be in this build.
+
+### Changed
+- Tools and the Find bar no longer cover the page: it starts, and pictures are fitted, below them.
+- While a file loads the one before it stays in view, with a line under the header if it takes long, instead of a blank view with "Loading…".
+- Long titles in the contents and names in the sidebar end with "…".
+- Find says "No results" in red. Hints wait half a second.
+- The markup button is only there when there is something to mark up, and the empty window's shortcut is the system's own.
+
+### Fixed
+- In the smallest window the Find bar, the crop bar and the edit panels are no longer cut off, and messages do not cover the zoom control.
+
 ## [0.4.0] - 2026-11-25
 
 ### Added

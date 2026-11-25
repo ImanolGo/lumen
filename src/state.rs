@@ -33,6 +33,9 @@ pub struct State {
     /// The window's size in logical pixels when Lumen last closed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window: Option<(u32, u32)>,
+    /// The sidebar's width in logical pixels.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sidebar: Option<u32>,
     /// Most recent first.
     #[serde(default)]
     pub recent: Vec<Recent>,
@@ -83,7 +86,7 @@ impl State {
     pub fn to_toml(&self) -> String {
         // TOML is text: a path that is not cannot be written, and must not stop the rest.
         let recent = self.recent.iter().filter(|r| r.path.to_str().is_some()).cloned().collect();
-        let writable = Self { window: self.window, recent, ..Self::default() };
+        let writable = Self { window: self.window, sidebar: self.sidebar, recent, ..Self::default() };
         toml::to_string_pretty(&writable).unwrap_or_default()
     }
 
@@ -108,7 +111,7 @@ impl State {
         // Stable: those that were never dated keep their order, at the end.
         recent.sort_by_key(|r| std::cmp::Reverse(r.at));
         recent.truncate(MAX_RECENT);
-        Self { window: self.window.or(disk.window), recent, ..Self::default() }
+        Self { window: self.window.or(disk.window), sidebar: self.sidebar.or(disk.sidebar), recent, ..Self::default() }
     }
 
     /// Writes the file all at once (tests never write the real one).
@@ -252,11 +255,11 @@ mod tests {
 
     #[test]
     fn it_round_trips_and_survives_nonsense() {
-        let mut s = State { window: Some((1000, 700)), ..State::default() };
+        let mut s = State { window: Some((1000, 700)), sidebar: Some(240), ..State::default() };
         s.touch(Path::new("/x/y.pdf"));
         s.set_page(Path::new("/x/y.pdf"), 7);
         let back = State::parse(&s.to_toml());
-        assert_eq!((back.window, back.recent), (s.window, s.recent.clone()));
+        assert_eq!((back.window, back.sidebar, back.recent), (s.window, s.sidebar, s.recent.clone()));
         assert_eq!(State::parse("this is [not toml"), State::default());
         assert_eq!(State::parse("recent = 5"), State::default());
         // A silly window size is brought into range.

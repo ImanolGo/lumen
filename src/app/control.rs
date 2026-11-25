@@ -163,6 +163,19 @@ impl App {
                 let open = self.update(Message::SearchOpen);
                 return Some(Task::batch([open, self.update(Message::SearchInput("page".into()))]));
             }
+            "search-none" => {
+                let open = self.update(Message::SearchOpen);
+                return Some(Task::batch([open, self.update(Message::SearchInput("zzzz".into()))]));
+            }
+            "zoom-menu" => {
+                let _ = self.update(Message::Pointer(iced::Point::new(200.0, 200.0)));
+                Message::Menu(Some(Menu::Zoom))
+            }
+            "contents-tab" => Message::SidebarTab(SidebarTab::Contents),
+            "loading" => {
+                self.load_started = Some(std::time::Instant::now());
+                return Some(self.update(Message::LoadSlow(self.generation)));
+            }
             "goto" => Message::GoToOpen,
             "palette" => Message::Palette(PaletteMsg::Open),
             "export" => Message::Export(ExportMsg::Open),

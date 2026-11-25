@@ -325,7 +325,7 @@ impl App {
         add("first-page", msgid("First Page"), Go, None, &["Home"], pdf(Message::PageAt(0)));
         add("last-page", msgid("Last Page"), Go, None, &["End"], pdf(Message::PageAt(usize::MAX)));
         // A screen at a time, keeping a little of the last one in view.
-        let screen = self.area.height * 0.9;
+        let screen = (self.area.height - self.inset) * 0.9;
         let scroll = |y| pdf(Message::ScrollBy(y)).filter(|_| self.slideshow.is_none());
         add("screen-down", msgid("Scroll Down a Screen"), Go, None, &["Space"], scroll(screen));
         add("screen-up", msgid("Scroll Up a Screen"), Go, None, &["Shift+Space"], scroll(-screen));
