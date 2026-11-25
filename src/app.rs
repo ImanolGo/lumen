@@ -10,7 +10,7 @@ use iced::mouse::{self, ScrollDelta};
 use iced::theme::Mode;
 use iced::widget::{
     Id, button, center, column, container, image, mouse_area, operation, row, scrollable, sensor, space, stack, svg,
-    text, tooltip,
+    text,
 };
 use iced::{
     Alignment, ContentFit, Element, Event, Font, Length, Padding, Point, Size, Subscription, Task, Theme, event,
@@ -24,6 +24,7 @@ mod control;
 mod edit;
 mod export;
 mod forms;
+mod hint;
 mod markup;
 mod menu;
 mod overlay;
@@ -2947,20 +2948,17 @@ fn icon_button<'a>(
         .padding(0)
         .style(if active { style::tool_active } else { style::tool })
         .on_press_maybe(on_press);
-    tooltip(b, container(text(label).size(style::SMALL)).padding([4, 8]).style(style::pill), tooltip::Position::Bottom)
-        .gap(6)
-        .into()
+    tip(b.into(), label)
 }
 
-/// `content` with a tooltip below it.
+/// `content` with a hint below it.
 fn tip<'a>(content: Element<'a, Message>, label: impl text::IntoFragment<'a>) -> Element<'a, Message> {
-    tooltip(
-        content,
-        container(text(label).size(style::SMALL)).padding([4, 8]).style(style::pill),
-        tooltip::Position::Bottom,
-    )
-    .gap(6)
-    .into()
+    hint::hint(content, hint_text(label), hint::Side::Below)
+}
+
+/// What a hint says.
+fn hint_text<'a>(label: impl text::IntoFragment<'a>) -> container::Container<'a, Message> {
+    container(text(label).size(style::SMALL)).padding([4, 8]).style(style::pill)
 }
 
 /// A small text button that is on or off, with a tooltip (the search bar's options).
@@ -3458,20 +3456,10 @@ impl App {
                 .on_press(Message::GoTo(link.target.clone()))
                 .interaction(mouse::Interaction::Pointer);
                 let area: Element<'_, Message> = match &link.target {
-                    Target::Uri(uri) => tooltip(
-                        area,
-                        container(text(uri.as_str()).size(style::SMALL)).padding([4, 8]).style(style::pill),
-                        tooltip::Position::FollowCursor,
-                    )
-                    .into(),
-                    Target::Page { page, .. } => tooltip(
-                        area,
-                        container(text(trf!("Go to page {}", page + 1)).size(style::SMALL))
-                            .padding([4, 8])
-                            .style(style::pill),
-                        tooltip::Position::FollowCursor,
-                    )
-                    .into(),
+                    Target::Uri(uri) => hint::hint(area, hint_text(uri.as_str()), hint::Side::Pointer),
+                    Target::Page { page, .. } => {
+                        hint::hint(area, hint_text(trf!("Go to page {}", page + 1)), hint::Side::Pointer)
+                    }
                 };
                 layers = layers.push(placed(&link.rect, view.zoom, area));
             }
@@ -3574,15 +3562,7 @@ impl App {
                 .style(style::thumb(section == Some(i)))
                 .on_press_maybe(item.target.clone().map(Message::GoTo));
             let entry: Element<'_, Message> = if item.title.chars().count() > 26 {
-                tooltip(
-                    entry,
-                    container(text(item.title.as_str()).size(style::SMALL))
-                        .padding([4, 8])
-                        .style(style::pill)
-                        .max_width(420),
-                    tooltip::Position::Right,
-                )
-                .into()
+                hint::hint(entry, hint_text(item.title.as_str()).max_width(420), hint::Side::Right)
             } else {
                 entry.into()
             };

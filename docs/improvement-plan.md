@@ -30,7 +30,8 @@ window and names its keys.
 - Line numbers are from `f9edcd8`; search for the function name if they have moved.
 
 - **A release before each part** (asked for on 25 November 2026): once a part is done and CI is green,
-  release it as in [RELEASING.md](RELEASING.md) before starting the next one.
+  release it as in [RELEASING.md](RELEASING.md) before starting the next one. Also whenever the
+  user confirms by hand that a batch of fixes works: that commit, not later untried work.
 
 ## Where things stand
 
@@ -767,7 +768,7 @@ say exactly which systems those are.
 | 11 | Checked by hand on macOS and Windows | Done by the author (see `STATUS.md`); what it found is fixed and confirmed. |
 | 12 | Window frame per system | Done. Looked at on an X display without a window manager; GNOME, KDE, macOS and Windows not seen (package 11). Moving and resizing with the pointer were not tried. |
 | 13 | A complete set of controls; tokens for size and space | Done: type sizes, controls, button kinds and the contrast test (3:1 for disabled text; the edge of an input at rest is not checked, it has none). Paddings are not all tokens yet. At 520×360 the Find bar, Unlock, crop chips and the edit panels are still cut or overlap: packages 15 and 16. |
-| 14 | One table of commands; a menu that fits; context menu | Done. The submenus take the menu's place (with a way back) rather than fly out, so that they fit a small window. Right-clicking was not tried with a real pointer, nor the Mac's menu bar by hand. |
+| 14 | One table of commands; a menu that fits; context menu | Done. The submenus take the menu's place (with a way back) rather than fly out, so that they fit a small window. The right-click menu of a page was tried with a pointer on an X display; the Mac's menu bar was not tried by hand. |
 | 15 | Dialogs | |
 | 16 | The main view | |
 | 17 | A screenshot set that is kept | |

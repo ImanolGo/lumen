@@ -14,6 +14,9 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - The keys, the menus, the palette, the list of shortcuts and its documentation come from one table of commands. A plain letter no longer answers while Alt is held.
 - One set of controls: inputs, drop-downs, check boxes, sliders and scrollbars look the same everywhere, buttons that cannot be pressed are neutral in every colour, and secondary text, icons and buttons are easier to read in both themes (a test checks the contrast). The file on screen is marked in the sidebar by its ring alone.
 
+### Fixed
+- What a button is for no longer stays on screen over the menu it opened, or over anything else a click or a key opens.
+
 ## [0.3.0] - 2026-11-25
 
 ### Added

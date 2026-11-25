@@ -214,8 +214,8 @@ impl<Message: Clone> overlay::Overlay<Message, Theme, Renderer> for Panel<'_, '_
     fn mouse_interaction(&self, layout: Layout<'_>, cursor: mouse::Cursor, renderer: &Renderer) -> mouse::Interaction {
         let bounds = layout.bounds();
         let inner = self.panel.as_widget().mouse_interaction(self.tree, layout, cursor, &bounds, renderer);
-        // It covers what is under it, whose own pointer must not show through.
-        if inner == mouse::Interaction::None && cursor.is_over(bounds) { mouse::Interaction::Idle } else { inner }
+        // While it is open nothing under it answers to the pointer, hints neither.
+        if inner == mouse::Interaction::None { mouse::Interaction::Idle } else { inner }
     }
 
     fn draw(
