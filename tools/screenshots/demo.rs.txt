@@ -131,7 +131,7 @@ impl App {
             "mk-done" => self.finish_markup(),
 
             // ---------------------------------------------------------- a form, filled in and signed
-            "fm-view" => Task::batch([self.update(Message::ZoomFit), self.update(Message::ToggleSidebar)]),
+            "fm-view" => self.update(Message::ZoomFit),
             "fm-fill" => {
                 let mut tasks = Vec::new();
                 let mut text = |app: &mut App, name: &str, value: &str| {

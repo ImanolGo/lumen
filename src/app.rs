@@ -2088,7 +2088,7 @@ impl App {
             window::Event::Opened { size, .. } => {
                 tracing::info!(ms = crate::since_start(), "window built");
                 self.window = Some(id);
-                if crate::platform::caps().menu_bar {
+                if crate::platform::caps().menu_bar && !cfg!(test) {
                     crate::platform::menu_bar::install(&self.menu_bar());
                 }
                 let problem = match self.signatures.take_problem() {

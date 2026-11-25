@@ -1,20 +1,21 @@
 #!/bin/sh
-# Takes one screenshot of a demo scene on niri (needs wl-clipboard and ImageMagick).
+# Takes one screenshot of a demo scene on an invisible X display (needs Xvfb and ImageMagick).
 # usage: SCRATCH=/some/dir tools/screenshots/shoot.sh SCENE OUTNAME THEME WAIT_SECONDS FILE_OR_FOLDER
 # Needs a release build with the demo scenes compiled in (see README.md here).
-cd "$(dirname "$0")/../.."
 S=${SCRATCH:-/tmp/lumen-shots}
-scene=$1; out=$2; theme=$3; wait=$4; target=$5
-pkill -x lumen-rs; sleep 1
-mkdir -p $S/shots; rm -rf $S/cfg3; mkdir -p $S/cfg3
-(env XDG_CONFIG_HOME=$S/cfg3 XDG_DATA_HOME=$S/data3 LANG=en_US.UTF-8 LC_ALL= LANGUAGE= LUMEN_THEME=$theme LUMEN_DEMO=$scene ./target/release/lumen-rs "$target" >/dev/null 2>&1 &)
-sleep 1.2
-niri msg action set-window-width 1200 >/dev/null 2>&1
-niri msg action set-window-height 800 >/dev/null 2>&1
-sleep $wait
-niri msg action screenshot-window -d false
-sleep 0.6
-wl-paste -t image/png > $S/shots/$out.png
-pkill -x lumen-rs
-sleep 1
-identify -format "$out: %wx%h\n" $S/shots/$out.png
+export APP=${APP:-$(dirname "$0")/../../target/release/lumen-rs}
+if [ "$1" != --inside ]; then
+    exec xvfb-run -a -s "-screen 0 1200x800x24" "$0" --inside "$@"
+fi
+scene=$2; out=$3; theme=$4; wait=$5; target=$6
+W=$(mktemp -d)
+mkdir -p "$S/shots" "$W/state/lumen-rs"
+echo 'window = [1200, 800]' > "$W/state/lumen-rs/state.toml"
+env -u WAYLAND_DISPLAY XDG_CONFIG_HOME="$W/config" XDG_DATA_HOME="$W/data" XDG_STATE_HOME="$W/state" \
+    XDG_CACHE_HOME="$W/cache" LUMEN_NO_PORTAL=1 LUMEN_NO_REEXEC=1 WGPU_POWER_PREF=low \
+    LANG=en_US.UTF-8 LC_ALL= LANGUAGE= LUMEN_THEME="$theme" LUMEN_DEMO="$scene" "$APP" "$target" >/dev/null 2>&1 &
+app=$!
+sleep "$wait"
+import -window root "$S/shots/$out.png"
+kill $app
+rm -rf "$W"
