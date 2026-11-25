@@ -740,7 +740,7 @@ say exactly which systems those are.
 | 3 | PDF writing keeps what other programs wrote | Done. Embedded text is not shaped (Arabic and Indic scripts come out unjoined). A merged outline goes after the document's own. |
 | 4 | Smaller defects, things that disagree, finish the review | Done, with what the review found added (organiser changes lost silently, late answers, Delete in text boxes, clicks through questions). Render caches measured on the 477-page manual: 311 MB and growing after 120 zoom levels before, 205 MB and flat after. Page rearranging on 200 000 objects: 0.5 s, with as many inserted 1 s (not measured before). Review: the update logic of `app.rs` and the files in `app/` were read for the points listed; the view code was not read line by line. `CLAUDE.md`'s `Co-Authored-By` line is left to the user. |
 | 5 | Platform layer (Linux only) | Done. `tools/bench.py` was not run again. |
-| 6 | Compiles on Linux, macOS and Windows; CI on all three | |
+| 6 | Compiles on Linux, macOS and Windows; CI on all three | Done. The first macOS run showed that private files were not private there; fixed. |
 | 7 | Each system's own services | |
 | 8 | Keys, menus and file opening per system | |
 | 9 | End-to-end tests on every system | |

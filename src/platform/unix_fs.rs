@@ -1,8 +1,7 @@
-//! Files and folders with permissions of their own.
+//! Files and folders with permissions of their own (Linux and macOS).
 
 use std::fs::{File, OpenOptions, Permissions};
 use std::io;
-use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
@@ -45,6 +44,7 @@ pub fn sync_dir(dir: &Path) {
 }
 
 /// `path` as the bytes it is.
+#[cfg(target_os = "linux")]
 pub(super) fn bytes(path: &Path) -> &[u8] {
-    path.as_os_str().as_bytes()
+    std::os::unix::ffi::OsStrExt::as_bytes(path.as_os_str())
 }

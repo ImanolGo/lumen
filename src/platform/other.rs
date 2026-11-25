@@ -192,6 +192,10 @@ pub mod control {
     }
 }
 
+#[cfg(unix)]
+pub use super::unix_fs as fs;
+
+#[cfg(not(unix))]
 pub mod fs {
     use std::fs::{File, OpenOptions, Permissions};
     use std::io;

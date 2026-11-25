@@ -11,6 +11,9 @@ mod other;
 #[cfg(not(target_os = "linux"))]
 use other as system;
 
+#[cfg(unix)]
+mod unix_fs;
+
 pub use system::{clipboard, confine, control, dialogs, dirs, fs, print, shell, startup, thumbs, trash, watch};
 
 /// What this system can do, for the interface to show only that.

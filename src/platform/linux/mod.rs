@@ -5,7 +5,6 @@ pub mod clipboard;
 pub mod confine;
 pub mod control;
 pub mod dirs;
-pub mod fs;
 pub mod portal;
 pub mod print;
 pub mod startup;
@@ -20,6 +19,8 @@ pub mod dialogs {
 pub mod shell {
     pub use super::portal::{open_uri, open_with, show_in_folder};
 }
+
+pub use super::unix_fs as fs;
 
 pub const CAPS: super::Caps = super::Caps {
     sandbox: true,

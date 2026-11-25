@@ -382,7 +382,7 @@ fn the_command_palette_finds_and_runs_commands() {
     let _inside = runtime().enter();
     // With nothing open, only what makes sense is offered.
     let mut empty = app();
-    key(&mut empty, Key::Character("p".into()), Modifiers::CTRL | Modifiers::SHIFT);
+    key(&mut empty, Key::Character("p".into()), Modifiers::COMMAND | Modifiers::SHIFT);
     assert!(empty.palette.is_some());
     let names: Vec<String> = empty.palette_matches().into_iter().map(|c| c.0).collect();
     assert!(names.iter().any(|n| n.starts_with("Open Files")) && !names.iter().any(|n| n.starts_with("Print")));
