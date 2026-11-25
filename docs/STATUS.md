@@ -1,6 +1,6 @@
 # Status
 
-Where Lumen (Rust/iced) stands, as of 25 November 2026 (version 0.1.1). It is a
+Where Lumen (Rust/iced) stands, as of 25 November 2026 (version 0.2.0). It is a
 ground-up rewrite of the [GTK Lumen](https://github.com/ImanolGo/lumen) 0.4.2, and
 [parity-plan.md](parity-plan.md) is the plan that closes the gap.
 
@@ -8,7 +8,7 @@ ground-up rewrite of the [GTK Lumen](https://github.com/ImanolGo/lumen) 0.4.2, a
 
 Everything on the GTK Lumen's feature list works in some form, except the items under
 [Not there yet](#not-there-yet). It is faster to open files than the GTK Lumen, uses no C library in
-the document path, and decodes pictures in a sandbox. Version 0.1.1 is tagged and published on
+the document path, and decodes pictures in a sandbox. Version 0.2.0 is tagged and published on
 GitHub; it is in no distribution's packages, has been used by no one but its author, and a number of things have only been checked in tests and screenshots, not by
 a person clicking (see [What has not been checked](#what-has-not-been-checked)).
 
@@ -67,6 +67,31 @@ code):
 - **PDF rendering fidelity** was measured against poppler on 132 pages of real documents and a feature test ([FIDELITY.md](FIDELITY.md)): close, with heavier hairlines and slightly heavier text. The corpus is mostly text documents; scanned pages, JBIG2 and JPEG 2000 images, CJK fonts and exotic transparency were not covered.
 - **The Spanish** in dialogs other than the menu and Preferences has not been looked at on screen, and was written by the same author as the code.
 - **The headless GUI test job** in CI (the control tests on a headless Wayland compositor with the software renderer) passed on every run so far, so a failure now blocks. Its software rendering is not the GPU path people use.
+
+## macOS and Windows
+
+As of 25 November 2026 **nobody has used Lumen on either by hand.** What CI does on a real machine of
+each, on every push: the unit tests; a file moved to the real trash (and back, on Windows); noticing
+changes to a file; and the app itself with a window (software rendering), driven over standard
+input: opening and browsing files, searching, passwords, filling in and saving a form, annotating
+and saving a PDF, editing and saving a picture, exporting, reloading a changed file. The release
+workflow builds the `.dmg` and the `.zip` and starts the program with `--version`.
+
+The checklist for a person (package 11 of [improvement-plan.md](improvement-plan.md)), none of it tried
+on either system:
+
+| To check | macOS | Windows |
+|---|---|---|
+| Open a picture, a folder and a PDF from the dialog, and by dropping | not tried | not tried |
+| Open from the file manager (double click, Open With), with Lumen closed and running | not tried | not tried |
+| Arrows; zoom with the wheel and the touchpad; fullscreen and back | not tried | not tried |
+| Markup and Ctrl/⌘+S on a PDF, reopened in another program | not tried | not tried |
+| Crop a JPEG and save; fill `tests/fixtures/form.pdf`; unlock `encrypted.pdf` (`secret`) | not tried | not tried |
+| Trash, and undo (Windows) | not tried | not tried |
+| Copy a picture and paste it elsewhere | not tried | not tried |
+| Print to a PDF printer | not tried (CUPS's socket path is unverified) | not tried |
+| Switch the system between light and dark; a second screen with another scale | not tried | not tried |
+| Spanish; the menu bar, ⌘ labels and ⌘Q with unsaved changes (macOS) | not tried | not tried |
 
 ## Known issues
 

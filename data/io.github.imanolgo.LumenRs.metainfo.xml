@@ -38,6 +38,11 @@
     <control>touch</control>
   </supports>
   <releases>
+    <release version="0.2.0" date="2026-11-25">
+      <description>
+        <p>Lumen runs on macOS and Windows too, with each system's own dialogs, trash, clipboard and file watching.</p>
+      </description>
+    </release>
     <release version="0.1.1" date="2026-11-25">
       <description>
         <p>Fixes: the picture decoder fails closed and stays within limits, saving never loses or exposes data, PDFs keep what other programs wrote in them, and many smaller defects.</p>

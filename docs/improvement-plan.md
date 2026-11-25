@@ -745,7 +745,7 @@ say exactly which systems those are.
 | 8 | Keys, menus and file opening per system | Done in code; compiled, not seen on a Mac yet. Shortcut signs are applied in `tr()` rather than in each string. The ☰ button stays on macOS until package 14 gives the menu bar every command. Quit from the Dock icon, or logging out, still ends Lumen without asking: that needs `applicationShouldTerminate:` in winit, which decision 4 does not cover. |
 | 9 | End-to-end tests on every system | The ten scenarios pass over stdio and D-Bus on Linux; CI runs them on macOS and Windows too. |
 | 10 | Packages and releases | The workflow builds all packages. Not done: an installer for Windows, the two ways to build a Windows binary from Linux (they need system packages). |
-| 11 | Checked by hand on macOS and Windows | |
+| 11 | Checked by hand on macOS and Windows | **Open:** needs a person with each machine. The checklist is in `STATUS.md`. |
 | 12 | Window frame per system | |
 | 13 | A complete set of controls; tokens for size and space | |
 | 14 | One table of commands; a menu that fits; context menu | |
