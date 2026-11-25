@@ -19,6 +19,14 @@ pub struct Trashed {
     info: PathBuf,
 }
 
+#[cfg(test)]
+impl Trashed {
+    /// A file that was never really moved.
+    pub fn for_test(original: PathBuf) -> Self {
+        Self { original, stored: PathBuf::new(), info: PathBuf::new() }
+    }
+}
+
 /// Moves `path` to the trash that belongs to its disk.
 pub fn trash(path: &Path) -> Result<Trashed> {
     let path = std::fs::canonicalize(path).with_context(|| format!("cannot find {}", path.display()))?;

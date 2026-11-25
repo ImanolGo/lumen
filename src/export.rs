@@ -46,7 +46,7 @@ pub fn png_bytes(img: &RgbaImage, dpi: u32) -> Result<Vec<u8>> {
 pub fn page_to_png(doc: &pdf::Document, page: usize, rotate: i32, dpi: u32, target: &Path) -> Result<()> {
     let pic = futures_lite_block_on(doc.render(page, scale_for(dpi)))?;
     let bytes = png_bytes(&turned(&pic, rotate)?, dpi)?;
-    pdf::write_atomic(target, &bytes)
+    crate::fsio::write_atomic(target, &bytes)
 }
 
 /// File names for several pages of `stem` in a folder: `stem-3.png`, padded so they sort.

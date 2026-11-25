@@ -218,26 +218,21 @@ fn run(job: ExportJob, target: &Path) -> anyhow::Result<String> {
             export::need_pages(pages.len())?;
             let base = &docs[0];
             let bytes = match &unsaved {
-                Some(pending) => pdf::Document::with_changes(base.path(), &pending.changes())?,
-                None => std::fs::read(base.path())?,
+                Some(pending) => base.with_changes(&pending.changes())?,
+                None => base.original().to_vec(),
             };
-            let extras = docs[1..]
-                .iter()
-                .map(|d| {
-                    Ok(pages::Source { bytes: std::fs::read(d.path())?, password: d.password().map(str::to_owned) })
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?;
+            let extras: Vec<pages::Source> = docs[1..].iter().map(pages::Source::of).collect();
             let out = pages::compose(
                 &pages::Source { bytes, password: base.password().map(str::to_owned) },
                 &extras,
                 &pages,
             )?;
-            pdf::write_atomic(target, &out)?;
+            crate::fsio::write_atomic(target, &out)?;
             Ok(trf!("Saved “{}”", file_name(target)))
         }
         ExportJob::Picture { path } => {
             let out = crate::print::picture_to_pdf_native(&path, 150.0)?;
-            pdf::write_atomic(target, &out)?;
+            crate::fsio::write_atomic(target, &out)?;
             Ok(trf!("Saved “{}”", file_name(target)))
         }
     }

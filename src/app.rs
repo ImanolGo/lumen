@@ -238,6 +238,10 @@ pub struct App {
     markup_busy: Option<&'static str>,
     last_drag: Option<(f64, f64)>,
     confirm_quit: bool,
+    /// Another question on screen.
+    confirm: Option<Confirm>,
+    /// Another program changed the open file while it had unsaved changes.
+    disk_conflict: bool,
     /// Passwords of the protected PDFs opened this session, kept in memory only.
     passwords: HashMap<PathBuf, String>,
     password_input: String,
@@ -286,10 +290,10 @@ pub struct App {
     last_toast: Option<(String, bool)>,
     /// A file is being found for the control interface's `Open`.
     control_opening: bool,
-    /// The file last moved to the trash (and where it sat in the list), while its toast offers Undo: the toast's id comes first.
     /// The slideshow, while one is running.
     slideshow: Option<Slideshow>,
-    trash_undo: Option<(u64, usize, crate::trash::Trashed)>,
+    /// The file last moved to the trash, while its toast offers Undo.
+    trash_undo: Option<TrashUndo>,
     /// The toast that offers to undo deleting pages in the organiser.
     pages_undo: Option<u64>,
     /// The command palette, while it is open.
@@ -297,6 +301,31 @@ pub struct App {
     /// Lumen's own file chooser and print dialog, when the desktop has no portal for them.
     chooser: Option<Chooser>,
     print_dialog: Option<PrintDialog>,
+}
+
+/// A file moved to the trash: where it sat in the list, and what was not saved of it.
+struct TrashUndo {
+    toast: u64,
+    at: usize,
+    item: crate::trash::Trashed,
+    kept: Kept,
+}
+
+struct Kept {
+    marks: Option<DocMarkup>,
+    form: Option<Vec<crate::forms::Value>>,
+    edit: Option<PicEdit>,
+}
+
+/// A question to answer before going on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Confirm {
+    /// Move a file with unsaved changes to the trash.
+    Trash,
+    /// Save over a file that another program changed.
+    Overwrite,
+    /// The same, for rearranged pages.
+    OverwritePages,
 }
 
 /// A zoom change easing in: from one zoom to another, and what to settle on.
@@ -608,7 +637,7 @@ pub enum Message {
 
     Print,
     /// A print finished, or could not start; with what was being printed.
-    Printed(PathBuf, Result<Outcome, String>),
+    Printed(print::Job, Result<Outcome, String>),
     ToggleFullscreen,
     ToggleSidebar,
     DismissToast(u64),
@@ -618,6 +647,8 @@ pub enum Message {
     SlideshowTick(Instant),
     AnimTick(Instant),
     OpenWith,
+    /// The question on screen was answered: no.
+    ConfirmNo,
     Trash,
     Trashed(usize, Result<crate::trash::Trashed, String>),
     UndoTrash,
@@ -768,6 +799,8 @@ impl App {
             markup_busy: None,
             last_drag: None,
             confirm_quit: false,
+            confirm: None,
+            disk_conflict: false,
             passwords: HashMap::new(),
             password_input: String::new(),
             form: None,
@@ -1302,7 +1335,9 @@ impl App {
                 Task::none()
             }
             Message::Escape => {
-                if self.chooser.take().is_some()
+                if self.confirm.take().is_some()
+                    || std::mem::take(&mut self.confirm_quit)
+                    || self.chooser.take().is_some()
                     || self.print_dialog.take().is_some()
                     || self.palette.take().is_some()
                     || self.menu_escape()
@@ -1442,34 +1477,27 @@ impl App {
                     return Task::none();
                 }
                 self.printing = true;
+                fn send(job: print::Job) -> Task<Message> {
+                    let path = job.path.clone();
+                    Task::perform(async move { print::print(path).await.map_err(err_string) }, move |r| {
+                        Message::Printed(job.clone(), r)
+                    })
+                }
                 if let Some(copy) = self.printable_copy() {
                     // Print what is on screen, unsaved markup included.
-                    let original = path.clone();
                     return copy.then(move |copy| match copy {
-                        Ok(copy) => Task::perform(
-                            {
-                                let copy = copy.clone();
-                                async move { print::print(copy).await.map_err(err_string) }
-                            },
-                            move |r| Message::Printed(copy.clone(), r),
-                        ),
-                        Err(e) => Task::done(Message::Printed(original.clone(), Err(e))),
+                        Ok(job) => send(job),
+                        Err(e) => Task::done(Message::Printed(print::Job::file(path.clone()), Err(e))),
                     });
                 }
-                Task::perform(
-                    {
-                        let path = path.clone();
-                        async move { print::print(path).await.map_err(err_string) }
-                    },
-                    move |r| Message::Printed(path.clone(), r),
-                )
+                send(print::Job::file(path))
             }
-            Message::Printed(path, result) => {
+            Message::Printed(job, result) => {
                 self.printing = false;
                 match result {
                     Ok(Outcome::Sent) => self.notice(tr("Sent to the printer")),
                     Ok(Outcome::Cancelled) => Task::none(),
-                    Ok(Outcome::NoPortal) => self.open_print_dialog(path),
+                    Ok(Outcome::NoPortal) => self.open_print_dialog(job),
                     Err(e) => self.toast(trf!("Could not print: {}", e)),
                 }
             }
@@ -1486,7 +1514,7 @@ impl App {
                 if self.toast.as_ref().is_some_and(|(t, ..)| *t == id) {
                     self.toast = None;
                 }
-                if self.trash_undo.as_ref().is_some_and(|(t, ..)| *t == id) {
+                if self.trash_undo.as_ref().is_some_and(|t| t.toast == id) {
                     self.trash_undo = None;
                 }
                 if self.pages_undo == Some(id) {
@@ -1514,8 +1542,17 @@ impl App {
             }
             Message::FileActionDone(Ok(())) => Task::none(),
             Message::FileActionDone(Err(e)) => self.toast(e),
+            Message::ConfirmNo => {
+                self.confirm = None;
+                Task::none()
+            }
             Message::Trash => {
                 self.menu = None;
+                let done = self.finish_text();
+                if self.has_unsaved_changes() && self.confirm.take() != Some(Confirm::Trash) {
+                    self.confirm = Some(Confirm::Trash);
+                    return done;
+                }
                 let Some(path) = self.current_file() else { return Task::none() };
                 let index = self.current;
                 Task::perform(blocking(move || crate::trash::trash(&path).map_err(err_string)), move |r| {
@@ -1537,16 +1574,12 @@ impl App {
                 self.files.remove(at);
                 self.thumbs.remove(&path);
                 self.locked_thumbs.remove(&path);
-                self.stash.remove(&path);
-                self.stash_forms.remove(&path);
-                self.stash_edits.remove(&path);
                 self.passwords.remove(&path);
                 self.pictures.retain(|(p, _)| *p != path);
                 let name = file_name(&path);
                 let show = if self.files.is_empty() {
                     self.organizer = None;
-                    self.detach_form();
-                    self.detach_markup();
+                    self.put_aside();
                     self.generation += 1;
                     self.doc = Doc::Empty;
                     self.current = usize::MAX;
@@ -1556,13 +1589,25 @@ impl App {
                     self.current = usize::MAX; // force the next file to load
                     self.show(next)
                 };
+                // What was not saved stays at hand for as long as the move can be undone.
+                let kept = Kept {
+                    marks: self.stash.remove(&path),
+                    form: self.stash_forms.remove(&path),
+                    edit: self.stash_edits.remove(&path),
+                };
                 let toast = self.show_toast_for(trf!("Moved “{}” to the trash", name), false, 8);
-                self.trash_undo = Some((self.toast_seq, at, item));
+                self.trash_undo = Some(TrashUndo { toast: self.toast_seq, at, item, kept });
                 Task::batch([show, toast, self.request_thumbs()])
             }
             Message::UndoTrash => {
-                let Some((_, index, item)) = self.trash_undo.take() else { return Task::none() };
+                let Some(TrashUndo { at: index, item, kept, .. }) = self.trash_undo.take() else {
+                    return Task::none();
+                };
                 self.toast = None;
+                let path = &item.original;
+                self.stash.extend(kept.marks.map(|m| (path.clone(), m)));
+                self.stash_forms.extend(kept.form.map(|f| (path.clone(), f)));
+                self.stash_edits.extend(kept.edit.map(|e| (path.clone(), e)));
                 Task::perform(
                     blocking(move || crate::trash::restore(&item).map(|()| item.original).map_err(err_string)),
                     move |r| Message::Restored(index, r.and_then(|r| r)),
@@ -1693,7 +1738,14 @@ impl App {
             window::Event::Opened { .. } => {
                 tracing::info!(ms = crate::since_start(), "window built");
                 self.window = Some(id);
-                window::scale_factor(id).map(Message::ScaleFactor)
+                let problem = match self.signatures.take_problem() {
+                    Some(aside) => {
+                        self.toast(trf!("The saved signatures could not be read. They were kept as {}", aside))
+                    }
+                    None => Task::none(),
+                };
+                let scale = window::scale_factor(id).map(Message::ScaleFactor);
+                Task::batch([scale, problem])
             }
             window::Event::CloseRequested => self.update(Message::Quit),
             window::Event::Resized(size) if !self.fullscreen => {
@@ -1740,7 +1792,7 @@ impl App {
         if let Some(task) = self.chooser_key(&key) {
             return task;
         }
-        if self.confirm_quit || self.pad.is_some() || self.print_dialog.is_some() {
+        if self.confirm_quit || self.confirm.is_some() || self.pad.is_some() || self.print_dialog.is_some() {
             return Task::none();
         }
         if let Some(task) = self.palette_key(&key) {
@@ -1882,14 +1934,9 @@ impl App {
         self.remember_place();
         self.organizer = None;
         self.zoom_ease = None;
-        self.detach_form();
-        self.detach_markup();
-        if let Doc::Image(view) = &mut self.doc
-            && view.edit.is_dirty()
-        {
-            let edit = std::mem::take(&mut view.edit);
-            self.stash_edits.insert(view.path.clone(), edit);
-        }
+        self.put_aside();
+        self.confirm = None;
+        self.disk_conflict = false;
         self.crop = None;
         self.resize_form = None;
         self.pending_sign = None;
@@ -1938,6 +1985,25 @@ impl App {
         };
         let reset = operation::scroll_to(scroll_id(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 });
         Task::batch([load, reset, self.request_thumbs(), self.reveal_in_sidebar(), self.state_changed()])
+    }
+
+    /// Puts what is not saved of the file on screen aside, to be found again when it is shown again.
+    fn put_aside(&mut self) {
+        self.detach_form();
+        self.detach_markup();
+        if let Doc::Image(view) = &mut self.doc
+            && view.edit.is_dirty()
+        {
+            let edit = std::mem::take(&mut view.edit);
+            self.stash_edits.insert(view.path.clone(), edit);
+        }
+    }
+
+    /// Whether another program changed the file on screen since it was read.
+    fn changed_on_disk(&self) -> bool {
+        self.disk_conflict
+            || matches!(&self.disk, Some((path, Some(known)))
+                if disk_baseline(path).1.is_some_and(|now| now != *known) && self.current_path() == Some(path))
     }
 
     /// Opens the PDF at `path` off the UI thread, with the password given for it earlier, if any;
@@ -2494,8 +2560,10 @@ impl App {
         }
         self.disk = Some((path.clone(), Some(now)));
         if self.has_unsaved_changes() {
+            self.disk_conflict = true;
+            self.pictures.retain(|(p, _)| *p != path);
             return self.toast(trf!(
-                "“{}” changed on disk. Your unsaved changes are kept; saving will overwrite it.",
+                "“{}” changed on disk. Your unsaved changes are kept; saving asks first.",
                 file_name(&path)
             ));
         }
@@ -2843,10 +2911,13 @@ impl App {
         if self.confirm_quit {
             layers = layers.push(self.quit_dialog());
         }
+        if let Some(confirm) = self.confirm {
+            layers = layers.push(self.confirm_dialog(confirm));
+        }
         if let Some((id, msg, error)) = &self.toast {
             let look = if *error { style::toast_error } else { style::panel };
             let mut line = row![text(msg.as_str()).size(13)].spacing(12).align_y(Alignment::Center);
-            if self.trash_undo.as_ref().is_some_and(|(t, ..)| t == id) {
+            if self.trash_undo.as_ref().is_some_and(|t| t.toast == *id) {
                 line = line.push(
                     button(text(tr("Undo")).size(13))
                         .padding([3, 10])
@@ -3454,7 +3525,7 @@ impl App {
 
     /// The files opened lately, under the buttons of the empty window.
     fn recent_list(&self) -> Element<'_, Message> {
-        let recent: Vec<_> = self.state.recent.iter().take(RECENT_SHOWN).collect();
+        let recent: Vec<_> = self.state.listed().take(RECENT_SHOWN).collect();
         if recent.is_empty() {
             return space().into();
         }

@@ -112,6 +112,7 @@ pub struct Document {
 
 struct Inner {
     path: PathBuf,
+    original: Arc<Vec<u8>>,
     /// Page sizes in PDF points, after applying /Rotate.
     pages: Vec<(f32, f32)>,
     outline: Vec<OutlineItem>,
@@ -181,7 +182,8 @@ impl Document {
     #[cfg(test)]
     pub fn open(path: &Path) -> Result<Self> {
         let bytes = std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
-        Self::from_bytes(path, bytes, None)
+        let bytes = Arc::new(bytes);
+        Self::from_bytes(path, bytes.clone(), bytes, None)
     }
 
     /// Opens `path` with its form, and (with `markup`) its editable annotations. What Lumen
@@ -189,12 +191,17 @@ impl Document {
     /// A `password` opens a password-protected PDF (a wrong or missing one gives [`PasswordNeeded`]).
     pub fn open_full(path: &Path, markup: bool, password: Option<&str>) -> Result<Opened> {
         let bytes = std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
-        Self::full_from_bytes(path, bytes, markup, password)
+        Self::full_from_bytes(path, Arc::new(bytes), markup, password)
     }
 
-    fn full_from_bytes(path: &Path, bytes: Vec<u8>, markup: bool, password: Option<&str>) -> Result<Opened> {
+    /// The same document again, from the bytes it was opened from (whatever became of the file). Blocking.
+    pub fn reopen(&self, markup: bool) -> Result<Opened> {
+        Self::full_from_bytes(&self.inner.path, self.inner.original.clone(), markup, self.password())
+    }
+
+    fn full_from_bytes(path: &Path, bytes: Arc<Vec<u8>>, markup: bool, password: Option<&str>) -> Result<Opened> {
         let (mut form, imported) = {
-            let pdf = parse(Arc::new(bytes.clone()), password)?;
+            let pdf = parse(bytes.clone(), password)?;
             let form = catch_unwind(AssertUnwindSafe(|| forms::read(&pdf))).unwrap_or_else(|_| {
                 tracing::warn!("could not read the form of {}", path.display());
                 Form::default()
@@ -206,15 +213,15 @@ impl Document {
         let mut hidden = form.hidden_widgets();
         hidden.extend(imported.iter().flat_map(|i| i.refs.iter().flatten().copied()));
         let shown = if hidden.is_empty() {
-            bytes
+            bytes.clone()
         } else {
             match annotate::pdf::hide(&bytes, &hidden, password) {
-                Ok(shown) => shown,
+                Ok(shown) => Arc::new(shown),
                 // Markup cannot work without it; a form can still be shown, just not filled in.
                 Err(e) if imported.is_none() => {
                     tracing::warn!("the form of {} cannot be filled in: {e:#}", path.display());
                     form = Form::default();
-                    bytes
+                    bytes.clone()
                 }
                 Err(e) => return Err(e),
             }
@@ -226,20 +233,43 @@ impl Document {
         } else {
             None
         };
-        Ok(Opened { doc: Self::from_bytes(path, shown, password)?, imported, form: Arc::new(form), warning })
+        Ok(Opened { doc: Self::from_bytes(path, shown, bytes, password)?, imported, form: Arc::new(form), warning })
     }
 
-    /// Writes `changes` into the PDF at `source` and saves the result to `target` (which may
-    /// be `source`), then opens it again. Blocking.
-    pub fn save_changes(source: &Path, target: &Path, changes: &Changes<'_>, markup: bool) -> Result<Opened> {
-        let bytes = Self::with_changes(source, changes)?;
-        write_atomic(target, &bytes)?;
-        Self::full_from_bytes(target, bytes, markup, changes.password)
+    /// Writes `changes` into this PDF and saves the result to `target` (which may be its own
+    /// file), then opens it again. Blocking.
+    pub fn save_changes(&self, target: &Path, changes: &Changes<'_>, markup: bool) -> Result<Opened> {
+        let bytes = self.with_changes(changes)?;
+        Self::save_bytes(target, bytes, markup, changes.password, self.page_count())
     }
 
-    /// The bytes of the PDF at `source` with `changes` written in. Blocking.
-    pub fn with_changes(source: &Path, changes: &Changes<'_>) -> Result<Vec<u8>> {
-        let bytes = std::fs::read(source).with_context(|| format!("cannot read {}", source.display()))?;
+    /// Saves a PDF Lumen made to `target`, but only if it opens again with all its `pages`. Blocking.
+    pub fn save_bytes(
+        target: &Path,
+        bytes: Vec<u8>,
+        markup: bool,
+        password: Option<&str>,
+        pages: usize,
+    ) -> Result<Opened> {
+        let bytes = Arc::new(bytes);
+        let opened = Self::full_from_bytes(target, bytes.clone(), markup, password)
+            .context("the new PDF could not be read again, so nothing was saved")?;
+        if opened.doc.page_count() != pages {
+            bail!("the new PDF did not have all its pages, so nothing was saved");
+        }
+        crate::fsio::write_atomic(target, &bytes)?;
+        Ok(opened)
+    }
+
+    /// The bytes this PDF was opened from: what changes are written into, even if another
+    /// program has replaced the file since.
+    pub fn original(&self) -> &[u8] {
+        &self.inner.original
+    }
+
+    /// The bytes of this PDF with `changes` written in. Blocking.
+    pub fn with_changes(&self, changes: &Changes<'_>) -> Result<Vec<u8>> {
+        let bytes = self.original();
         let edits: Vec<PageEdit<'_>> = changes
             .pages
             .iter()
@@ -257,12 +287,12 @@ impl Document {
             .filter(|(field, value)| field.value != **value)
             .map(|(field, value)| Fill { field, value })
             .collect();
-        catch_unwind(AssertUnwindSafe(|| annotate::pdf::save(&bytes, &edits, &fills, changes.password)))
+        catch_unwind(AssertUnwindSafe(|| annotate::pdf::save(bytes, &edits, &fills, changes.password)))
             .map_err(|_| anyhow!("the PDF could not be written"))?
     }
 
-    fn from_bytes(path: &Path, bytes: Vec<u8>, password: Option<&str>) -> Result<Self> {
-        let bytes = Arc::new(bytes);
+    /// `bytes` is what is rendered, `original` what the file holds.
+    fn from_bytes(path: &Path, bytes: Arc<Vec<u8>>, original: Arc<Vec<u8>>, password: Option<&str>) -> Result<Self> {
         let pdf = parse(bytes.clone(), password)?;
         let pages: Vec<(f32, f32)> = pdf.pages().iter().map(|p| p.render_dimensions()).collect();
         if pages.is_empty() {
@@ -290,7 +320,9 @@ impl Document {
 
         let text = Mutex::new(vec![None; pages.len()]);
         let password = password.filter(|p| !p.is_empty()).map(str::to_owned);
-        Ok(Self { inner: Arc::new(Inner { path: path.to_owned(), pages, outline, links, text, queue, password }) })
+        Ok(Self {
+            inner: Arc::new(Inner { path: path.to_owned(), original, pages, outline, links, text, queue, password }),
+        })
     }
 
     pub fn path(&self) -> &Path {
@@ -438,27 +470,6 @@ pub fn decrypted(bytes: &[u8], password: &str) -> Result<Vec<u8>> {
     let mut out = Vec::with_capacity(bytes.len());
     doc.save_to(&mut out).context("the PDF could not be written")?;
     Ok(out)
-}
-
-/// Replaces `path` with `bytes` all at once: a crash half-way leaves the old file, not half a new one.
-pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
-    use std::io::Write as _;
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let temp = path.with_file_name(format!(".{name}.lumen-tmp"));
-    let result = (|| -> Result<()> {
-        let mut file = std::fs::File::create(&temp).context("cannot write there")?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        if let Ok(meta) = std::fs::metadata(path) {
-            let _ = std::fs::set_permissions(&temp, meta.permissions());
-        }
-        std::fs::rename(&temp, path)?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&temp);
-    }
-    result.with_context(|| format!("cannot save {}", path.display()))
 }
 
 /// A first-page thumbnail for the file strip. Blocking.
@@ -705,9 +716,25 @@ pub(crate) mod tests {
         let dir = std::env::temp_dir().join(format!("lumen-rs-locked-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let target = dir.join("saved.pdf");
-        let again = Document::save_changes(&path, &target, &changes, true).unwrap();
+        let again = opened.doc.save_changes(&target, &changes, true).unwrap();
         assert_eq!(again.imported.unwrap().layers[&0].items.len(), 1);
         assert_eq!(wants(Document::open_full(&target, false, None)), Some(false), "still protected");
+
+        // Another program rewriting the file does not matter: the changes go into what was opened.
+        let replaced = dir.join("replaced.pdf");
+        std::fs::copy(&path, &replaced).unwrap();
+        let opened = Document::open_full(&replaced, true, Some("secret")).unwrap();
+        std::fs::write(&replaced, structured_bytes()).unwrap();
+        let refs = opened.imported.as_ref().unwrap().refs.clone();
+        let changes = Changes { refs: &refs, ..changes };
+        let again = opened.doc.save_changes(&replaced, &changes, true).unwrap();
+        assert_eq!(again.imported.unwrap().layers[&0].items.len(), 1);
+        assert!(std::fs::read(&replaced).unwrap().starts_with(&std::fs::read(&path).unwrap()));
+        // And bytes that do not open again never replace a file.
+        let before = std::fs::read(&target).unwrap();
+        assert!(Document::save_bytes(&target, b"%PDF-1.7 broken".to_vec(), false, None, 1).is_err());
+        assert!(Document::save_bytes(&target, structured_bytes(), false, None, 9).is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), before);
 
         // The printable copy opens without a password.
         let plain = decrypted(&std::fs::read(&target).unwrap(), "secret").unwrap();

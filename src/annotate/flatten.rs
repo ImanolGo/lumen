@@ -4,7 +4,7 @@
 use std::fmt::Write as _;
 use std::path::Path;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use image::{ImageEncoder, ImageFormat, RgbaImage};
 use resvg::{tiny_skia, usvg};
 
@@ -95,12 +95,7 @@ pub fn save(picture: RgbaImage, layer: &AnnotationLayer, path: &Path, meta: &cra
         .filter(|f| f.can_write())
         .context("choose a file name ending in .png, .jpg, .webp, .tif or another format Lumen can write")?;
     let flat = flatten(picture, layer)?;
-    let temp = path.with_file_name(format!(
-        ".{}.lumen-tmp",
-        path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
-    ));
-    let result = (|| -> Result<()> {
-        let mut file = std::io::BufWriter::new(std::fs::File::create(&temp).context("cannot write there")?);
+    crate::fsio::write_atomic_with(path, |file| {
         // Formats that cannot hold metadata just get the pixels.
         let keep = |encoder: &mut dyn image::ImageEncoder| {
             if let Some(icc) = &meta.icc {
@@ -117,44 +112,29 @@ pub fn save(picture: RgbaImage, layer: &AnnotationLayer, path: &Path, meta: &cra
                 let mut white = RgbaImage::from_pixel(w, h, image::Rgba([255, 255, 255, 255]));
                 image::imageops::overlay(&mut white, &flat, 0, 0);
                 let rgb = image::DynamicImage::ImageRgba8(white).to_rgb8();
-                let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut file, 92);
+                let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut *file, 92);
                 keep(&mut encoder);
                 encoder.write_image(&rgb, w, h, image::ExtendedColorType::Rgb8)?;
             }
             ImageFormat::Png => {
-                let mut encoder = image::codecs::png::PngEncoder::new(&mut file);
+                let mut encoder = image::codecs::png::PngEncoder::new(&mut *file);
                 keep(&mut encoder);
                 encoder.write_image(&flat, w, h, image::ExtendedColorType::Rgba8)?;
             }
             ImageFormat::WebP => {
-                let mut encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut file);
+                let mut encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut *file);
                 keep(&mut encoder);
                 encoder.write_image(&flat, w, h, image::ExtendedColorType::Rgba8)?;
             }
             ImageFormat::Bmp | ImageFormat::Pnm => {
                 let mut white = RgbaImage::from_pixel(w, h, image::Rgba([255, 255, 255, 255]));
                 image::imageops::overlay(&mut white, &flat, 0, 0);
-                image::DynamicImage::ImageRgba8(white).to_rgb8().write_to(&mut file, format)?;
+                image::DynamicImage::ImageRgba8(white).to_rgb8().write_to(&mut *file, format)?;
             }
-            _ => flat.write_to(&mut file, format)?,
+            _ => flat.write_to(&mut *file, format)?,
         }
-        use std::io::Write as _;
-        file.flush()?;
         Ok(())
-    })();
-    if let Err(e) = result {
-        let _ = std::fs::remove_file(&temp);
-        return Err(e);
-    }
-    // Saving over a file keeps its permissions.
-    if let Ok(meta) = std::fs::metadata(path) {
-        let _ = std::fs::set_permissions(&temp, meta.permissions());
-    }
-    if let Err(e) = std::fs::rename(&temp, path) {
-        let _ = std::fs::remove_file(&temp);
-        bail!("cannot save {}: {e}", path.display());
-    }
-    Ok(())
+    })
 }
 
 #[cfg(test)]

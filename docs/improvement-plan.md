@@ -730,7 +730,7 @@ say exactly which systems those are.
 | # | Package | Status |
 |---|---|---|
 | 1 | The decoder fails closed and stays within limits | Done. The worker keeps `prctl`, for naming threads and mappings only. `clone3` is answered with `ENOSYS`. JPEG XL and JPEG 2000 memory is bounded by the worker's 8 GB address-space limit; their internals were not read. Also found and fixed: the size check on the worker's answer overflowed, and a page that failed to render was requested in a loop. |
-| 2 | Saving does not lose or expose data | |
+| 2 | Saving does not lose or expose data | Done. 2.4's suspected case (recovery without `/Prev`) was not reproduced; the new bytes are checked before writing anyway. Article threads are dropped whole when pages are removed. The new questions (overwrite, trash) were tested by message, not yet looked at. |
 | 3 | PDF writing keeps what other programs wrote | |
 | 4 | Smaller defects, things that disagree, finish the review | |
 | 5 | Platform layer (Linux only) | |

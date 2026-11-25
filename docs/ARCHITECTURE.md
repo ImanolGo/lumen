@@ -35,7 +35,7 @@ dependencies (touchpad pinch); see `vendor/README.md`.
 - **Pictures.** `raster::load` asks `sandbox::run` to decode in `lumen-rs --decode-worker`. The parent hands the open file to the worker as its standard input; the worker shuts itself in (Landlock, then seccomp) before reading it, and writes the pixels back over a pipe. The same worker makes thumbnails and print copies, and streams the frames of animations. It sends one byte once it is shut in; only a worker that ends without it, with the "no sandbox" status, means the sandbox is unavailable. Only then do the decoders run in-process; any other failure is an error for that picture. SVG and PDF are not sandboxed: they need fonts and file access, and they are memory-safe Rust.
 - **PDFs.** `pdf::Document` parses the file once per render thread. Only the pages near the view are rendered, newest request first, and re-rendered at every zoom level. Text, links and the outline are read lazily (`structure.rs`) for search and selection.
 - **Editing.** A picture keeps the original and an `Edits` value (turns, mirror, crop, resize, colour); the shown picture is computed in the background. Markup is kept in picture or page coordinates and follows every edit. Saving flattens it (pictures) or writes real annotations (PDFs).
-- **Saving a PDF** appends an incremental update, so the original bytes stay as they were. Page changes rewrite the file (`pages.rs`), carrying markup, form values and a password along.
+- **Saving a PDF** appends an incremental update, so the original bytes stay as they were: `pdf::Document` keeps the bytes it was opened from, and changes are only ever applied to those. Page changes rewrite the file (`pages.rs`), carrying markup, form values and a password along.
 - **Coordinate spaces.** Page points (1/72 inch, origin top left, after the page's own rotation) for PDFs; picture pixels for pictures; logical pixels on screen. `view.zoom` converts between them, and the overlay canvas places annotations with it.
 - **State.** Everything the user can see is a field of `App` (`src/app.rs`); preferences are in `settings::Settings` and are written when changed.
 
@@ -53,6 +53,7 @@ dependencies (touchpad pinch); see `vendor/README.md`.
 | `src/clipboard.rs` | Copying a picture to the clipboard (Wayland data-control, `wl-clipboard-rs`) |
 | `src/thumbcache.rs` | The desktop's thumbnail cache (freedesktop standard): read, write, MD5 naming |
 | `src/watch.rs` | Notices another program changing the open file (inotify on its folder) |
+| `src/fsio.rs` | Writing files all at once, private folders and files |
 | `src/state.rs` | What Lumen remembers between runs: window size, recent files, each PDF's page |
 | `src/i18n.rs`, `po/` | Translations: the `.po` reader, `tr()`, the catalogues |
 | `assets/fonts` | Inter (Latin), under the SIL Open Font License (`OFL.txt`) |
@@ -80,6 +81,7 @@ dependencies (touchpad pinch); see `vendor/README.md`.
 | `src/forms.rs`, `src/app/forms.rs` | Form fields: reading, writing values and their appearances; the inputs over the page |
 | `src/pages.rs`, `src/app/pages.rs` | Page plans (reorder, turn, delete, insert), writing them, and the page organiser |
 | `src/app/pagelist.rs` | The Pages sidebar tab and the go-to-page box |
+| `src/redact.rs` | Taking removed pages out of a PDF for good, with everything that leads to them |
 | `src/properties.rs` | What the Properties dialog shows |
 | `src/export.rs`, `src/app/export.rs` | Exporting pages as PNG or PDF, pictures as PDF; the Export dialog |
 

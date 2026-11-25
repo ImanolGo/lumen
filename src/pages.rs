@@ -68,6 +68,13 @@ pub struct Source {
     pub password: Option<String>,
 }
 
+impl Source {
+    /// An open document's pages, as it was opened.
+    pub fn of(doc: &crate::pdf::Document) -> Self {
+        Self { bytes: doc.original().to_vec(), password: doc.password().map(str::to_owned) }
+    }
+}
+
 /// Attributes a page may inherit from the page tree; they are copied onto each page,
 /// because a page that moves to a new parent must not lose them.
 const INHERITED: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox", b"Rotate"];
@@ -100,6 +107,11 @@ fn rotation_of(doc: &Document, page: ObjectId) -> i64 {
         Some(Object::Reference(id)) => doc.get_object(id).ok().and_then(|o| o.as_i64().ok()).unwrap_or(0),
         _ => 0,
     }
+}
+
+fn kids_of(doc: &Document, node: ObjectId) -> Vec<ObjectId> {
+    let kids = doc.get_dictionary(node).and_then(|d| d.get(b"Kids")).and_then(Object::as_array);
+    kids.map(|k| k.iter().filter_map(|o| o.as_reference().ok()).collect()).unwrap_or_default()
 }
 
 /// A document made of `plan`: entry source 0 is `base`, source n is `extras[n - 1]`.
@@ -141,12 +153,13 @@ pub fn compose(base: &Source, extras: &[Source], plan: &[Entry]) -> Result<Vec<u
     let root: ObjectId =
         doc.catalog()?.get(b"Pages").and_then(Object::as_reference).context("the document has no page tree")?;
     let mut kids = Vec::with_capacity(plan.len());
+    let mut used = std::collections::HashSet::new();
     for entry in plan {
         let id = *pages
             .get(entry.source)
             .and_then(|p| p.get(&(entry.index as u32 + 1)))
             .with_context(|| format!("page {} is missing", entry.index + 1))?;
-        if kids.contains(&Object::Reference(id)) {
+        if !used.insert(id) {
             bail!("a page cannot be in the document twice");
         }
         let total = (turn[&id] + entry.rotate as i64).rem_euclid(360);
@@ -164,6 +177,9 @@ pub fn compose(base: &Source, extras: &[Source], plan: &[Entry]) -> Result<Vec<u
         tree.remove(key);
     }
 
+    let kept: Vec<ObjectId> = kids_of(&doc, root);
+    let removed = pages.iter().flat_map(|p| p.values().copied()).filter(|id| !used.contains(id)).collect();
+    crate::redact::remove_pages(&mut doc, &removed, &kept);
     doc.prune_objects();
     if let Some(state) = encryption {
         doc.encrypt(&state).context("the PDF could not be protected again")?;
@@ -241,6 +257,171 @@ mod tests {
         assert_eq!(pages.len(), 3);
         assert!(pages[0].0 == "Second page" && pages[0].1 == 90, "{pages:?}");
         assert!(pages[1].0.contains("Hello") && pages[2].0.contains("Hello"), "{pages:?}");
+    }
+
+    /// Three pages that everything in a document can lead to: an outline, named destinations of both
+    /// kinds, links, a form with fields on each page, and a structure tree that repeats the text.
+    fn connected() -> Vec<u8> {
+        use lopdf::{Stream, dictionary};
+        let mut doc = Document::with_version("1.7");
+        let font = doc.add_object(dictionary! { "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica" });
+        let (tree, pages): (ObjectId, Vec<ObjectId>) =
+            (doc.new_object_id(), (0..3).map(|_| doc.new_object_id()).collect());
+        let (form_field, struct_root, struct_doc) = (doc.new_object_id(), doc.new_object_id(), doc.new_object_id());
+        let dest = |i: usize| vec![Object::Reference(pages[i]), "Fit".into()];
+        let rect = || -> Vec<Object> { vec![0.into(), 0.into(), 50.into(), 20.into()] };
+        let (mut widgets, mut elements) = (Vec::new(), Vec::new());
+        for (i, page) in pages.iter().enumerate() {
+            let n = i + 1;
+            let content = format!("/P <</MCID 0>> BDC BT /F1 12 Tf 72 700 Td (secret{n}) Tj ET EMC");
+            let content = doc.add_object(Stream::new(dictionary! {}, content.into_bytes()));
+            let look = format!("BT /F1 9 Tf (widget{n}) Tj ET").into_bytes();
+            let look = doc.add_object(Stream::new(dictionary! { "Subtype" => "Form", "BBox" => rect() }, look));
+            let widget = doc.add_object(dictionary! {
+                "Subtype" => "Widget", "Parent" => form_field, "P" => *page, "Rect" => rect(),
+                "AP" => dictionary! { "N" => look },
+            });
+            let own = doc.add_object(dictionary! {
+                "Subtype" => "Widget", "FT" => "Tx", "T" => Object::string_literal(format!("own{n}")), "P" => *page,
+                "V" => Object::string_literal(format!("value{n}")), "Rect" => rect(),
+            });
+            let link = doc.add_object(dictionary! { "Subtype" => "Link", "Rect" => rect(), "Dest" => dest(2) });
+            let jump = doc.add_object(dictionary! {
+                "Subtype" => "Link", "Rect" => rect(),
+                "A" => dictionary! { "S" => "GoTo", "D" => Object::string_literal("third") },
+            });
+            let element = doc.add_object(dictionary! {
+                "Type" => "StructElem", "S" => "P", "P" => struct_doc, "Pg" => *page, "K" => 0,
+                "ActualText" => Object::string_literal(format!("spoken{n}")),
+            });
+            widgets.push((Object::Reference(widget), Object::Reference(own)));
+            elements.push(Object::Reference(element));
+            doc.objects.insert(
+                *page,
+                dictionary! {
+                    "Type" => "Page", "Parent" => tree, "MediaBox" => vec![0.into(), 0.into(), 600.into(), 800.into()],
+                    "Contents" => content, "Resources" => dictionary! { "Font" => dictionary! { "F1" => font } },
+                    "Annots" => vec![widget.into(), own.into(), link.into(), jump.into()],
+                }
+                .into(),
+            );
+        }
+        let kids: Vec<Object> = pages.iter().map(|p| Object::Reference(*p)).collect();
+        doc.objects.insert(tree, dictionary! { "Type" => "Pages", "Kids" => kids, "Count" => 3 }.into());
+        doc.objects.insert(
+            form_field,
+            dictionary! {
+                "FT" => "Tx", "T" => Object::string_literal("shared"),
+                "Kids" => widgets.iter().map(|w| w.0.clone()).collect::<Vec<_>>(),
+            }
+            .into(),
+        );
+        let mut fields: Vec<Object> = vec![form_field.into()];
+        fields.extend(widgets.iter().map(|w| w.1.clone()));
+        doc.objects.insert(
+            struct_doc,
+            dictionary! {
+                "Type" => "StructElem", "S" => "Document", "P" => struct_root, "K" => elements.clone(),
+                "Alt" => Object::string_literal("spoken3 as well"),
+            }
+            .into(),
+        );
+        let parents = doc.add_object(dictionary! { "Nums" => vec![0.into(), Object::Array(elements)] });
+        doc.objects.insert(
+            struct_root,
+            dictionary! { "Type" => "StructTreeRoot", "K" => struct_doc, "ParentTree" => parents }.into(),
+        );
+        // First, second (holding third), and a third one by name.
+        let (outline, items) = (doc.new_object_id(), (0..4).map(|_| doc.new_object_id()).collect::<Vec<_>>());
+        let title = |t: &str| Object::string_literal(t);
+        doc.objects.insert(outline, dictionary! { "First" => items[0], "Last" => items[3], "Count" => 4 }.into());
+        doc.objects.insert(
+            items[0],
+            dictionary! {
+                "Title" => title("title1"), "Parent" => outline, "Next" => items[1], "Dest" => dest(0),
+            }
+            .into(),
+        );
+        doc.objects.insert(items[1], dictionary! {
+            "Title" => title("title2"), "Parent" => outline, "Prev" => items[0], "Next" => items[3], "Dest" => dest(1),
+            "First" => items[2], "Last" => items[2], "Count" => 1,
+        }.into());
+        doc.objects.insert(
+            items[2],
+            dictionary! { "Title" => title("title3"), "Parent" => items[1], "Dest" => dest(2) }.into(),
+        );
+        doc.objects.insert(
+            items[3],
+            dictionary! {
+                "Title" => title("title3 by name"), "Parent" => outline, "Prev" => items[1], "Dest" => title("third"),
+            }
+            .into(),
+        );
+        let names: Vec<Object> = vec![title("first"), dest(0).into(), title("third"), dest(2).into()];
+        let names = doc.add_object(dictionary! { "Names" => names });
+        let names = doc.add_object(dictionary! { "Kids" => vec![names.into()] });
+        let catalog = doc.add_object(dictionary! {
+            "Type" => "Catalog", "Pages" => tree, "Outlines" => outline, "StructTreeRoot" => struct_root,
+            "OpenAction" => dest(2), "Names" => dictionary! { "Dests" => names },
+            "Dests" => dictionary! { "old3" => dest(2), "old1" => dest(0) },
+            "AcroForm" => dictionary! { "Fields" => fields },
+        });
+        doc.trailer.set("Root", catalog);
+        let mut out = Vec::new();
+        doc.save_to(&mut out).unwrap();
+        out
+    }
+
+    /// Every stream unpacked, so that text anywhere in the file can be found.
+    fn unpacked(bytes: &[u8]) -> String {
+        let mut doc = Document::load_mem(bytes).unwrap();
+        doc.decompress();
+        let mut out = Vec::new();
+        doc.save_to(&mut out).unwrap();
+        String::from_utf8_lossy(&out).into_owned()
+    }
+
+    #[test]
+    fn nothing_of_a_removed_page_is_left_in_the_file() {
+        let source = || Source { bytes: connected(), password: None };
+        let all = unpacked(&compose(&source(), &[], &identity(3)).unwrap());
+        let words = ["secret", "widget", "value", "own", "spoken", "title"];
+        for word in words {
+            for n in 1..=3 {
+                assert!(all.contains(&format!("{word}{n}")), "{word}{n} is there to begin with");
+            }
+        }
+        assert!(all.contains("old3") && all.contains("OpenAction"), "nothing is dropped when no page is");
+
+        let some = compose(&source(), &[], &[e(0), e(1)]).unwrap();
+        let text = unpacked(&some);
+        for word in words {
+            assert!(!text.contains(&format!("{word}3")), "{word}3 is still in the file");
+            assert!(text.contains(&format!("{word}1")) && text.contains(&format!("{word}2")), "{word} of kept pages");
+        }
+        assert!(!text.contains("third") && !text.contains("old3") && !text.contains("OpenAction"));
+        assert!(text.contains("first") && text.contains("old1"));
+        // What is left is sound: the outline, and the form.
+        let pdf = Pdf::new(some).unwrap();
+        let (outline, links) = crate::structure::read(&pdf);
+        assert_eq!(outline.iter().map(|o| o.title.as_str()).collect::<Vec<_>>(), ["title1", "title2"]);
+        assert!(links.iter().all(Vec::is_empty), "{links:?}");
+        let form = crate::forms::read(&pdf);
+        assert_eq!(form.fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), ["shared", "own1", "own2"]);
+        assert_eq!(form.fields[0].widgets.len(), 2);
+        // Taking one page of it into another document brings nothing else along.
+        let base = Source { bytes: crate::pdf::tests::structured_bytes(), password: None };
+        let plan = [e(0), Entry { source: 1, index: 0, rotate: 0 }];
+        let text = unpacked(&compose(&base, &[source()], &plan).unwrap());
+        assert!(text.contains("secret1") && !text.contains("secret2") && !text.contains("widget3"), "{text}");
+    }
+
+    #[test]
+    fn an_exported_page_does_not_bring_the_others_along() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/pages.pdf");
+        let source = Source { bytes: std::fs::read(path).unwrap(), password: None };
+        let text = unpacked(&compose(&source, &[], &[e(0)]).unwrap());
+        assert!(text.contains("Page 1") && !text.contains("needle"));
     }
 
     #[test]

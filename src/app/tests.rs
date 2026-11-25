@@ -719,3 +719,55 @@ fn the_property_and_shortcut_dialogs_open_and_close() {
     let _ = app.update(Message::Escape);
     assert!(app.dialog.is_none());
 }
+
+#[test]
+fn saving_over_a_file_that_changed_asks_first() {
+    use std::time::SystemTime;
+    let _inside = runtime().enter();
+    let mut app = pdf_app();
+    let path = app.current_path().unwrap().to_path_buf();
+    app.disk = Some(disk_baseline(&path));
+    app.marks = Some(DocMarkup::new(Default::default(), vec![Vec::new(); 5], 1.0));
+    let marks = app.marks.as_mut().unwrap();
+    marks
+        .store
+        .pages
+        .layers
+        .entry(0)
+        .or_default()
+        .add(annotate::Shape::Rect(annotate::Rect::new(1.0, 1.0, 9.0, 9.0)), Default::default());
+    assert!(app.has_unsaved_changes() && !app.changed_on_disk());
+    let _ = app.update(Message::FileStat(path.clone(), Some((SystemTime::now(), 1))));
+    assert!(app.changed_on_disk());
+    let _ = app.update(Message::Markup(markup::MarkupMsg::Save));
+    assert_eq!(app.confirm, Some(Confirm::Overwrite));
+    assert!(app.markup_busy.is_none(), "nothing is written yet");
+    // Escape is no; the control interface is told why.
+    let _ = app.update(Message::Escape);
+    assert_eq!(app.confirm, None);
+    assert!(app.control_run(&Command::Save).0.unwrap_err().contains("changed on disk"));
+}
+
+#[test]
+fn trashing_a_file_with_unsaved_changes_asks_and_undo_brings_them_back() {
+    let _inside = runtime().enter();
+    let mut app = pdf_app();
+    let path = app.current_path().unwrap().to_path_buf();
+    app.marks = Some(DocMarkup::new(Default::default(), vec![Vec::new(); 5], 1.0));
+    let layers = &mut app.marks.as_mut().unwrap().store.pages.layers;
+    layers
+        .entry(0)
+        .or_default()
+        .add(annotate::Shape::Rect(annotate::Rect::new(1.0, 1.0, 9.0, 9.0)), Default::default());
+    let _ = app.update(Message::Trash);
+    assert_eq!(app.confirm, Some(Confirm::Trash));
+    let _ = app.update(Message::ConfirmNo);
+    assert_eq!(app.confirm, None);
+    // It went to the trash: the changes are kept aside, and count as unsaved no longer.
+    let item = crate::trash::Trashed::for_test(path.clone());
+    let _ = app.update(Message::Trashed(0, Ok(item)));
+    assert!(matches!(app.doc, Doc::Empty));
+    assert_eq!(app.unsaved_files(), 0);
+    let _ = app.update(Message::UndoTrash);
+    assert!(app.stash.contains_key(&path));
+}

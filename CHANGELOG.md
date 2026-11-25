@@ -13,7 +13,16 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - The worker still starts after a package upgrade replaced the binary while Lumen was running.
 - PDF pages of absurd size, and annotations and form fields that share one huge array, no longer exhaust the memory.
 
+- Pages deleted in the organiser, or left out of an export, are really gone from the file: outline entries, links, named destinations, form fields and tagged text that led to them go too.
+- The unlocked copy of a protected PDF made for printing is in a private folder and deleted after printing.
+
 ### Fixed
+- Saving a PDF that another program rewrote no longer damages it: changes go into the version that was opened, and saving asks first (overwrite, or save a copy).
+- Every save goes to the disk before it replaces the old file, follows links, and cannot collide with another save. A PDF is only written if the result opens again with all its pages.
+- Moving a file with unsaved changes to the trash asks first, and Undo brings the changes back too.
+- A damaged signatures file is kept (`signatures.toml.bak`) instead of written over; several windows, and the GTK Lumen, no longer overwrite each other's signatures, recent files or preferences.
+- One recent file with a name that is not UTF-8 no longer empties the list; files on a disk that is not mounted are remembered.
+- A saved picture only carries its colour profile over when that is an RGB one.
 - Printing a picture whose decoded size is refused no longer waits for ever.
 - A PDF page that cannot be rendered says so instead of being asked for again without end.
 - A file name that is not UTF-8 no longer crashes Lumen at start.

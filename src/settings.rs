@@ -5,6 +5,7 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 
@@ -79,6 +80,11 @@ pub const SLIDESHOW_SECONDS: [u32; 6] = [2, 3, 5, 8, 12, 20];
 pub const CACHE_MB: [u32; 4] = [32, 64, 128, 256];
 pub const PRELOAD_MEGAPIXELS: [u32; 4] = [0, 4, 12, 24];
 
+const HEADER: &str = "# Lumen preferences. Lumen rewrites this file when you change them in the app.\n";
+
+/// The settings as they were when Lumen started.
+static LOADED: OnceLock<toml::Table> = OnceLock::new();
+
 impl Settings {
     /// `~/.config/lumen-rs/settings.toml`.
     pub fn path() -> Option<PathBuf> {
@@ -91,7 +97,9 @@ impl Settings {
 
     pub fn load() -> Self {
         let Some(text) = Self::path().and_then(|p| std::fs::read_to_string(p).ok()) else { return Self::default() };
-        Self::parse(&text)
+        let settings = Self::parse(&text);
+        let _ = LOADED.set(settings.table());
+        settings
     }
 
     /// Reads settings from TOML, setting by setting: whatever cannot be read keeps its default.
@@ -135,10 +143,9 @@ impl Settings {
         self.preload_megapixels = self.preload_megapixels.min(200);
     }
 
+    #[cfg(test)]
     pub fn to_toml(&self) -> String {
-        let mut text = String::from("# Lumen preferences. Lumen rewrites this file when you change them in the app.\n");
-        text.push_str(&toml::to_string_pretty(self).unwrap_or_default());
-        text
+        format!("{HEADER}{}", toml::to_string_pretty(self).unwrap_or_default())
     }
 
     /// Writes the file (all at once, so a crash never leaves half of it). Tests of the app
@@ -147,23 +154,33 @@ impl Settings {
         if cfg!(test) {
             return;
         }
+        static KNOWN: Mutex<Option<toml::Table>> = Mutex::new(None);
         if let Some(path) = Self::path() {
-            self.save_to(&path);
+            let mut known = KNOWN.lock().unwrap_or_else(|e| e.into_inner());
+            // Before the first save: what this run started from.
+            let before = known.take().unwrap_or_else(|| LOADED.get().cloned().unwrap_or_default());
+            self.save_to(&path, &before);
+            *known = Some(self.table());
         }
     }
 
-    /// Writes the file at `path`.
-    pub fn save_to(&self, path: &std::path::Path) {
-        let write = || -> std::io::Result<()> {
-            if let Some(dir) = path.parent() {
-                std::fs::create_dir_all(dir)?;
+    fn table(&self) -> toml::Table {
+        toml::Table::try_from(self).unwrap_or_default()
+    }
+
+    /// Writes the file at `path`, changing only what differs from `before`: another window may have
+    /// changed the rest.
+    pub fn save_to(&self, path: &std::path::Path, before: &toml::Table) {
+        let disk = std::fs::read_to_string(path).ok().and_then(|text| text.parse::<toml::Table>().ok());
+        let mut table = disk.unwrap_or_default();
+        for (key, value) in self.table() {
+            if before.get(&key) != Some(&value) || !table.contains_key(&key) {
+                table.insert(key, value);
             }
-            let temp = path.with_extension("toml.tmp");
-            std::fs::write(&temp, self.to_toml())?;
-            std::fs::rename(&temp, path)
-        };
-        if let Err(e) = write() {
-            tracing::warn!("could not save the settings to {}: {e}", path.display());
+        }
+        let text = format!("{HEADER}{}", toml::to_string_pretty(&table).unwrap_or_default());
+        if let Err(e) = crate::fsio::write_quickly(path, text.as_bytes()) {
+            tracing::warn!("could not save the settings to {}: {e:#}", path.display());
         }
     }
 
@@ -236,11 +253,12 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("lumen-rs-settings-{}", std::process::id()));
         let path = dir.join("nested/lumen-rs/settings.toml");
         let settings = Settings { slideshow_seconds: 9, theme: Theme::Light, ..Settings::default() };
-        settings.save_to(&path);
+        settings.save_to(&path, &toml::Table::new());
         assert_eq!(Settings::parse(&std::fs::read_to_string(&path).unwrap()), settings);
         assert!(!path.with_extension("toml.tmp").exists());
         // Saving again replaces it.
-        Settings { slideshow_seconds: 3, ..settings }.save_to(&path);
+        let before = settings.table();
+        Settings { slideshow_seconds: 3, ..settings }.save_to(&path, &before);
         assert_eq!(Settings::parse(&std::fs::read_to_string(&path).unwrap()).slideshow_seconds, 3);
         std::fs::remove_dir_all(&dir).unwrap();
     }

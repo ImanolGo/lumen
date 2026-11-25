@@ -3,6 +3,7 @@
 //! `~/.local/state/lumen-rs/state.toml` (or under `$XDG_STATE_HOME`). It is only ever a
 //! convenience: a missing or damaged file is the same as an empty one.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -19,6 +20,12 @@ pub struct Recent {
     /// The page a PDF was left at, counting from 0.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page: Option<usize>,
+    /// When it was last opened (milliseconds since 1970), to tell whose news is newer.
+    #[serde(default)]
+    pub at: u64,
+    /// It is not there now (a disk that is not mounted, say): kept, but not listed.
+    #[serde(skip)]
+    pub missing: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -29,6 +36,18 @@ pub struct State {
     /// Most recent first.
     #[serde(default)]
     pub recent: Vec<Recent>,
+    /// What this run did to the list, for merging it with what other windows wrote.
+    #[serde(skip)]
+    forgotten: HashSet<PathBuf>,
+    #[serde(skip)]
+    touched: HashSet<PathBuf>,
+    /// The list was cleared at this time.
+    #[serde(skip)]
+    cleared: u64,
+}
+
+fn now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
 impl State {
@@ -41,12 +60,19 @@ impl State {
         Some(base.join("lumen-rs").join("state.toml"))
     }
 
-    /// Reads the file, forgetting recent files that are gone.
+    /// Reads the file, noting which recent files are not there.
     pub fn load() -> Self {
         let Some(text) = Self::path().and_then(|p| std::fs::read_to_string(p).ok()) else { return Self::default() };
         let mut state = Self::parse(&text);
-        state.recent.retain(|r| r.path.exists());
+        for r in &mut state.recent {
+            r.missing = !r.path.exists();
+        }
         state
+    }
+
+    /// The recent files that are there.
+    pub fn listed(&self) -> impl Iterator<Item = &Recent> {
+        self.recent.iter().filter(|r| !r.missing)
     }
 
     /// Reads TOML; anything unreadable gives an empty state.
@@ -59,7 +85,34 @@ impl State {
     }
 
     pub fn to_toml(&self) -> String {
-        toml::to_string_pretty(self).unwrap_or_default()
+        // TOML is text: a path that is not cannot be written, and must not stop the rest.
+        let recent = self.recent.iter().filter(|r| r.path.to_str().is_some()).cloned().collect();
+        let writable = Self { window: self.window, recent, ..Self::default() };
+        toml::to_string_pretty(&writable).unwrap_or_default()
+    }
+
+    /// This state with what other windows have written to the file since it was read.
+    fn merged(&self, disk: Self) -> Self {
+        let mut recent: Vec<Recent> = Vec::new();
+        for r in &self.recent {
+            // What this run only read, and is not in the file any more, another window took out.
+            if self.touched.contains(&r.path) || disk.recent.iter().any(|d| d.path == r.path) {
+                recent.push(r.clone());
+            }
+        }
+        for d in disk.recent {
+            let gone = self.forgotten.contains(&d.path) || d.at < self.cleared;
+            match recent.iter_mut().find(|r| r.path == d.path) {
+                Some(r) if d.at > r.at => (r.page, r.at) = (d.page, d.at),
+                Some(_) => {}
+                None if gone => {}
+                None => recent.push(d),
+            }
+        }
+        // Stable: those that were never dated keep their order, at the end.
+        recent.sort_by_key(|r| std::cmp::Reverse(r.at));
+        recent.truncate(MAX_RECENT);
+        Self { window: self.window.or(disk.window), recent, ..Self::default() }
     }
 
     /// Writes the file all at once (tests never write the real one).
@@ -68,16 +121,10 @@ impl State {
             return;
         }
         let Some(path) = Self::path() else { return };
-        let write = || -> std::io::Result<()> {
-            if let Some(dir) = path.parent() {
-                std::fs::create_dir_all(dir)?;
-            }
-            let temp = path.with_extension("toml.tmp");
-            std::fs::write(&temp, self.to_toml())?;
-            std::fs::rename(&temp, &path)
-        };
-        if let Err(e) = write() {
-            tracing::warn!("could not save the state to {}: {e}", path.display());
+        let disk = std::fs::read_to_string(&path).map(|text| Self::parse(&text));
+        let merged = disk.map_or_else(|_| self.clone(), |disk| self.merged(disk));
+        if let Err(e) = crate::fsio::write_quickly(&path, merged.to_toml().as_bytes()) {
+            tracing::warn!("could not save the state to {}: {e:#}", path.display());
         }
     }
 
@@ -87,7 +134,9 @@ impl State {
             Some(i) => self.recent.remove(i).page,
             None => None,
         };
-        self.recent.insert(0, Recent { path: path.to_path_buf(), page });
+        self.recent.insert(0, Recent { path: path.to_path_buf(), page, at: now(), missing: false });
+        self.forgotten.remove(path);
+        self.touched.insert(path.to_path_buf());
         self.recent.truncate(MAX_RECENT);
     }
 
@@ -105,10 +154,12 @@ impl State {
     /// Forgets a file (it could not be opened, or the person cleared the list).
     pub fn forget(&mut self, path: &Path) {
         self.recent.retain(|r| r.path != path);
+        self.forgotten.insert(path.to_path_buf());
     }
 
     pub fn clear_recent(&mut self) {
         self.recent.clear();
+        self.cleared = now();
     }
 
     /// The window size to start with, if one was saved.
@@ -160,11 +211,55 @@ mod tests {
     }
 
     #[test]
+    fn a_path_that_is_not_text_does_not_empty_the_file() {
+        use std::os::unix::ffi::OsStrExt;
+        let mut s = State { window: Some((1000, 700)), ..State::default() };
+        s.touch(Path::new("/x/y.pdf"));
+        s.touch(Path::new(std::ffi::OsStr::from_bytes(b"/x/\xe9.pdf")));
+        let back = State::parse(&s.to_toml());
+        assert_eq!(back.window, Some((1000, 700)));
+        assert_eq!(back.recent.len(), 1);
+    }
+
+    #[test]
+    fn files_that_are_not_there_are_kept_but_not_listed() {
+        let mut s = State::parse("[[recent]]\npath = \"/not/mounted.pdf\"\npage = 3\n");
+        s.recent[0].missing = true;
+        assert_eq!(s.listed().count(), 0);
+        assert!(s.to_toml().contains("/not/mounted.pdf"));
+        s.touch(Path::new("/not/mounted.pdf"));
+        assert_eq!((s.listed().count(), s.recent[0].page), (1, Some(3)));
+    }
+
+    #[test]
+    fn two_windows_do_not_undo_each_other() {
+        let old = "[[recent]]\npath = \"/a\"\n[[recent]]\npath = \"/b\"\n[[recent]]\npath = \"/c\"\n";
+        let paths = |s: &State| s.recent.iter().map(|r| r.path.to_str().unwrap().to_owned()).collect::<Vec<_>>();
+        let (mut one, mut two) = (State::parse(old), State::parse(old));
+        one.touch(Path::new("/one"));
+        one.forget(Path::new("/b"));
+        let disk = one.merged(State::parse(old));
+        assert_eq!(paths(&disk), ["/one", "/a", "/c"]);
+        std::thread::sleep(std::time::Duration::from_millis(3));
+        two.touch(Path::new("/two"));
+        let disk = two.merged(State::parse(&disk.to_toml()));
+        assert_eq!(paths(&disk), ["/two", "/one", "/a", "/c"], "what one forgot stays forgotten");
+        // Clearing the list takes everything that was there, but not what is opened later.
+        std::thread::sleep(std::time::Duration::from_millis(3));
+        one.clear_recent();
+        assert!(one.merged(State::parse(&disk.to_toml())).recent.is_empty());
+        std::thread::sleep(std::time::Duration::from_millis(3));
+        two.touch(Path::new("/later"));
+        assert_eq!(paths(&one.merged(two.clone())), ["/later"]);
+    }
+
+    #[test]
     fn it_round_trips_and_survives_nonsense() {
         let mut s = State { window: Some((1000, 700)), ..State::default() };
         s.touch(Path::new("/x/y.pdf"));
         s.set_page(Path::new("/x/y.pdf"), 7);
-        assert_eq!(State::parse(&s.to_toml()), s);
+        let back = State::parse(&s.to_toml());
+        assert_eq!((back.window, back.recent), (s.window, s.recent.clone()));
         assert_eq!(State::parse("this is [not toml"), State::default());
         assert_eq!(State::parse("recent = 5"), State::default());
         // A silly window size is brought into range.

@@ -296,9 +296,14 @@ impl App {
             PagesMsg::Save => {
                 let Doc::Pdf(view) = &self.doc else { return Task::none() };
                 let path = view.doc.path().to_owned();
+                if self.changed_on_disk() && self.confirm.take() != Some(super::Confirm::OverwritePages) {
+                    self.confirm = Some(super::Confirm::OverwritePages);
+                    return Task::none();
+                }
                 self.save_pages(path)
             }
             PagesMsg::SaveAs => {
+                self.confirm = None;
                 let Doc::Pdf(view) = &self.doc else { return Task::none() };
                 let p = view.doc.path();
                 let stem = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
@@ -321,6 +326,7 @@ impl App {
                 if generation != self.generation {
                     return self.notice(trf!("Saved “{}”", file_name(&target)));
                 }
+                self.disk_conflict = false;
                 // Markup and form values are in the file now; start from it afresh.
                 self.organizer = None;
                 self.marks = None;
@@ -381,10 +387,8 @@ impl App {
             return Task::none();
         }
         o.saving = true;
-        let source = view.doc.path().to_owned();
-        let password = view.doc.password().map(str::to_owned);
-        let extras: Vec<(PathBuf, Option<String>)> =
-            o.sources[1..].iter().map(|d| (d.path().to_owned(), d.password().map(str::to_owned))).collect();
+        let doc = view.doc.clone();
+        let extras = o.sources[1..].to_vec();
         let plan = o.plan.clone();
         let unsaved = self.has_unsaved_changes();
         let pending = self.pdf_changes();
@@ -394,18 +398,11 @@ impl App {
             {
                 let target = target.clone();
                 blocking(move || -> anyhow::Result<pdf::Opened> {
-                    let bytes = if unsaved {
-                        pdf::Document::with_changes(&source, &pending.changes())?
-                    } else {
-                        std::fs::read(&source)?
-                    };
-                    let extras = extras
-                        .into_iter()
-                        .map(|(path, password)| Ok(pages::Source { bytes: std::fs::read(path)?, password }))
-                        .collect::<anyhow::Result<Vec<_>>>()?;
+                    let bytes = if unsaved { doc.with_changes(&pending.changes())? } else { doc.original().to_vec() };
+                    let password = doc.password().map(str::to_owned);
+                    let extras: Vec<pages::Source> = extras.iter().map(pages::Source::of).collect();
                     let out = pages::compose(&pages::Source { bytes, password: password.clone() }, &extras, &plan)?;
-                    pdf::write_atomic(&target, &out)?;
-                    pdf::Document::open_full(&target, markup, password.as_deref())
+                    pdf::Document::save_bytes(&target, out, markup, password.as_deref(), plan.len())
                 })
             },
             move |r| {

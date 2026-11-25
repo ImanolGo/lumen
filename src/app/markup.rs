@@ -54,7 +54,7 @@ pub struct DocMarkup {
 }
 
 impl DocMarkup {
-    fn new(layers: Layers, refs: Vec<Vec<ObjRef>>, unit: f64) -> Self {
+    pub(super) fn new(layers: Layers, refs: Vec<Vec<ObjRef>>, unit: f64) -> Self {
         let mut store = Store::default();
         store.set_pages(layers.clone());
         Self { store, history: History::new(layers.clone()), saved: layers, refs, unit }
@@ -173,13 +173,6 @@ pub enum MarkupMsg {
 
 fn pt(p: hayro::kurbo::Rect) -> Rect {
     Rect::new(p.x0, p.y0, p.width(), p.height())
-}
-
-/// Somewhere for files that are printed with their unsaved markup.
-fn print_copy(name: &str) -> Result<PathBuf, String> {
-    let dir = std::env::temp_dir().join(format!("lumen-rs-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir.join(name))
 }
 
 impl App {
@@ -354,12 +347,10 @@ impl App {
                 let path = view.doc.path().to_owned();
                 self.markup_busy = Some("Preparing…");
                 let generation = self.generation;
-                let password = view.doc.password().map(str::to_owned);
+                let doc = view.doc.clone();
                 Task::perform(
-                    {
-                        let path = path.clone();
-                        blocking(move || pdf::Document::open_full(&path, true, password.as_deref()))
-                    },
+                    // From the bytes on screen: what is filled in belongs to those.
+                    blocking(move || doc.reopen(true)),
                     move |r| {
                         let r = r.map_err(pdf::OpenError::Failed).and_then(|r| r.map_err(pdf::OpenError::from));
                         Message::Markup(MarkupMsg::Prepared(generation, path.clone(), r))
@@ -748,6 +739,16 @@ impl App {
             MarkupMsg::Save => {
                 let done = self.finish_text();
                 match &self.doc {
+                    // Asked once; the answer comes back as the same message.
+                    Doc::Pdf(_) | Doc::Image(_)
+                        if self.has_unsaved_changes()
+                            && (matches!(self.doc, Doc::Pdf(_)) || self.picture_in_place().is_some())
+                            && self.changed_on_disk()
+                            && self.confirm.take() != Some(super::Confirm::Overwrite) =>
+                    {
+                        self.confirm = Some(super::Confirm::Overwrite);
+                        done
+                    }
                     Doc::Pdf(view) if self.has_unsaved_changes() => {
                         let path = view.doc.path().to_owned();
                         Task::batch([done, self.save_pdf(path)])
@@ -761,6 +762,7 @@ impl App {
                 }
             }
             MarkupMsg::SaveAs => {
+                self.confirm = None;
                 let done = self.finish_text();
                 let suggested = match &self.doc {
                     Doc::Pdf(view) => {
@@ -797,6 +799,7 @@ impl App {
                 self.markup_busy = None;
                 match result {
                     Ok(opened) if generation == self.generation => {
+                        self.disk_conflict = false;
                         if self.files.get(self.current).is_some_and(|p| *p != target) {
                             self.files[self.current] = target.clone();
                         }
@@ -821,6 +824,7 @@ impl App {
                 let in_place = self.current_path() == Some(target.as_path());
                 if in_place {
                     self.disk = Some(super::disk_baseline(&target));
+                    self.disk_conflict = false;
                 }
                 let saved = self.notice(if in_place {
                     trf!("Saved “{}”", file_name(&target))
@@ -881,7 +885,7 @@ impl App {
             return Task::none();
         }
         self.markup_busy = Some("Saving…");
-        let source = view.doc.path().to_owned();
+        let doc = view.doc.clone();
         let markup = self.marks.is_some();
         let pending = self.pdf_changes();
         let generation = self.generation;
@@ -889,9 +893,7 @@ impl App {
         Task::perform(
             {
                 let target = target.clone();
-                blocking(move || {
-                    pdf::Document::save_changes(&source, &target, &pending.changes(), markup).map_err(err_string)
-                })
+                blocking(move || doc.save_changes(&target, &pending.changes(), markup).map_err(err_string))
             },
             move |r| Message::Markup(MarkupMsg::PdfSaved(generation, target.clone(), saved.clone(), r.and_then(|r| r))),
         )
@@ -962,26 +964,25 @@ impl App {
     }
 
     /// For printing: a copy of the file with its markup, when it has markup the file lacks.
-    pub(super) fn printable_copy(&self) -> Option<Task<Result<PathBuf, String>>> {
+    pub(super) fn printable_copy(&self) -> Option<Task<Result<crate::print::Job, String>>> {
         match &self.doc {
             // Unsaved changes are printed too; a protected PDF is printed unlocked (the print system cannot open it).
             Doc::Pdf(view) if self.has_unsaved_changes() || view.doc.password().is_some() => {
-                let source = view.doc.path().to_owned();
+                let doc = view.doc.clone();
                 let pending = self.pdf_changes();
                 let unsaved = self.has_unsaved_changes();
                 Some(Task::perform(
                     blocking(move || {
                         let mut bytes = if unsaved {
-                            pdf::Document::with_changes(&source, &pending.changes()).map_err(err_string)?
+                            doc.with_changes(&pending.changes()).map_err(err_string)?
                         } else {
-                            std::fs::read(&source).map_err(|e| e.to_string())?
+                            doc.original().to_vec()
                         };
                         if let Some(password) = &pending.password {
                             bytes = pdf::decrypted(&bytes, password).map_err(err_string)?;
                         }
-                        let copy = print_copy(&file_name(&source))?;
-                        std::fs::write(&copy, bytes).map_err(|e| e.to_string())?;
-                        Ok(copy)
+                        let write = |path: &Path| Ok(crate::fsio::write_new(path, &bytes)?);
+                        crate::print::Job::copy(&file_name(doc.path()), write).map_err(err_string)
                     }),
                     |r| r.and_then(|r| r),
                 ))
@@ -991,9 +992,9 @@ impl App {
                 let stem = view.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
                 Some(Task::perform(
                     blocking(move || {
-                        let copy = print_copy(&format!("{stem}.png"))?;
-                        crate::annotate::flatten::save(rgba, &layer, &copy, &Default::default()).map_err(err_string)?;
-                        Ok(copy)
+                        let write =
+                            |path: &Path| crate::annotate::flatten::save(rgba, &layer, path, &Default::default());
+                        crate::print::Job::copy(&format!("{stem}.png"), write).map_err(err_string)
                     }),
                     |r| r.and_then(|r| r),
                 ))
@@ -1252,6 +1253,59 @@ impl App {
         islands.into()
     }
 
+    /// A question whose answer may lose something.
+    pub(super) fn confirm_dialog(&self, confirm: super::Confirm) -> Element<'_, Message> {
+        use super::Confirm;
+        let name = self.current_path().map(file_name).unwrap_or_default();
+        let (title, body, yes, go, copy) = match confirm {
+            Confirm::Trash => (
+                trf!("Move “{}” to the trash?", name),
+                tr("It has changes that are not saved. They come back only if you undo at once."),
+                tr("Move to Trash"),
+                Message::Trash,
+                None,
+            ),
+            Confirm::Overwrite => (
+                trf!("“{}” changed on disk", name),
+                tr("Another program changed this file after you opened it. Saving replaces what it wrote."),
+                tr("Overwrite"),
+                Message::Markup(MarkupMsg::Save),
+                Some(Message::Markup(MarkupMsg::SaveAs)),
+            ),
+            Confirm::OverwritePages => (
+                trf!("“{}” changed on disk", name),
+                tr("Another program changed this file after you opened it. Saving replaces what it wrote."),
+                tr("Overwrite"),
+                Message::Pages(super::pages::PagesMsg::Save),
+                Some(Message::Pages(super::pages::PagesMsg::SaveAs)),
+            ),
+        };
+        let mut actions = row![
+            space().width(Length::Fill),
+            button(text(tr("Cancel")).size(14)).padding([8, 16]).style(style::secondary).on_press(Message::ConfirmNo),
+        ]
+        .spacing(10);
+        if let Some(copy) = copy {
+            let label = text(tr("Save a Copy…")).size(14);
+            actions = actions.push(button(label).padding([8, 16]).style(style::secondary).on_press(copy));
+        }
+        actions =
+            actions.push(button(text(yes).size(14)).padding([8, 16]).style(iced::widget::button::danger).on_press(go));
+        let card = container(
+            column![
+                text(title).size(18).font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT }),
+                text(body).size(14).style(muted),
+                space().height(6),
+                actions,
+            ]
+            .spacing(8)
+            .width(420),
+        )
+        .padding(22)
+        .style(style::panel);
+        center(card).style(style::scrim).into()
+    }
+
     pub(super) fn quit_dialog(&self) -> Element<'_, Message> {
         let n = self.unsaved_files();
         let what = if n == 1 { "One file has".to_string() } else { format!("{n} files have") };
@@ -1300,5 +1354,5 @@ fn save_lossless(source: &Path, target: &Path, edits: &crate::edit::Edits) -> Op
     let bytes = std::fs::read(source).ok()?;
     let new = crate::lossless::combine(crate::lossless::orientation(&bytes), edits);
     let out = crate::lossless::with_orientation(&bytes, new)?;
-    Some(pdf::write_atomic(target, &out))
+    Some(crate::fsio::write_atomic(target, &out))
 }

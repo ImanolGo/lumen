@@ -7,9 +7,9 @@
 //! into a one-page PDF sized to the paper chosen.
 
 use std::fs::File;
-use std::io::Write;
 use std::os::fd::AsFd;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use ashpd::desktop::ResponseError;
@@ -19,6 +19,47 @@ use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref};
 
 use crate::library::Kind;
 use crate::raster;
+
+/// What is printed: a file, or a copy made for printing that is deleted when nothing uses it any more.
+#[derive(Debug, Clone)]
+pub struct Job {
+    pub path: PathBuf,
+    _copy: Option<Arc<PrivateCopy>>,
+}
+
+impl Job {
+    pub fn file(path: PathBuf) -> Self {
+        Self { path, _copy: None }
+    }
+
+    /// A copy called `name`, in a folder only this user can look into, with what `write` puts there.
+    pub fn copy(name: &str, write: impl FnOnce(&Path) -> Result<()>) -> Result<Self> {
+        let copy = PrivateCopy(crate::fsio::private_dir("lumen-rs-print").context("no place for the copy to print")?);
+        COPIES.lock().unwrap_or_else(|e| e.into_inner()).push(copy.0.clone());
+        let path = copy.0.join(name);
+        write(&path)?;
+        Ok(Self { path, _copy: Some(Arc::new(copy)) })
+    }
+}
+
+#[derive(Debug)]
+struct PrivateCopy(PathBuf);
+
+impl Drop for PrivateCopy {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+        COPIES.lock().unwrap_or_else(|e| e.into_inner()).retain(|p| *p != self.0);
+    }
+}
+
+static COPIES: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+/// Deletes the copies still there, when Lumen ends.
+pub fn delete_copies() {
+    for dir in COPIES.lock().unwrap_or_else(|e| e.into_inner()).drain(..) {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
@@ -192,18 +233,8 @@ fn image_to_pdf(mut img: image::RgbImage, paper: &Paper) -> Result<Vec<u8>> {
 /// already unlinked, so nothing is left behind whatever happens next.
 fn picture_to_pdf_file(path: &Path, paper: &Paper) -> Result<File> {
     let bytes = picture_to_pdf(path, paper)?;
-    let dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-    let tmp = dir.join(format!("lumen-rs-print-{}-{nanos}.pdf", std::process::id()));
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?;
-        f.write_all(&bytes)?;
-        f.sync_all()?;
-    }
-    let file = File::open(&tmp)?;
-    let _ = std::fs::remove_file(&tmp);
-    Ok(file)
+    let copy = Job::copy("picture.pdf", |path| Ok(crate::fsio::write_new(path, &bytes)?))?;
+    Ok(File::open(&copy.path)?)
 }
 
 /// Prints `path` on `printer` through CUPS, without a portal. Pictures are put on the
@@ -222,6 +253,30 @@ pub fn print_direct(path: &Path, printer: &str, job: &crate::cups::Job) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_copy_for_printing_is_private_and_goes_away() {
+        use std::os::unix::fs::PermissionsExt;
+        let job = Job::copy("secret.pdf", |p| Ok(crate::fsio::write_new(p, b"decrypted")?)).unwrap();
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        let dir = job.path.parent().unwrap().to_owned();
+        assert_eq!((mode(&job.path), mode(&dir)), (0o600, 0o700));
+        let (path, other) = (job.path.clone(), job.clone());
+        drop(job);
+        assert!(path.exists(), "still in use");
+        drop(other);
+        assert!(!dir.exists());
+        // Also when writing it fails, and at the end.
+        let mut left = PathBuf::new();
+        assert!(
+            Job::copy("x", |p| {
+                left = p.to_owned();
+                anyhow::bail!("no")
+            })
+            .is_err()
+        );
+        assert!(!left.parent().unwrap().exists());
+    }
 
     #[test]
     fn wraps_a_picture_in_a_valid_pdf() {

@@ -136,9 +136,6 @@ msgstr "Atrás / adelante tras seguir un enlace"
 msgid "Reloaded “{}”: it changed on disk"
 msgstr "Se ha vuelto a cargar «{}»: ha cambiado en el disco"
 
-msgid "“{}” changed on disk. Your unsaved changes are kept; saving will overwrite it."
-msgstr "«{}» ha cambiado en el disco. Tus cambios sin guardar se conservan; al guardar se sobrescribirá."
-
 msgid "Recent"
 msgstr "Recientes"
 
@@ -837,3 +834,24 @@ msgstr "Este PDF tiene demasiadas anotaciones: el resto no se puede editar"
 
 msgid "This page cannot be shown"
 msgstr "Esta página no se puede mostrar"
+
+msgid "Move “{}” to the trash?"
+msgstr "¿Mover «{}» a la papelera?"
+
+msgid "It has changes that are not saved. They come back only if you undo at once."
+msgstr "Tiene cambios sin guardar. Solo vuelven si lo deshaces enseguida."
+
+msgid "“{}” changed on disk"
+msgstr "«{}» ha cambiado en el disco"
+
+msgid "Another program changed this file after you opened it. Saving replaces what it wrote."
+msgstr "Otro programa ha cambiado este archivo después de que lo abrieras. Al guardar se reemplaza lo que escribió."
+
+msgid "Overwrite"
+msgstr "Sobrescribir"
+
+msgid "The saved signatures could not be read. They were kept as {}"
+msgstr "No se pudieron leer las firmas guardadas. Se han conservado como {}"
+
+msgid "“{}” changed on disk. Your unsaved changes are kept; saving asks first."
+msgstr "«{}» ha cambiado en el disco. Tus cambios sin guardar se conservan; antes de guardar se te preguntará."

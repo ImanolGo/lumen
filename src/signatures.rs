@@ -67,6 +67,7 @@ struct File {
 pub struct Signatures {
     path: PathBuf,
     pub items: Vec<Signature>,
+    problem: Option<String>,
 }
 
 impl Signatures {
@@ -80,35 +81,75 @@ impl Signatures {
     }
 
     pub fn load(path: PathBuf) -> Self {
-        let file: File = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|text| toml::from_str(&text).map_err(|e| tracing::warn!("ignoring {}: {e}", path.display())).ok())
-            .unwrap_or_default();
-        Self { path, items: file.signatures }
+        let mut out = Self { path, items: Vec::new(), problem: None };
+        if let Ok(items) = out.read() {
+            out.items = items;
+        }
+        out
+    }
+
+    /// What went wrong with the file, once, for telling the person.
+    pub fn take_problem(&mut self) -> Option<String> {
+        self.problem.take()
+    }
+
+    /// The signatures in the file now. One that cannot be understood is put aside, never lost.
+    fn read(&mut self) -> std::io::Result<Vec<Signature>> {
+        let text = match std::fs::read_to_string(&self.path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            // Not text: damaged, like what does not parse.
+            Err(e) if e.kind() == std::io::ErrorKind::InvalidData => String::from("not text"),
+            Err(e) => return Err(e),
+        };
+        match toml::from_str::<File>(&text) {
+            Ok(file) => Ok(file.signatures),
+            Err(e) => {
+                let aside = crate::export::free_path(
+                    self.path.parent().unwrap_or(std::path::Path::new(".")),
+                    "signatures.toml.bak",
+                );
+                tracing::warn!("{} is damaged ({e}); it is now {}", self.path.display(), aside.display());
+                std::fs::rename(&self.path, &aside)?;
+                self.problem = Some(aside.display().to_string());
+                Ok(Vec::new())
+            }
+        }
     }
 
     /// Keep `signature` as the newest one.
     pub fn add(&mut self, signature: Signature) {
-        self.items.retain(|s| *s != signature);
-        self.items.insert(0, signature);
-        self.items.truncate(MAX_SIGNATURES);
-        self.save();
+        self.change(|items| {
+            items.retain(|s| *s != signature);
+            items.insert(0, signature.clone());
+            items.truncate(MAX_SIGNATURES);
+        });
     }
 
     pub fn remove(&mut self, index: usize) {
-        if index < self.items.len() {
-            self.items.remove(index);
-            self.save();
-        }
+        let Some(gone) = self.items.get(index).cloned() else { return };
+        self.change(|items| items.retain(|s| *s != gone));
     }
 
-    fn save(&self) {
+    /// Makes a change to what is in the file now, which another window (or the GTK Lumen) may
+    /// have changed since it was read here.
+    fn change(&mut self, change: impl Fn(&mut Vec<Signature>)) {
+        match self.read() {
+            Ok(items) => self.items = items,
+            Err(e) => {
+                tracing::warn!("cannot read the signatures: {e}");
+                // Better not saved than written over.
+                change(&mut self.items);
+                return;
+            }
+        }
+        change(&mut self.items);
         let file = File { signatures: self.items.clone() };
         let result = toml::to_string(&file).map_err(anyhow::Error::from).and_then(|text| {
             if let Some(dir) = self.path.parent() {
                 std::fs::create_dir_all(dir)?;
             }
-            crate::pdf::write_atomic(&self.path, text.as_bytes())
+            crate::fsio::write_atomic(&self.path, text.as_bytes())
         });
         if let Err(err) = result {
             tracing::warn!("cannot save the signatures: {err:#}");
@@ -146,6 +187,26 @@ mod tests {
         assert!((xs.iter().cloned().fold(f64::MIN, f64::max) - 70.0).abs() < 1e-9);
         assert!((bottom - top - 20.0).abs() < 1e-9);
         assert!(((top + bottom) / 2.0 - 70.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_damaged_file_is_put_aside_and_other_writers_are_respected() {
+        let dir = std::env::temp_dir().join(format!("lumen-signatures-bak-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("signatures.toml");
+        std::fs::write(&path, "signatures = [ half").unwrap();
+        let mut store = Signatures::load(path.clone());
+        assert!(store.items.is_empty() && store.take_problem().is_some());
+        let a = Signature::from_strokes(&drawn()).unwrap();
+        let b = Signature::from_strokes(&[vec![(0.0, 0.0), (10.0, 5.0)]]).unwrap();
+        store.add(a.clone());
+        assert_eq!(std::fs::read_to_string(dir.join("signatures.toml.bak")).unwrap(), "signatures = [ half");
+        // Another window adds one; this one does not know, and adds and removes.
+        Signatures::load(path.clone()).add(b.clone());
+        store.remove(0);
+        assert_eq!(store.items, vec![b.clone()]);
+        assert_eq!(Signatures::load(path).items, vec![b]);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

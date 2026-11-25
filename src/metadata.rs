@@ -22,7 +22,7 @@ pub struct Metadata {
 impl Metadata {
     /// The metadata of the picture at `source`, fixed up for an upright copy of `width`×`height`.
     pub fn for_copy(source: &Path, width: u32, height: u32) -> Self {
-        Self { exif: exif_for_copy(source, width, height), icc: icc_profile(source) }
+        Self { exif: exif_for_copy(source, width, height), icc: icc_profile(source).filter(|icc| is_rgb(icc)) }
     }
 }
 
@@ -78,6 +78,11 @@ fn exif_for_copy(source: &Path, width: u32, height: u32) -> Option<Vec<u8>> {
     }
 }
 
+/// Whether a colour profile is for RGB pixels, which is what a copy has (its colour space field).
+fn is_rgb(icc: &[u8]) -> bool {
+    icc.get(16..20) == Some(b"RGB ")
+}
+
 pub(crate) fn icc_profile(source: &Path) -> Option<Vec<u8>> {
     let reader = image::ImageReader::open(source).ok()?.with_guessed_format().ok()?;
     reader.into_decoder().ok()?.icc_profile().ok().flatten()
@@ -113,6 +118,24 @@ mod tests {
 
     fn read(path: &Path) -> exif::Exif {
         exif::Reader::new().read_from_container(&mut BufReader::new(std::fs::File::open(path).unwrap())).unwrap()
+    }
+
+    #[test]
+    fn only_a_profile_for_rgb_goes_into_an_rgb_copy() {
+        let dir = std::env::temp_dir().join(format!("lumen-rs-icc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for (space, kept) in [(b"RGB ", true), (b"CMYK", false), (b"GRAY", false)] {
+            let mut icc = vec![0u8; 128];
+            icc[16..20].copy_from_slice(space);
+            let path = dir.join("p.png");
+            let mut encoder = image::codecs::png::PngEncoder::new(std::fs::File::create(&path).unwrap());
+            encoder.set_icc_profile(icc).unwrap();
+            encoder.write_image(&[9; 12], 2, 2, image::ExtendedColorType::Rgb8).unwrap();
+            assert!(icc_profile(&path).is_some());
+            assert_eq!(Metadata::for_copy(&path, 2, 2).icc.is_some(), kept, "{}", String::from_utf8_lossy(space));
+        }
+        assert!(!is_rgb(b"short"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

@@ -1,8 +1,6 @@
 //! Lumen's own print dialog, for desktops without a print portal: pick a printer,
 //! copies, paper and two-sided printing, and the job goes straight to CUPS.
 
-use std::path::PathBuf;
-
 use iced::widget::{
     button, center, checkbox, column, container, mouse_area, opaque, pick_list, row, space, stack, text, text_input,
 };
@@ -28,7 +26,7 @@ impl std::fmt::Display for Media {
 
 pub struct PrintDialog {
     /// What is printed (a copy with unsaved changes, possibly).
-    path: PathBuf,
+    job: crate::print::Job,
     printers: Option<Result<Vec<Printer>, String>>,
     printer: Option<Printer>,
     copies: String,
@@ -69,10 +67,10 @@ fn default_media(printer: &Printer) -> Option<Media> {
 }
 
 impl App {
-    /// No print portal: show Lumen's own dialog for `path` and look for printers.
-    pub(super) fn open_print_dialog(&mut self, path: PathBuf) -> Task<Message> {
+    /// No print portal: show Lumen's own dialog for `job` and look for printers.
+    pub(super) fn open_print_dialog(&mut self, job: crate::print::Job) -> Task<Message> {
         self.print_dialog = Some(PrintDialog {
-            path,
+            job,
             printers: None,
             printer: None,
             copies: "1".into(),
@@ -112,9 +110,9 @@ impl App {
                     media: dialog.media.as_ref().map(|m| m.keyword.clone()),
                     two_sided: dialog.two_sided,
                 };
-                let path = dialog.path.clone();
+                let what = dialog.job.clone();
                 return Task::perform(
-                    blocking(move || crate::print::print_direct(&path, &printer.name, &job).map_err(err_string)),
+                    blocking(move || crate::print::print_direct(&what.path, &printer.name, &job).map_err(err_string)),
                     |r| Message::Printing(PrintMsg::Done(r.and_then(|r| r))),
                 );
             }
@@ -132,7 +130,7 @@ impl App {
     pub(super) fn print_dialog_view(&self) -> Option<Element<'_, Message>> {
         let dialog = self.print_dialog.as_ref()?;
         let p = |m: PrintMsg| Message::Printing(m);
-        let title = text(trf!("Print “{}”", super::file_name(&dialog.path)))
+        let title = text(trf!("Print “{}”", super::file_name(&dialog.job.path)))
             .size(18)
             .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT });
         let label = |t: String| text(t).size(13).width(110);

@@ -111,6 +111,9 @@ impl App {
                 if matches!(self.doc, Doc::Image(_)) && self.picture_in_place().is_none() {
                     return (Err("this kind of picture cannot be saved in place: use SaveCopy".into()), Task::none());
                 }
+                if self.changed_on_disk() {
+                    return (Err("the file changed on disk: use SaveCopy".into()), Task::none());
+                }
                 self.markup_update(MarkupMsg::Save)
             }
             Command::SaveCopy(path) => {

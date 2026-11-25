@@ -13,6 +13,7 @@ mod cups;
 mod edit;
 mod export;
 mod forms;
+mod fsio;
 #[cfg(feature = "heif")]
 mod heif;
 mod icons;
@@ -25,6 +26,7 @@ mod portal;
 mod print;
 mod properties;
 mod raster;
+mod redact;
 mod sandbox;
 mod settings;
 mod signatures;
@@ -105,7 +107,7 @@ fn main() -> iced::Result {
         }
     }
 
-    iced::application(move || app::App::new(paths.clone()), app::App::update, app::App::view)
+    let result = iced::application(move || app::App::new(paths.clone()), app::App::update, app::App::view)
         .title(app::App::title)
         .theme(app::App::theme)
         .subscription(app::App::subscription)
@@ -127,5 +129,7 @@ fn main() -> iced::Result {
         .font(include_bytes!("../assets/fonts/Inter-SemiBold.ttf").as_slice())
         .default_font(style::FONT)
         .antialiasing(true)
-        .run()
+        .run();
+    print::delete_copies();
+    result
 }
