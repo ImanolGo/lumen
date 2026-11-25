@@ -168,9 +168,12 @@ impl App {
             list = list.push(text(tr("No matching command")).size(13).style(muted));
         }
         for (i, (label, keys, _)) in found.iter().enumerate().take(SHOWN) {
-            let line =
-                row![text(label.clone()).size(14), space().width(Length::Fill), text(*keys).size(12).style(muted),]
-                    .align_y(Alignment::Center);
+            let line = row![
+                text(label.clone()).size(14),
+                space().width(Length::Fill),
+                text(crate::platform::keys::show(keys)).size(12).style(muted),
+            ]
+            .align_y(Alignment::Center);
             list = list.push(
                 button(line)
                     .padding([6, 10])

@@ -1,5 +1,6 @@
 use std::cell::{Cell, RefCell};
 use std::mem;
+use std::path::PathBuf;
 use std::rc::Weak;
 use std::time::Instant;
 
@@ -8,11 +9,14 @@ use objc2::{declare_class, msg_send_id, mutability, ClassType, DeclaredClass};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate, NSRunningApplication,
 };
-use objc2_foundation::{MainThreadMarker, NSNotification, NSObject, NSObjectProtocol};
+use objc2_foundation::{
+    MainThreadMarker, NSArray, NSNotification, NSObject, NSObjectProtocol, NSURL,
+};
 
 use super::event_handler::EventHandler;
 use super::event_loop::{notify_windows_of_exit, stop_app_immediately, ActiveEventLoop, PanicInfo};
 use super::observer::{EventLoopWaker, RunLoop};
+use super::window::WinitWindow;
 use super::{menu, WindowId, DEVICE_ID};
 use crate::event::{DeviceEvent, Event, StartCause, WindowEvent};
 use crate::event_loop::{ActiveEventLoop as RootActiveEventLoop, ControlFlow};
@@ -40,6 +44,8 @@ pub(super) struct AppState {
     start_time: Cell<Option<Instant>>,
     wait_timeout: Cell<Option<Instant>>,
     pending_redraw: RefCell<Vec<WindowId>>,
+    /// Lumen: files the system asked to open, until there is a window to tell.
+    pending_files: RefCell<Vec<PathBuf>>,
     // NOTE: This is strongly referenced by our `NSWindowDelegate` and our `NSView` subclass, and
     // as such should be careful to not add fields that, in turn, strongly reference those.
 }
@@ -70,6 +76,18 @@ declare_class!(
         fn app_will_terminate(&self, notification: &NSNotification) {
             self.will_terminate(notification)
         }
+
+        // Lumen: files opened from Finder (double click, Open With, the Dock icon).
+        #[method(application:openURLs:)]
+        fn application_open_urls(&self, _app: &NSApplication, urls: &NSArray<NSURL>) {
+            let paths = urls
+                .into_iter()
+                .filter(|url| unsafe { url.isFileURL() })
+                .filter_map(|url| unsafe { url.path() })
+                .map(|path| PathBuf::from(path.to_string()));
+            self.ivars().pending_files.borrow_mut().extend(paths);
+            self.ivars().run_loop.wakeup();
+        }
     }
 );
 
@@ -98,6 +116,7 @@ impl ApplicationDelegate {
             start_time: Cell::new(None),
             wait_timeout: Cell::new(None),
             pending_redraw: RefCell::new(vec![]),
+            pending_files: RefCell::new(vec![]),
         });
         unsafe { msg_send_id![super(this), init] }
     }
@@ -380,6 +399,21 @@ impl ApplicationDelegate {
         }
 
         self.handle_event(Event::UserEvent(HandlePendingUserEvents));
+
+        // Lumen: they are told of like files dropped on the window, once there is one.
+        if !self.ivars().pending_files.borrow().is_empty() {
+            let app = NSApplication::sharedApplication(mtm);
+            let window = app.windows().into_iter().find(|w| w.is_kind_of::<WinitWindow>());
+            if let Some(window) = window {
+                let window_id = WindowId(&*window as *const _ as usize);
+                for path in mem::take(&mut *self.ivars().pending_files.borrow_mut()) {
+                    self.handle_event(Event::WindowEvent {
+                        window_id: RootWindowId(window_id),
+                        event: WindowEvent::DroppedFile(path),
+                    });
+                }
+            }
+        }
 
         let redraw = mem::take(&mut *self.ivars().pending_redraw.borrow_mut());
         for window_id in redraw {

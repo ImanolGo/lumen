@@ -11,12 +11,15 @@ mod desktop;
 #[cfg(not(target_os = "linux"))]
 use desktop as system;
 
+pub mod keys;
 #[cfg(unix)]
 pub mod unix_fs;
 #[cfg(unix)]
 pub mod unix_print;
 
-pub use system::{clipboard, confine, control, dialogs, dirs, fs, print, shell, startup, thumbs, trash, watch};
+pub use system::{
+    clipboard, confine, control, dialogs, dirs, fs, menu_bar, print, shell, startup, thumbs, trash, watch,
+};
 
 /// What this system can do, for the interface to show only that.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,6 +39,8 @@ pub struct Caps {
     pub desktop_dialogs_optional: bool,
     /// Selecting text copies it for a middle click.
     pub primary_selection: bool,
+    /// The system's menu bar has the commands.
+    pub menu_bar: bool,
     /// Lumen's header is the window's title bar.
     pub own_title_bar: bool,
 }
@@ -55,3 +60,20 @@ impl std::fmt::Display for NoDialog {
 }
 
 impl std::error::Error for NoDialog {}
+
+/// One menu of the system's menu bar. The first is the program's own.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub struct MenuGroup {
+    pub title: String,
+    /// `None` is a line between items.
+    pub items: Vec<Option<MenuEntry>>,
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub struct MenuEntry {
+    /// What [`menu_bar::chosen`] says when it is picked.
+    pub id: &'static str,
+    pub label: String,
+    /// As "Ctrl+Shift+S"; empty for none.
+    pub keys: &'static str,
+}

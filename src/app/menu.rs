@@ -12,6 +12,7 @@ use super::pages::PagesMsg;
 use super::signature::SignMsg;
 use super::{App, Doc, Message, TOOLBAR_H, muted};
 use crate::i18n::tr;
+use crate::platform::keys;
 use crate::style;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -207,6 +208,89 @@ impl App {
         items
     }
 
+    /// The menus of the system's menu bar, where there is one. Shortcuts that text boxes use
+    /// (copy, paste, undo) are not among them: the menu bar would take them away.
+    pub(super) fn menu_bar() -> Vec<crate::platform::MenuGroup> {
+        let item = |id, label: &str, keys| Some(crate::platform::MenuEntry { id, label: tr(label), keys });
+        let group = |title: &str, items| crate::platform::MenuGroup { title: tr(title), items };
+        vec![
+            group(
+                "Lumen",
+                vec![
+                    item("about", "About Lumen", ""),
+                    None,
+                    item("preferences", "Preferences", "Ctrl+,"),
+                    None,
+                    item("quit", "Quit", "Ctrl+Q"),
+                ],
+            ),
+            group(
+                "File",
+                vec![
+                    item("open", "Open Files…", "Ctrl+O"),
+                    item("open-folder", "Open Folder…", "Ctrl+Shift+O"),
+                    None,
+                    item("save", "Save", "Ctrl+S"),
+                    item("save-copy", "Save a Copy…", "Ctrl+Shift+S"),
+                    item("print", "Print…", "Ctrl+P"),
+                    None,
+                    item("properties", "Properties…", ""),
+                    item("show", "Show in Folder", ""),
+                    item("trash", "Move to Trash", ""),
+                ],
+            ),
+            group(
+                "View",
+                vec![
+                    item("fit", "Best Fit", ""),
+                    item("actual", "Actual Size", ""),
+                    item("fullscreen", "Fullscreen", ""),
+                    item("sidebar", "Sidebar", ""),
+                    item("slideshow", "Slideshow", ""),
+                    None,
+                    item("find", "Find…", "Ctrl+F"),
+                    item("palette", "Command Palette", "Ctrl+Shift+P"),
+                ],
+            ),
+            group("Help", vec![item("shortcuts", "Keyboard Shortcuts", "")]),
+        ]
+    }
+
+    /// What an item of the menu bar does, if it can be done now.
+    pub(super) fn menu_bar_message(&self, id: &str) -> Option<Message> {
+        let has_doc = matches!(self.doc, Doc::Image(_) | Doc::Pdf(_));
+        // A question or a chooser on screen is answered first.
+        if self.confirm.is_some() || self.confirm_quit || self.chooser.is_some() || self.print_dialog.is_some() {
+            return (id == "quit").then_some(Message::Quit);
+        }
+        let message = match id {
+            "about" => Message::Dialog(Some(Dialog::About)),
+            "preferences" => Message::Dialog(Some(Dialog::Preferences)),
+            "shortcuts" => Message::Dialog(Some(Dialog::Shortcuts)),
+            "quit" => Message::Quit,
+            "open" => Message::Open { folder: false },
+            "open-folder" => Message::Open { folder: true },
+            "palette" => Message::Palette(super::commands::PaletteMsg::Open),
+            "sidebar" => Message::ToggleSidebar,
+            "fullscreen" => Message::ToggleFullscreen,
+            _ if !has_doc => return None,
+            "save" if self.organizer.is_some() => Message::Pages(PagesMsg::Save),
+            "save" if self.has_unsaved_changes() => Message::Markup(MarkupMsg::Save),
+            "save-copy" if self.organizer.is_some() => Message::Pages(PagesMsg::SaveAs),
+            "save-copy" => Message::Markup(MarkupMsg::SaveAs),
+            "print" => Message::Print,
+            "properties" => Message::ShowProperties,
+            "show" => Message::ShowInFolder,
+            "trash" => Message::Trash,
+            "fit" => Message::ZoomFit,
+            "actual" => Message::ZoomActual,
+            "slideshow" => Message::Slideshow,
+            "find" => Message::SearchOpen,
+            _ => return None,
+        };
+        Some(message)
+    }
+
     pub(super) fn open_items() -> Vec<Option<Item>> {
         vec![
             Some((tr("Open Files…"), "Ctrl+O", Some(Message::Open { folder: false }))),
@@ -235,7 +319,7 @@ impl App {
                                 0.4
                             })),
                         }),
-                        text(keys).size(12).style(muted),
+                        text(keys::show(keys)).size(12).style(muted),
                     ]
                     .align_y(Alignment::Center);
                     list.push(
@@ -273,8 +357,11 @@ impl App {
                     .spacing(6);
                     for (key, what) in *keys {
                         group = group.push(
-                            row![text(tr(what)).size(13).width(Length::Fill), text(*key).size(12).style(muted)]
-                                .spacing(12),
+                            row![
+                                text(tr(what)).size(13).width(Length::Fill),
+                                text(keys::show(key)).size(12).style(muted)
+                            ]
+                            .spacing(12),
                         );
                     }
                     groups = groups.push(group);

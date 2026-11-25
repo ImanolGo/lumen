@@ -830,3 +830,17 @@ fn a_file_that_goes_away_is_noticed_once_and_reloaded_when_it_is_back() {
     let _ = app.update(Message::FileStat(path, Some((SystemTime::now(), 1))));
     assert!(!app.disk_gone && app.generation > generation);
 }
+
+#[test]
+fn every_item_of_the_menu_bar_does_something() {
+    let _inside = runtime().enter();
+    let app = pdf_app();
+    for entry in App::menu_bar().iter().flat_map(|g| g.items.iter().flatten()) {
+        // Saving needs something to save.
+        assert_eq!(app.menu_bar_message(entry.id).is_some(), entry.id != "save", "{}", entry.id);
+    }
+    assert!(app.menu_bar_message("nonsense").is_none());
+    let mut asked = pdf_app();
+    asked.confirm_quit = true;
+    assert!(asked.menu_bar_message("open").is_none());
+}

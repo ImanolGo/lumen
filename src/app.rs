@@ -208,6 +208,8 @@ pub struct App {
     thumbs_running: usize,
 
     pending_drops: Vec<PathBuf>,
+    /// They were opened from the file manager, not dropped: they replace the list.
+    pending_opens: bool,
     drop_hover: bool,
     /// A message at the bottom of the window, and whether it reports a problem.
     toast: Option<(u64, String, bool)>,
@@ -678,6 +680,8 @@ pub enum Message {
     /// Open a header menu (or close it with `None`), or pick one of its items.
     Menu(Option<Menu>),
     MenuPick(Box<Message>),
+    /// An item of the system's menu bar, by its id.
+    MenuBar(String),
     Dialog(Option<Dialog>),
     ShowProperties,
     Export(ExportMsg),
@@ -785,6 +789,7 @@ impl App {
             locked_thumbs: HashSet::new(),
             thumbs_running: 0,
             pending_drops: Vec::new(),
+            pending_opens: false,
             drop_hover: false,
             toast: None,
             toast_seq: 0,
@@ -893,6 +898,11 @@ impl App {
             },
             system::theme_changes().map(Message::SystemTheme),
             window::events().map(|(id, e)| Message::WindowEvent(id, e)),
+            if crate::platform::caps().menu_bar {
+                Subscription::run(crate::platform::menu_bar::chosen).map(Message::MenuBar)
+            } else {
+                Subscription::none()
+            },
             keyboard::listen().map(Message::Key),
             // Another program may change the open file: inotify tells us (nothing is polled).
             match self.current_path().map(Path::to_path_buf) {
@@ -1037,7 +1047,8 @@ impl App {
             Message::Control(request) => self.control_update(request),
             Message::FlushDrops => {
                 let paths = std::mem::take(&mut self.pending_drops);
-                if paths.is_empty() { Task::none() } else { expand(paths, true) }
+                let opened = std::mem::take(&mut self.pending_opens);
+                if paths.is_empty() { Task::none() } else { expand(paths, !opened) }
             }
             Message::Select(i) => self.show(i),
             Message::Next if self.prefs.wrap_around && self.current + 1 >= self.files.len() => self.show(0),
@@ -1722,6 +1733,10 @@ impl App {
                 Task::none()
             }
             Message::Menu(menu) => self.menu_update(menu),
+            Message::MenuBar(id) => match self.menu_bar_message(&id) {
+                Some(message) => self.update(message),
+                None => Task::none(),
+            },
             Message::MenuPick(msg) => self.menu_pick(*msg),
             Message::ShowProperties => {
                 let (path, password) = match &self.doc {
@@ -1775,6 +1790,9 @@ impl App {
             window::Event::Opened { .. } => {
                 tracing::info!(ms = crate::since_start(), "window built");
                 self.window = Some(id);
+                if crate::platform::caps().menu_bar {
+                    crate::platform::menu_bar::install(&Self::menu_bar());
+                }
                 let problem = match self.signatures.take_problem() {
                     Some(aside) => {
                         self.toast(trf!("The saved signatures could not be read. They were kept as {}", aside))
@@ -1802,6 +1820,10 @@ impl App {
                 Task::none()
             }
             window::Event::FileDropped(path) => {
+                // Opened from the file manager (a Mac): nothing hovered over the window before it.
+                if cfg!(target_os = "macos") && !std::mem::take(&mut self.drop_hover) && self.pending_drops.is_empty() {
+                    self.pending_opens = true;
+                }
                 self.drop_hover = false;
                 let first = self.pending_drops.is_empty();
                 self.pending_drops.push(path);
@@ -1852,6 +1874,8 @@ impl App {
                 ("o", true, true) => Message::Open { folder: true },
                 ("p", true, true) => Message::Palette(commands::PaletteMsg::Open),
                 ("p", true, _) => Message::Print,
+                // A Mac's own shortcut for it.
+                ("f", true, _) if cfg!(target_os = "macos") && modifiers.control() => Message::ToggleFullscreen,
                 ("f", true, _) if is_pdf => Message::SearchOpen,
                 ("c", true, _) if is_pdf => Message::Copy,
                 ("c", true, _) if matches!(self.doc, Doc::Image(_)) => Message::CopyPicture,

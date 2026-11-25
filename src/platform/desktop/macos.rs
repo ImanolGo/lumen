@@ -12,6 +12,7 @@ pub const CAPS: crate::platform::Caps = crate::platform::Caps {
     shared_thumbnails: false,
     desktop_dialogs_optional: false,
     primary_selection: false,
+    menu_bar: true,
     own_title_bar: false,
 };
 
@@ -129,5 +130,83 @@ pub mod confine {
 
     pub fn escape(_test: &str) -> bool {
         false
+    }
+}
+
+pub mod menu_bar {
+    use std::cell::RefCell;
+    use std::sync::{Mutex, OnceLock};
+
+    use futures::SinkExt;
+    use futures::channel::mpsc;
+    use muda::accelerator::Accelerator;
+    use muda::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
+
+    use crate::platform::MenuGroup;
+
+    thread_local! {
+        /// The menu lives as long as the program (it may only be touched on the main thread).
+        static SHOWN: RefCell<Option<Menu>> = const { RefCell::new(None) };
+    }
+
+    static OUT: OnceLock<Mutex<Option<mpsc::UnboundedSender<String>>>> = OnceLock::new();
+
+    /// Replaces the menu bar winit made, whose Quit would end the program without asking.
+    pub fn install(groups: &[MenuGroup]) {
+        if let Err(e) = build(groups) {
+            tracing::warn!("no menu bar: {e}");
+        }
+    }
+
+    fn build(groups: &[MenuGroup]) -> muda::Result<()> {
+        let menu = Menu::new();
+        for (i, group) in groups.iter().enumerate() {
+            let sub = Submenu::new(&group.title, true);
+            for item in &group.items {
+                match item {
+                    None => sub.append(&PredefinedMenuItem::separator())?,
+                    Some(entry) => {
+                        // The command key, which is what Ctrl is elsewhere.
+                        let keys = entry.keys.replace("Ctrl", "Cmd");
+                        let keys = (!keys.is_empty()).then(|| keys.parse::<Accelerator>()).and_then(Result::ok);
+                        sub.append(&MenuItem::with_id(entry.id, &entry.label, true, keys))?;
+                    }
+                }
+                if i == 0 && item.as_ref().is_some_and(|e| e.id == "preferences") {
+                    sub.append_items(&[
+                        &PredefinedMenuItem::separator(),
+                        &PredefinedMenuItem::services(None),
+                        &PredefinedMenuItem::separator(),
+                        &PredefinedMenuItem::hide(None),
+                        &PredefinedMenuItem::hide_others(None),
+                        &PredefinedMenuItem::show_all(None),
+                    ])?;
+                }
+            }
+            menu.append(&sub)?;
+        }
+        menu.init_for_nsapp();
+        SHOWN.with_borrow_mut(|shown| *shown = Some(menu));
+        MenuEvent::set_event_handler(Some(|event: MenuEvent| {
+            let out = OUT.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(out) = &*out {
+                let _ = out.unbounded_send(event.id.0);
+            }
+        }));
+        Ok(())
+    }
+
+    /// The ids of the items picked.
+    pub fn chosen() -> impl futures::Stream<Item = String> {
+        use futures::StreamExt;
+        iced::stream::channel(8, async |mut to_app: mpsc::Sender<String>| {
+            let (tx, mut rx) = mpsc::unbounded();
+            *OUT.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner()) = Some(tx);
+            while let Some(id) = rx.next().await {
+                if to_app.send(id).await.is_err() {
+                    break;
+                }
+            }
+        })
     }
 }

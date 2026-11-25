@@ -11,7 +11,7 @@ mod windows;
 #[cfg(windows)]
 use windows as own;
 
-pub use own::{CAPS, confine, fs, print, shell, trash};
+pub use own::{CAPS, confine, fs, menu_bar, print, shell, trash};
 
 pub mod dirs {
     use std::path::PathBuf;

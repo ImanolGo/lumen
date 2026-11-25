@@ -30,5 +30,16 @@ pub const CAPS: super::Caps = super::Caps {
     shared_thumbnails: true,
     desktop_dialogs_optional: true,
     primary_selection: true,
+    menu_bar: false,
     own_title_bar: false,
 };
+
+pub mod menu_bar {
+    use crate::platform::MenuGroup;
+
+    pub fn install(_groups: &[MenuGroup]) {}
+
+    pub fn chosen() -> impl futures::Stream<Item = String> {
+        futures::stream::pending()
+    }
+}

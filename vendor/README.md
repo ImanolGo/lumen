@@ -9,6 +9,7 @@ patches (the exact changes are in `patches/`), used through `[patch.crates-io]` 
 | Crate | Version | Change |
 |---|---|---|
 | `winit` | 0.30.13 | Wayland: binds `zwp_pointer_gestures_v1` and reports pinches as `WindowEvent::PinchGesture` (new `seat/pointer/gestures.rs`, a few lines in `seat/mod.rs` and `state.rs`) |
+| `winit` | 0.30.13 | macOS: `application:openURLs:` reports files opened from Finder as `WindowEvent::DroppedFile` (without the hover that comes before a real drop), in `app_state.rs`; the `NSURL` feature of `objc2-foundation` |
 | `iced_core` | 0.14.0 | `mouse::Event::Pinched { delta }` |
 | `iced_winit` | 0.14.1 | Converts `WindowEvent::PinchGesture` into `mouse::Event::Pinched`; silences two upstream deprecation warnings |
 

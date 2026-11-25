@@ -10,6 +10,7 @@ pub const CAPS: crate::platform::Caps = crate::platform::Caps {
     shared_thumbnails: false,
     desktop_dialogs_optional: false,
     primary_selection: false,
+    menu_bar: false,
     own_title_bar: false,
 };
 
@@ -242,5 +243,15 @@ pub mod fs {
     pub fn in_use(e: &io::Error) -> bool {
         // ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION.
         matches!(e.raw_os_error(), Some(5 | 32 | 33))
+    }
+}
+
+pub mod menu_bar {
+    use crate::platform::MenuGroup;
+
+    pub fn install(_groups: &[MenuGroup]) {}
+
+    pub fn chosen() -> impl futures::Stream<Item = String> {
+        futures::stream::pending()
     }
 }

@@ -105,6 +105,7 @@ dependencies (touchpad pinch); see `vendor/README.md`.
 | `src/platform/mod.rs` | The operating system behind the same functions everywhere (`dirs`, `dialogs`, `shell`, `clipboard`, `watch`, `trash`, `print`, `confine`, `startup`, `thumbs`, `control`, `fs`), and `caps()`: what this system can do |
 | `src/platform/linux/` | Linux: XDG folders, portals, freedesktop trash and thumbnails, inotify, Wayland clipboard, CUPS socket, Landlock and seccomp, D-Bus |
 | `src/platform/desktop/` | macOS and Windows: what they share (`mod.rs`: `directories`, `rfd`, `arboard`, `notify`, `sys-locale`) and what only one does (`macos.rs`, `windows.rs`: `trash`, opening links, printing) |
+| `src/platform/keys.rs` | How this system writes shortcuts (`tr()` applies it) |
 | `src/platform/unix_fs.rs`, `unix_print.rs` | Private files, and CUPS's socket (Linux and macOS) |
 | `src/print.rs`, `src/cups.rs` | Turning pictures into PDFs to print; printing straight to CUPS (IPP) |
 | `src/control.rs`, `src/app/control.rs` | The control interface on the session bus, and running its commands |

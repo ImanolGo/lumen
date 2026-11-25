@@ -927,3 +927,15 @@ msgstr "Abierto en otro programa: imprímelo desde allí"
 
 msgid "Keep thumbnails for the next time"
 msgstr "Conservar las miniaturas para la próxima vez"
+
+msgid "File"
+msgstr "Archivo"
+
+msgid "View"
+msgstr "Ver"
+
+msgid "Help"
+msgstr "Ayuda"
+
+msgid "Command Palette"
+msgstr "Paleta de órdenes"

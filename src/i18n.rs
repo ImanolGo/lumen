@@ -15,7 +15,9 @@ static CATALOGUE: OnceLock<HashMap<String, String>> = OnceLock::new();
 
 /// Translates `text` (English) into the user's language, or returns it as it is.
 pub fn tr(text: &str) -> String {
-    CATALOGUE.get_or_init(load).get(text).cloned().unwrap_or_else(|| text.to_owned())
+    let text = CATALOGUE.get_or_init(load).get(text).map_or(text, String::as_str);
+    // Labels name their shortcuts.
+    crate::platform::keys::show(text)
 }
 
 /// `trf!("Saved “{}”", name)`: translates the template and fills its `{}` holes with the

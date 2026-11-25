@@ -57,6 +57,9 @@ rfd = { version = "0.18.0", default-features = false }
 sys-locale = "0.3.2"
 trash = { version = "5.4.0", default-features = false, features = ["coinit_apartmentthreaded"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+muda = { version = "0.21.2", default-features = false }
+
 [profile.release]
 lto = "thin"
 codegen-units = 1
