@@ -4,6 +4,8 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-25
+
 ### Changed
 - The header has what is done most in its middle: the zoom, rotate and crop for pictures, Markup, Edit or Organise by name; Undo, Discard and Save appear there when something has changed.
 - Tools are in one row under the header, where they always are, with their names where there is room. They float over the page no more. Colours, Resize and Light and colour open under their own buttons.
@@ -156,7 +158,8 @@ First release. Lumen (Rust/iced) is a rewrite of the GTK Lumen without GTK, popp
 - A comparison of PDF rendering with poppler (`tools/fidelity.py`, `docs/FIDELITY.md`).
 - CI: format, lint, tests, minimum Rust version, release build, packaging checks, AUR checks, dependency audit and a headless GUI job.
 
-[Unreleased]: https://github.com/ImanolGo/lumen-rs/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/ImanolGo/lumen-rs/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/ImanolGo/lumen-rs/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/ImanolGo/lumen-rs/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/ImanolGo/lumen-rs/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ImanolGo/lumen-rs/compare/v0.2.0...v0.3.0
