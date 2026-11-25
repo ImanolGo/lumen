@@ -3,7 +3,7 @@
 
 use iced::mouse::{self, Cursor};
 use iced::widget::canvas::{self, Frame, Geometry, Path, Stroke, gradient};
-use iced::widget::{button, canvas as canvas_widget, column, container, opaque, row, slider, space, text, text_input};
+use iced::widget::{button, canvas as canvas_widget, column, container, opaque, row, space, text};
 use iced::{Alignment, Color as IcedColor, Element, Length, Point, Rectangle, Renderer, Size, Theme};
 
 use super::markup::{MarkupMsg, SWATCHES};
@@ -11,6 +11,7 @@ use super::{App, Message, muted, tip};
 use crate::annotate::{Color, Shape, Tool};
 use crate::i18n::tr;
 use crate::style;
+use crate::ui;
 
 const PICKER_W: f32 = 252.0;
 const SQUARE_H: f32 = 120.0;
@@ -116,7 +117,7 @@ impl App {
         let text_mode = self.styling_text();
         let width = (self.current_size() as f32).clamp(1.0, 8.0);
         let face: Element<'_, Message> = if text_mode {
-            text(tr("Aa")).size(14).font(style::font(iced::font::Weight::Semibold)).color(c).into()
+            text(tr("Aa")).size(style::BODY).font(style::font(iced::font::Weight::Semibold)).color(c).into()
         } else {
             container(space().width(16).height(16))
                 .style(move |t: &Theme| container::Style {
@@ -148,7 +149,7 @@ impl App {
     pub(super) fn style_menu_view(&self) -> Element<'_, Message> {
         let m = |x: MarkupMsg| Message::Markup(x);
         let current = self.current_color();
-        let label = |t: String| text(t).size(11).font(style::font(iced::font::Weight::Medium)).style(muted);
+        let label = |t: String| text(t).size(style::CAPTION).font(style::font(iced::font::Weight::Medium)).style(muted);
 
         let mut swatches = row![].spacing(6).align_y(Alignment::Center);
         for (i, (name, c)) in SWATCHES.iter().enumerate() {
@@ -162,7 +163,7 @@ impl App {
                 .on_press(m(MarkupMsg::Swatch(i)));
             swatches = swatches.push(tip(dot.into(), *name));
         }
-        let more = button(text("+").size(15).align_x(Alignment::Center).width(22))
+        let more = button(text("+").size(style::TITLE).align_x(Alignment::Center).width(22))
             .padding(0)
             .height(22)
             .style(if self.picker_open { style::tool_active } else { style::tool })
@@ -187,11 +188,9 @@ impl App {
             col = col.push(
                 row![
                     swatch,
-                    text_input("#rrggbb", &self.hex_input)
+                    ui::input("#rrggbb", &self.hex_input)
                         .on_input(move |t| m(MarkupMsg::Hex(t)))
                         .on_submit(m(MarkupMsg::StyleCommit))
-                        .size(13)
-                        .padding([5, 8])
                         .width(Length::Fill),
                 ]
                 .spacing(8)
@@ -202,10 +201,14 @@ impl App {
         col = col.push(
             row![
                 label(tr("OPACITY")).width(70),
-                slider(0.1..=1.0, opacity, move |a| m(MarkupMsg::Opacity(a)))
+                ui::fine_slider(0.1..=1.0, opacity, move |a| m(MarkupMsg::Opacity(a)))
                     .step(0.01_f32)
                     .on_release(m(MarkupMsg::StyleCommit)),
-                text(format!("{:.0}%", opacity * 100.0)).size(12).style(muted).width(38).align_x(Alignment::End),
+                text(format!("{:.0}%", opacity * 100.0))
+                    .size(style::SMALL)
+                    .style(muted)
+                    .width(38)
+                    .align_x(Alignment::End),
             ]
             .spacing(8)
             .align_y(Alignment::Center),
@@ -215,14 +218,13 @@ impl App {
             col = col.push(
                 row![
                     label(tr("TEXT SIZE")).width(70),
-                    slider(6.0..=96.0, size.clamp(6.0, 96.0), move |s| m(MarkupMsg::TextSize(s)))
+                    ui::fine_slider(6.0..=96.0, size.clamp(6.0, 96.0), move |s| m(MarkupMsg::TextSize(s)))
                         .step(1.0_f32)
                         .on_release(m(MarkupMsg::StyleCommit)),
-                    text_input("18", &self.size_input)
+                    ui::input("18", &self.size_input)
                         .on_input(move |t| m(MarkupMsg::TextSizeTyped(t)))
                         .on_submit(m(MarkupMsg::StyleCommit))
-                        .size(12)
-                        .padding([4, 6])
+                        .padding([5, 8])
                         .width(46),
                 ]
                 .spacing(8)
@@ -233,10 +235,10 @@ impl App {
             col = col.push(
                 row![
                     label(tr("LINE WIDTH")).width(70),
-                    slider(0.5..=24.0, width.clamp(0.5, 24.0), move |w| m(MarkupMsg::LineWidth(w)))
+                    ui::fine_slider(0.5..=24.0, width.clamp(0.5, 24.0), move |w| m(MarkupMsg::LineWidth(w)))
                         .step(0.5_f32)
                         .on_release(m(MarkupMsg::StyleCommit)),
-                    text(format!("{width:.1}")).size(12).style(muted).width(38).align_x(Alignment::End),
+                    text(format!("{width:.1}")).size(style::SMALL).style(muted).width(38).align_x(Alignment::End),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center),

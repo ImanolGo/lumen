@@ -38,6 +38,7 @@ mod structure;
 mod style;
 mod textfont;
 mod thumbcache;
+mod ui;
 
 use std::path::PathBuf;
 use std::sync::OnceLock;

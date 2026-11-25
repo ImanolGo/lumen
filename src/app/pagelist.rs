@@ -3,13 +3,14 @@
 
 use std::collections::{HashMap, HashSet};
 
-use iced::widget::{Id, button, column, container, image, operation, row, scrollable, space, text, text_input};
+use iced::widget::{Id, button, column, container, image, operation, row, scrollable, space, text};
 use iced::{Alignment, ContentFit, Element, Length, Task, Theme};
 
 use super::{App, Doc, Message, SIDEBAR_W};
 use crate::i18n::tr;
 use crate::raster::Picture;
 use crate::style;
+use crate::ui;
 
 /// Height of one row: the thumbnail box and the page number underneath.
 pub const PAGE_ROW_H: f32 = 176.0;
@@ -169,14 +170,12 @@ impl App {
     pub(super) fn goto_bar<'a>(&'a self, typed: &'a str, pages: usize) -> Element<'a, Message> {
         container(
             row![
-                text_input(&trf!("Page (1–{})", pages), typed)
+                ui::input(&trf!("Page (1–{})", pages), typed)
                     .id(goto_input_id())
                     .on_input(|t| Message::GoToInput(clean_page_input(&t)))
                     .on_submit(Message::GoToSubmit)
-                    .size(14)
-                    .padding([6, 8])
                     .width(130),
-                text(trf!("of {}", pages)).size(12).style(super::muted),
+                text(trf!("of {}", pages)).size(style::SMALL).style(super::muted),
                 super::icon_button(crate::icons::close(), tr("Close (Esc)"), Some(Message::GoToClose), false),
             ]
             .spacing(8)
@@ -207,7 +206,7 @@ impl App {
             };
             let current = page == view.current_page;
             let number = text(format!("{}", page + 1))
-                .size(11)
+                .size(style::CAPTION)
                 .font(style::font(if current { iced::font::Weight::Medium } else { iced::font::Weight::Normal }))
                 .align_x(Alignment::Center)
                 .width(Length::Fill)
@@ -239,10 +238,8 @@ impl App {
             );
         }
         list = list.push(space().height((pages - last) as f32 * PAGE_ROW_H));
-        scrollable(list.width(Length::Fill))
+        ui::thin_scroll(list.width(Length::Fill))
             .id(list_id())
-            .direction(scrollable::Direction::Vertical(scrollable::Scrollbar::new().width(4).scroller_width(4)))
-            .style(style::scrollbar)
             .on_scroll(|vp| Message::PageThumbsScrolled(vp.absolute_offset().y, vp.bounds().height))
             .height(Length::Fill)
             .into()

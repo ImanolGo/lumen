@@ -6,7 +6,7 @@
 
 use iced::mouse::{self, Cursor};
 use iced::widget::canvas::{self, Frame, Geometry, Path, Stroke};
-use iced::widget::{button, column, container, row, slider, space, text};
+use iced::widget::{button, column, container, row, space, text};
 use iced::{Alignment, Color, Element, Font, Length, Padding, Point, Rectangle, Renderer, Size, Task, Theme, Vector};
 
 use super::markup::MarkupMsg;
@@ -15,6 +15,7 @@ use crate::edit::crop::{self, Grab};
 use crate::edit::{Adjustments, CropRect, Edits, Step};
 use crate::i18n::tr;
 use crate::raster::Picture;
+use crate::ui;
 use crate::{icons, style};
 
 /// The edits of one picture, with their history.
@@ -519,13 +520,15 @@ impl App {
         let e = |m: EditMsg| Some(Message::Edit(m));
         let content: Element<'_, Message> = if let Some(state) = &self.crop {
             let mut chips = row![
-                text(tr("Crop")).size(13).font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
+                text(tr("Crop"))
+                    .size(style::BODY)
+                    .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
             ]
             .spacing(4)
             .align_y(Alignment::Center);
             for (i, (label, _)) in ASPECTS.iter().enumerate() {
                 chips = chips.push(
-                    button(text(*label).size(13))
+                    button(text(*label).size(style::BODY))
                         .padding([5, 10])
                         .style(style::segment(state.aspect == i))
                         .on_press(Message::Edit(EditMsg::CropAspect(i))),
@@ -535,12 +538,12 @@ impl App {
             row![
                 chips,
                 space().width(12),
-                text(px).size(12).style(muted),
-                button(text(tr("Cancel")).size(13))
+                text(px).size(style::SMALL).style(muted),
+                button(text(tr("Cancel")).size(style::BODY))
                     .padding([6, 14])
                     .style(style::secondary)
                     .on_press(Message::Edit(EditMsg::CropCancel)),
-                button(text(tr("Crop")).size(13))
+                button(text(tr("Crop")).size(style::BODY))
                     .padding([6, 14])
                     .style(style::primary)
                     .on_press(Message::Edit(EditMsg::CropApply)),
@@ -554,7 +557,7 @@ impl App {
             let busy = edit.is_busy();
             let can_save = !busy && (edit.is_dirty() || self.marks.as_ref().is_some_and(|m| m.has_items()));
             let in_place = self.picture_in_place().is_some();
-            let save = button(text(if in_place { tr("Save") } else { tr("Save a Copy…") }).size(13))
+            let save = button(text(if in_place { tr("Save") } else { tr("Save a Copy…") }).size(style::BODY))
                 .padding([6, 14])
                 .style(style::primary)
                 .on_press_maybe(can_save.then_some(Message::Markup(if in_place {
@@ -598,7 +601,7 @@ impl App {
                     false
                 ),
                 super::separator(),
-                text(status).size(12).style(muted),
+                text(status).size(style::SMALL).style(muted),
                 tip(
                     save.into(),
                     if in_place {
@@ -631,11 +634,11 @@ impl App {
                     set: fn(Adjustments, f32) -> Adjustments| {
             column![
                 row![
-                    text(label).size(13),
+                    text(label).size(style::BODY),
                     space().width(Length::Fill),
-                    text(format!("{value:+.2}")).size(12).style(muted)
+                    text(format!("{value:+.2}")).size(style::SMALL).style(muted)
                 ],
-                slider(range, value, move |v| Message::Edit(EditMsg::Adjust(set(a, v))))
+                ui::fine_slider(range, value, move |v| Message::Edit(EditMsg::Adjust(set(a, v))))
                     .step(0.01_f32)
                     .on_release(Message::Edit(EditMsg::AdjustDone)),
             ]
@@ -644,12 +647,12 @@ impl App {
         let panel = container(
             column![
                 text(tr("Light and colour"))
-                    .size(14)
+                    .size(style::BODY)
                     .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT }),
                 line(tr("Exposure"), a.exposure, -2.0..=2.0, |a, v| Adjustments { exposure: v, ..a }),
                 line(tr("Contrast"), a.contrast, -1.0..=1.0, |a, v| Adjustments { contrast: v, ..a }),
                 line(tr("Saturation"), a.saturation, -1.0..=1.0, |a, v| Adjustments { saturation: v, ..a }),
-                button(text(tr("Reset")).size(13)).padding([5, 12]).style(style::secondary).on_press_maybe(
+                button(text(tr("Reset")).size(style::BODY)).padding([5, 12]).style(style::secondary).on_press_maybe(
                     (!a.is_neutral()).then(|| { Message::Edit(EditMsg::Adjust(Adjustments::default())) })
                 ),
             ]
@@ -671,17 +674,15 @@ impl App {
         let (Some(form), Doc::Image(view)) = (&self.resize_form, &self.doc) else { return space().into() };
         let (uw, uh) = view.edit.edits.unscaled((view.original.width, view.original.height));
         let field = |value: &str, on: fn(String) -> EditMsg| {
-            iced::widget::text_input("", value)
+            ui::input("", value)
                 .on_input(move |t| Message::Edit(on(t)))
                 .on_submit(Message::Edit(EditMsg::ResizeApply))
-                .size(14)
-                .padding([6, 8])
                 .width(80)
         };
         let mut presets = row![].spacing(4);
         for percent in [25, 50, 75, 100] {
             presets = presets.push(
-                button(text(format!("{percent} %")).size(12))
+                button(text(format!("{percent} %")).size(style::SMALL))
                     .padding([4, 8])
                     .style(style::secondary)
                     .on_press(Message::Edit(EditMsg::ResizePercent(percent))),
@@ -690,25 +691,25 @@ impl App {
         let ok = form.width.parse::<u32>().is_ok_and(|w| w > 0) && form.height.parse::<u32>().is_ok_and(|h| h > 0);
         let panel = container(
             column![
-                text(tr("Resize")).size(14).font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT }),
+                text(tr("Resize"))
+                    .size(style::BODY)
+                    .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT }),
                 row![
                     field(&form.width, EditMsg::ResizeWidth),
-                    text("×").size(14),
+                    text("×").size(style::BODY),
                     field(&form.height, EditMsg::ResizeHeight),
-                    text(tr("px")).size(13).style(muted)
+                    text(tr("px")).size(style::BODY).style(muted)
                 ]
                 .spacing(6)
                 .align_y(Alignment::Center),
-                iced::widget::checkbox(form.keep_ratio)
+                ui::check(form.keep_ratio)
                     .label(tr("Keep proportions"))
-                    .on_toggle(|k| Message::Edit(EditMsg::ResizeKeep(k)))
-                    .size(16)
-                    .text_size(13),
+                    .on_toggle(|k| Message::Edit(EditMsg::ResizeKeep(k))),
                 presets,
-                text(trf!("Full size: {} × {}", uw, uh)).size(12).style(muted),
+                text(trf!("Full size: {} × {}", uw, uh)).size(style::SMALL).style(muted),
                 row![
                     space().width(Length::Fill),
-                    button(text(tr("Resize")).size(13))
+                    button(text(tr("Resize")).size(style::BODY))
                         .padding([6, 14])
                         .style(style::primary)
                         .on_press_maybe(ok.then_some(Message::Edit(EditMsg::ResizeApply))),

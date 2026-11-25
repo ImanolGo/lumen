@@ -1,15 +1,14 @@
 //! Lumen's own print dialog, for desktops without a print portal: pick a printer,
 //! copies, paper and two-sided printing, and the job goes straight to CUPS.
 
-use iced::widget::{
-    button, center, checkbox, column, container, mouse_area, opaque, pick_list, row, space, stack, text, text_input,
-};
+use iced::widget::{button, center, column, container, mouse_area, opaque, row, space, stack, text};
 use iced::{Alignment, Element, Font, Length, Task};
 
 use super::{App, Message, blocking, err_string, muted};
 use crate::cups::{self, Job, Printer};
 use crate::i18n::tr;
 use crate::style;
+use crate::ui;
 
 /// A paper size a printer offers.
 #[derive(Debug, Clone, PartialEq)]
@@ -135,14 +134,14 @@ impl App {
         let dialog = self.print_dialog.as_ref()?;
         let p = |m: PrintMsg| Message::Printing(m);
         let title = text(trf!("Print “{}”", super::file_name(&dialog.job.path)))
-            .size(18)
+            .size(style::HEADING)
             .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT });
-        let label = |t: String| text(t).size(13).width(110);
+        let label = |t: String| text(t).size(style::BODY).width(110);
         let body: Element<'_, Message> = match &dialog.printers {
-            None => text(tr("Looking for printers…")).size(14).style(muted).into(),
-            Some(Err(e)) => text(trf!("Printing is not available: {}", e)).size(14).into(),
+            None => text(tr("Looking for printers…")).size(style::BODY).style(muted).into(),
+            Some(Err(e)) => text(trf!("Printing is not available: {}", e)).size(style::BODY).into(),
             Some(Ok(printers)) if printers.is_empty() => {
-                text(tr("No printers are set up. Add one in your system's printer settings.")).size(14).into()
+                text(tr("No printers are set up. Add one in your system's printer settings.")).size(style::BODY).into()
             }
             Some(Ok(printers)) => {
                 let printer = dialog.printer.as_ref();
@@ -150,18 +149,15 @@ impl App {
                 let mut form = column![
                     row![
                         label(tr("Printer")),
-                        pick_list(printers.clone(), dialog.printer.clone(), move |x| p(PrintMsg::Printer(x)))
-                            .width(Length::Fill)
-                            .text_size(14)
+                        ui::select(printers.clone(), dialog.printer.clone(), move |x| p(PrintMsg::Printer(x)))
                     ]
                     .align_y(Alignment::Center),
                     row![
                         label(tr("Copies")),
-                        text_input("1", &dialog.copies)
+                        ui::input("1", &dialog.copies)
                             .on_input(move |t| p(PrintMsg::Copies(t)))
                             .on_submit(p(PrintMsg::Print))
                             .width(70)
-                            .size(14)
                     ]
                     .align_y(Alignment::Center),
                 ]
@@ -170,9 +166,7 @@ impl App {
                     form = form.push(
                         row![
                             label(tr("Paper")),
-                            pick_list(media, dialog.media.clone(), move |m| p(PrintMsg::Media(m)))
-                                .width(Length::Fill)
-                                .text_size(14)
+                            ui::select(media, dialog.media.clone(), move |m| p(PrintMsg::Media(m)))
                         ]
                         .align_y(Alignment::Center),
                     );
@@ -181,10 +175,9 @@ impl App {
                     form = form.push(
                         row![
                             label(String::new()),
-                            checkbox(dialog.two_sided)
+                            ui::check(dialog.two_sided)
                                 .label(tr("Print on both sides"))
                                 .on_toggle(move |on| p(PrintMsg::TwoSided(on)))
-                                .text_size(14)
                         ]
                         .align_y(Alignment::Center),
                     );
@@ -196,17 +189,17 @@ impl App {
         let card = container(
             column![
                 title,
-                text(tr("Printing directly, without the desktop's print dialog.")).size(12).style(muted),
+                text(tr("Printing directly, without the desktop's print dialog.")).size(style::SMALL).style(muted),
                 space().height(4),
                 body,
                 space().height(4),
                 row![
                     space().width(Length::Fill),
-                    button(text(tr("Cancel")).size(14))
+                    button(text(tr("Cancel")).size(style::BODY))
                         .padding([8, 16])
                         .style(style::secondary)
                         .on_press(p(PrintMsg::Cancel)),
-                    button(text(if dialog.sending { tr("Sending…") } else { tr("Print") }).size(14))
+                    button(text(if dialog.sending { tr("Sending…") } else { tr("Print") }).size(style::BODY))
                         .padding([8, 16])
                         .style(style::primary)
                         .on_press_maybe(ready.then_some(p(PrintMsg::Print))),

@@ -1300,13 +1300,14 @@ impl App {
                 tr("Save the picture with its markup as a new file (Ctrl+S)"),
             )
         };
-        let save = button(text(save_label).size(13)).padding([6, 14]).style(style::primary).on_press_maybe(save_msg);
-        let discard = button(text(tr("Discard")).size(13))
+        let save =
+            button(text(save_label).size(style::BODY)).padding([6, 14]).style(style::primary).on_press_maybe(save_msg);
+        let discard = button(text(tr("Discard")).size(style::BODY))
             .padding([6, 12])
             .style(style::secondary)
             .on_press_maybe((ready && dirty).then_some(Message::Discard));
         let discard = super::tip(discard.into(), tr("Throw away what is not saved"));
-        let mut end = row![text(status).size(12).style(muted), discard, super::tip(save.into(), save_tip)]
+        let mut end = row![text(status).size(style::SMALL).style(muted), discard, super::tip(save.into(), save_tip)]
             .spacing(6)
             .align_y(Alignment::Center);
         if is_pdf || self.picture_in_place().is_some() {
@@ -1371,19 +1372,23 @@ impl App {
         };
         let mut actions = row![
             space().width(Length::Fill),
-            button(text(tr("Cancel")).size(14)).padding([8, 16]).style(style::secondary).on_press(Message::ConfirmNo),
+            button(text(tr("Cancel")).size(style::BODY))
+                .padding([8, 16])
+                .style(style::secondary)
+                .on_press(Message::ConfirmNo),
         ]
         .spacing(10);
         if let Some(copy) = copy {
-            let label = text(tr("Save a Copy…")).size(14);
+            let label = text(tr("Save a Copy…")).size(style::BODY);
             actions = actions.push(button(label).padding([8, 16]).style(style::secondary).on_press(copy));
         }
-        actions =
-            actions.push(button(text(yes).size(14)).padding([8, 16]).style(iced::widget::button::danger).on_press(go));
+        actions = actions.push(button(text(yes).size(style::BODY)).padding([8, 16]).style(style::danger).on_press(go));
         let card = container(
             column![
-                text(title).size(18).font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT }),
-                text(body).size(14).style(muted),
+                text(title)
+                    .size(style::HEADING)
+                    .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT }),
+                text(body).size(style::BODY).style(muted),
                 space().height(6),
                 actions,
             ]
@@ -1405,19 +1410,19 @@ impl App {
         let card = container(
             column![
                 text(tr("Quit without saving?"))
-                    .size(18)
+                    .size(style::HEADING)
                     .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT }),
-                text(body).size(14).style(muted),
+                text(body).size(style::BODY).style(muted),
                 space().height(6),
                 row![
                     space().width(Length::Fill),
-                    button(text(tr("Cancel")).size(14))
+                    button(text(tr("Cancel")).size(style::BODY))
                         .padding([8, 16])
                         .style(style::secondary)
                         .on_press(Message::Markup(MarkupMsg::StayOpen)),
-                    button(text(tr("Quit Without Saving")).size(14))
+                    button(text(tr("Quit Without Saving")).size(style::BODY))
                         .padding([8, 16])
-                        .style(iced::widget::button::danger)
+                        .style(style::danger)
                         .on_press(Message::Markup(MarkupMsg::QuitAnyway)),
                 ]
                 .spacing(10),

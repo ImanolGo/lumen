@@ -1,13 +1,14 @@
 //! The preferences dialog (☰ → Preferences…). Every change takes effect at once and is saved.
 
 use iced::theme::Mode;
-use iced::widget::{button, checkbox, column, container, row, scrollable, space, text};
+use iced::widget::{button, column, row, space, text};
 use iced::{Alignment, Element, Font, Length, Task};
 
 use super::{App, Message, muted};
 use crate::i18n::tr;
 use crate::settings::{self, PdfFit, Settings, Theme};
 use crate::style;
+use crate::ui;
 
 #[derive(Debug, Clone, Copy)]
 pub enum PrefMsg {
@@ -107,14 +108,17 @@ impl App {
         close: Element<'a, Message>,
     ) -> Element<'a, Message> {
         let p = &self.prefs;
-        let label = |t: String| text(t).size(13).width(170);
+        let label = |t: String| text(t).size(style::BODY).width(170);
         let heading = |t: String| {
-            text(t).size(12).style(muted).font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
+            text(t)
+                .size(style::SMALL)
+                .style(muted)
+                .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
         };
         // A row of choices, the current one lit.
         let choices = |items: Vec<(String, bool, PrefMsg)>| {
             row(items.into_iter().map(|(name, on, msg)| {
-                button(text(name).size(12).align_x(Alignment::Center))
+                button(text(name).size(style::SMALL).align_x(Alignment::Center))
                     .padding([4, 10])
                     .style(style::segment(on))
                     .on_press(Message::Pref(msg))
@@ -126,7 +130,7 @@ impl App {
             row![label(name), control].spacing(10).align_y(Alignment::Center)
         };
         let toggle = |name: String, on: bool, msg: fn(bool) -> PrefMsg| {
-            checkbox(on).label(name).on_toggle(move |v| Message::Pref(msg(v))).text_size(13).size(16)
+            ui::check(on).label(name).on_toggle(move |v| Message::Pref(msg(v)))
         };
         let theme = choices(vec![
             (tr("System"), p.theme == Theme::System, PrefMsg::Theme(Theme::System)),
@@ -192,7 +196,7 @@ impl App {
             heading(tr("DESKTOP")),
             toggle(tr("Use the desktop's file and print dialogs"), p.portals, PrefMsg::Portals),
             text(tr("Without them (or without a portal) Lumen shows its own. LUMEN_THEME and LUMEN_NO_PORTAL in the environment win over these."))
-                .size(11)
+                .size(style::CAPTION)
                 .style(muted)
             ]
             .spacing(8)
@@ -221,7 +225,7 @@ impl App {
             toggle(sandbox, p.sandbox, PrefMsg::Sandbox),
             toggle(tr("Wrap around at the first and last file"), p.wrap_around, PrefMsg::WrapAround),
             toggle(thumbnails, p.thumbnail_cache, PrefMsg::ThumbnailCache),
-            text(sandbox_note).size(11).style(muted),
+            text(sandbox_note).size(style::CAPTION).style(muted),
             heading(tr("MEMORY AND SPEED")),
             line(tr("Pictures kept decoded"), cache.into()),
             line(tr("Decode neighbours up to"), preload.into()),
@@ -230,9 +234,9 @@ impl App {
         .spacing(8);
         column![
             title,
-            scrollable(container(body).padding([0, 12])).height(Length::Shrink),
+            ui::scroll(body).height(Length::Shrink),
             row![
-                button(text(tr("Reset to defaults")).size(13))
+                button(text(tr("Reset to defaults")).size(style::BODY))
                     .padding([8, 14])
                     .style(style::secondary)
                     .on_press(Message::Pref(PrefMsg::Reset)),

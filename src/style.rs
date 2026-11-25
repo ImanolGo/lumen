@@ -19,6 +19,15 @@ pub fn font(weight: Weight) -> Font {
     Font { weight, ..FONT }
 }
 
+/// Type sizes: hints, secondary text, text, titles of panels and the window, of dialogs, and the
+/// name on the empty window.
+pub const CAPTION: f32 = 11.0;
+pub const SMALL: f32 = 12.0;
+pub const BODY: f32 = 13.0;
+pub const TITLE: f32 = 15.0;
+pub const HEADING: f32 = 18.0;
+pub const DISPLAY: f32 = 24.0;
+
 /// Corner radii: controls, panels.
 pub const RADIUS: f32 = 8.0;
 pub const PANEL_RADIUS: f32 = 12.0;
@@ -48,7 +57,7 @@ pub fn theme(mode: Mode) -> Theme {
                 primary: AMBER_LIGHT,
                 success: color!(0x1f8a4c),
                 warning: color!(0xb26a00),
-                danger: color!(0xd13b30),
+                danger: color!(0xc9342a),
             },
         ),
     }
@@ -167,7 +176,7 @@ pub fn tool(theme: &Theme, status: button::Status) -> button::Style {
     button::Style {
         background: bg.map(Background::Color),
         text_color: if status == button::Status::Disabled {
-            text_color(theme).scale_alpha(0.35)
+            text_color(theme).scale_alpha(DISABLED)
         } else {
             text_color(theme)
         },
@@ -187,42 +196,208 @@ pub fn tool_active(theme: &Theme, status: button::Status) -> button::Style {
     }
 }
 
-/// The one button that does the main thing.
-pub fn primary(theme: &Theme, status: button::Status) -> button::Style {
-    let p = theme.extended_palette();
-    let bg = match status {
-        button::Status::Hovered => p.primary.strong.color,
-        button::Status::Disabled => p.primary.base.color.scale_alpha(0.35),
-        _ => p.primary.base.color,
-    };
+/// How strong text is when it is secondary, and when what it names cannot be done now.
+const MUTED: f32 = 0.66;
+const DISABLED: f32 = 0.5;
+
+/// Secondary text.
+pub fn muted(theme: &Theme) -> Color {
+    text_color(theme).scale_alpha(MUTED)
+}
+
+/// A button that cannot be pressed now, whatever kind it is.
+fn disabled(theme: &Theme) -> button::Style {
     button::Style {
-        background: Some(bg.into()),
-        text_color: if status == button::Status::Disabled {
-            p.primary.base.text.scale_alpha(0.6)
-        } else {
-            p.primary.base.text
-        },
+        background: Some(wash(theme, 0.05).into()),
+        text_color: text_color(theme).scale_alpha(DISABLED),
         border: Border { radius: RADIUS.into(), ..Default::default() },
         ..Default::default()
     }
 }
 
-pub fn secondary(theme: &Theme, status: button::Status) -> button::Style {
-    let bg = match status {
-        button::Status::Hovered => wash(theme, 0.10),
-        button::Status::Pressed => wash(theme, 0.14),
-        _ => wash(theme, 0.06),
-    };
+fn filled(background: Color, text: Color) -> button::Style {
     button::Style {
-        background: Some(bg.into()),
-        text_color: if status == button::Status::Disabled {
-            text_color(theme).scale_alpha(0.4)
-        } else {
-            text_color(theme)
-        },
+        background: Some(background.into()),
+        text_color: text,
         border: Border { radius: RADIUS.into(), ..Default::default() },
         ..Default::default()
     }
+}
+
+/// The one button that does the main thing.
+pub fn primary(theme: &Theme, status: button::Status) -> button::Style {
+    let p = theme.extended_palette();
+    match status {
+        button::Status::Disabled => disabled(theme),
+        button::Status::Hovered | button::Status::Pressed => {
+            let towards = if is_dark(theme) { Color::WHITE } else { Color::BLACK };
+            filled(color_mix(p.primary.base.color, towards, 0.12), on_primary(theme))
+        }
+        _ => filled(p.primary.base.color, on_primary(theme)),
+    }
+}
+
+/// Text on the accent colour.
+fn on_primary(theme: &Theme) -> Color {
+    if is_dark(theme) { color!(0x1a1206) } else { Color::WHITE }
+}
+
+/// The button that throws something away.
+pub fn danger(theme: &Theme, status: button::Status) -> button::Style {
+    let base = theme.palette().danger;
+    let text = if is_dark(theme) { color!(0x2a0705) } else { Color::WHITE };
+    match status {
+        button::Status::Disabled => disabled(theme),
+        button::Status::Hovered | button::Status::Pressed => {
+            filled(color_mix(base, if is_dark(theme) { Color::WHITE } else { Color::BLACK }, 0.12), text)
+        }
+        _ => filled(base, text),
+    }
+}
+
+pub fn secondary(theme: &Theme, status: button::Status) -> button::Style {
+    let amount = match status {
+        button::Status::Disabled => return disabled(theme),
+        button::Status::Hovered => 0.10,
+        button::Status::Pressed => 0.14,
+        _ => 0.06,
+    };
+    filled(wash(theme, amount), text_color(theme))
+}
+
+/// The row of a list that the keyboard is on.
+pub fn list_row(theme: &Theme, _status: button::Status) -> button::Style {
+    filled(wash(theme, 0.09), text_color(theme))
+}
+
+/// A box to type into: a faint wash, and an accent ring while it has the focus.
+pub fn input(theme: &Theme, status: iced::widget::text_input::Status) -> iced::widget::text_input::Style {
+    use iced::widget::text_input::Status;
+    let (fill, ring) = match status {
+        Status::Focused { .. } => (0.05, 1.5),
+        Status::Hovered => (0.08, 0.0),
+        _ => (0.06, 0.0),
+    };
+    iced::widget::text_input::Style {
+        background: wash(theme, fill).into(),
+        border: Border { radius: RADIUS.into(), width: ring, color: accent(theme) },
+        icon: muted(theme),
+        placeholder: muted(theme),
+        value: text_color(theme),
+        selection: accent(theme).scale_alpha(0.3),
+    }
+}
+
+/// One without a frame.
+pub fn bare_input(theme: &Theme, status: iced::widget::text_input::Status) -> iced::widget::text_input::Style {
+    iced::widget::text_input::Style {
+        background: Color::TRANSPARENT.into(),
+        border: Border::default(),
+        ..input(theme, status)
+    }
+}
+
+pub fn select(theme: &Theme, status: iced::widget::pick_list::Status) -> iced::widget::pick_list::Style {
+    use iced::widget::pick_list::Status;
+    let open = matches!(status, Status::Opened { .. });
+    iced::widget::pick_list::Style {
+        text_color: text_color(theme),
+        placeholder_color: muted(theme),
+        handle_color: text_color(theme),
+        background: wash(theme, if matches!(status, Status::Active) { 0.06 } else { 0.09 }).into(),
+        border: Border { radius: RADIUS.into(), width: if open { 1.5 } else { 0.0 }, color: accent(theme) },
+    }
+}
+
+pub fn select_menu(theme: &Theme) -> iced::overlay::menu::Style {
+    iced::overlay::menu::Style {
+        background: surface(theme).into(),
+        border: Border { radius: RADIUS.into(), width: 1.0, color: hairline(theme) },
+        text_color: text_color(theme),
+        selected_text_color: text_color(theme),
+        selected_background: wash(theme, 0.09).into(),
+        shadow: float_shadow(theme),
+    }
+}
+
+pub fn check(theme: &Theme, status: iced::widget::checkbox::Status) -> iced::widget::checkbox::Style {
+    use iced::widget::checkbox::Status;
+    let (on, hovered, enabled) = match status {
+        Status::Active { is_checked } => (is_checked, false, true),
+        Status::Hovered { is_checked } => (is_checked, true, true),
+        Status::Disabled { is_checked } => (is_checked, false, false),
+    };
+    let fill = match (on, hovered) {
+        (true, _) => accent(theme),
+        (false, true) => wash(theme, 0.10),
+        (false, false) => wash(theme, 0.05),
+    };
+    let fade = if enabled { 1.0 } else { DISABLED };
+    iced::widget::checkbox::Style {
+        background: fill.scale_alpha(fade).into(),
+        icon_color: on_primary(theme),
+        border: Border {
+            radius: 5.0.into(),
+            width: if on { 0.0 } else { 1.0 },
+            // The edge is all there is to see of an empty box.
+            color: text_color(theme).scale_alpha(0.5 * fade),
+        },
+        text_color: Some(text_color(theme).scale_alpha(fade)),
+    }
+}
+
+pub fn slider(theme: &Theme, status: iced::widget::slider::Status) -> iced::widget::slider::Style {
+    use iced::widget::slider::{Handle, HandleShape, Rail, Status, Style};
+    let active = !matches!(status, Status::Active);
+    Style {
+        rail: Rail {
+            backgrounds: (accent(theme).into(), wash(theme, 0.16).into()),
+            width: 3.0,
+            border: Border { radius: 2.0.into(), ..Default::default() },
+        },
+        handle: Handle {
+            shape: HandleShape::Circle { radius: if active { 8.0 } else { 7.0 } },
+            background: Color::WHITE.into(),
+            border_width: 1.0,
+            border_color: if is_dark(theme) { color!(0x000000) } else { color!(0x8a8a90) },
+        },
+    }
+}
+
+/// A sunken area holding a list.
+pub fn well(theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(wash(theme, 0.03).into()),
+        border: Border { radius: RADIUS.into(), width: 1.0, color: hairline(theme) },
+        ..Default::default()
+    }
+}
+
+/// The line between groups of tools.
+pub fn separator(theme: &Theme) -> container::Style {
+    container::Style { background: Some(wash(theme, 0.16).into()), ..Default::default() }
+}
+
+/// A key on the empty window and in the list of shortcuts.
+pub fn key_cap(theme: &Theme) -> container::Style {
+    container::Style {
+        border: Border { radius: 4.0.into(), width: 1.0, color: wash(theme, 0.18) },
+        ..Default::default()
+    }
+}
+
+/// The window while files are held over it.
+pub fn drop_area(theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(theme.palette().background.scale_alpha(0.85).into()),
+        border: Border { radius: 16.0.into(), width: 2.0, color: accent(theme) },
+        ..Default::default()
+    }
+}
+
+/// The icon of a floating control, as faded as it is.
+pub fn icon_faded(alpha: f32) -> impl Fn(&Theme, svg::Status) -> svg::Style {
+    move |theme, _| svg::Style { color: Some(text_color(theme).scale_alpha(0.85 * alpha)) }
 }
 
 /// A row of the file list or the contents: a faint wash when hovered or chosen.
@@ -268,7 +443,7 @@ pub fn icon(theme: &Theme, _status: svg::Status) -> svg::Style {
 }
 
 pub fn icon_muted(theme: &Theme, _status: svg::Status) -> svg::Style {
-    svg::Style { color: Some(text_color(theme).scale_alpha(0.45)) }
+    svg::Style { color: Some(text_color(theme).scale_alpha(DISABLED)) }
 }
 
 pub fn icon_accent(theme: &Theme, _status: svg::Status) -> svg::Style {
@@ -276,7 +451,7 @@ pub fn icon_accent(theme: &Theme, _status: svg::Status) -> svg::Style {
 }
 
 pub fn icon_on_primary(theme: &Theme, _status: svg::Status) -> svg::Style {
-    svg::Style { color: Some(theme.extended_palette().primary.base.text) }
+    svg::Style { color: Some(on_primary(theme)) }
 }
 
 /// A search match on a page; the current one is stronger.
@@ -316,7 +491,7 @@ pub fn segment(selected: bool) -> impl Fn(&Theme, button::Status) -> button::Sty
         };
         button::Style {
             background: bg.map(Background::Color),
-            text_color: if selected { text_color(theme) } else { text_color(theme).scale_alpha(0.6) },
+            text_color: if selected { text_color(theme) } else { muted(theme) },
             border: Border { radius: RADIUS.into(), ..Default::default() },
             ..Default::default()
         }
@@ -548,5 +723,65 @@ pub fn scrollbar(theme: &Theme, status: iced::widget::scrollable::Status) -> ice
             shadow: float_shadow(theme),
             icon: text_color(theme),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `c` over an opaque `under`.
+    fn over(c: Color, under: Color) -> Color {
+        color_mix(under, Color { a: 1.0, ..c }, c.a)
+    }
+
+    fn luminance(c: Color) -> f32 {
+        let l = |v: f32| if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) };
+        0.2126 * l(c.r) + 0.7152 * l(c.g) + 0.0722 * l(c.b)
+    }
+
+    fn contrast(a: Color, b: Color) -> f32 {
+        let (a, b) = (luminance(a), luminance(b));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    #[test]
+    fn everything_can_be_read_in_both_themes() {
+        let mut bad = Vec::new();
+        for mode in [Mode::Light, Mode::Dark] {
+            let t = theme(mode);
+            let canvas = t.palette().background;
+            let panel = surface(&t);
+            let fill = |s: button::Style| match s.background {
+                Some(Background::Color(c)) => c,
+                _ => Color::TRANSPARENT,
+            };
+            let mut check = |what: &str, fg: Color, bg: Color, least: f32| {
+                let c = contrast(over(fg, bg), bg);
+                if c < least {
+                    bad.push(format!("{mode:?} {what}: {c:.2} < {least}"));
+                }
+            };
+            for (place, bg) in [("window", canvas), ("panel", panel)] {
+                check(&format!("text on {place}"), text_color(&t), bg, 4.5);
+                check(&format!("muted text on {place}"), muted(&t), bg, 4.5);
+                check(&format!("danger on {place}"), t.palette().danger, bg, 4.5);
+                check(&format!("icon on {place}"), icon(&t, svg::Status::Idle).color.unwrap(), bg, 3.0);
+                check(&format!("muted icon on {place}"), icon_muted(&t, svg::Status::Idle).color.unwrap(), bg, 3.0);
+                check(&format!("active icon on {place}"), accent(&t), bg, 3.0);
+                let off = disabled(&t);
+                check(&format!("disabled on {place}"), off.text_color, over(fill(off), bg), 3.0);
+                check(&format!("empty check box on {place}"), text_color(&t).scale_alpha(0.5), bg, 3.0);
+                check(&format!("focus ring on {place}"), accent(&t), bg, 3.0);
+                let plain = secondary(&t, button::Status::Active);
+                check(&format!("button on {place}"), plain.text_color, over(fill(plain), bg), 4.5);
+                for status in [button::Status::Active, button::Status::Hovered] {
+                    for (name, s) in [("primary", primary(&t, status)), ("danger", danger(&t, status))] {
+                        check(&format!("{name} {status:?}"), s.text_color, fill(s), 4.5);
+                    }
+                }
+            }
+        }
+        assert!(bad.is_empty(), "{bad:#?}");
     }
 }

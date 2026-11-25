@@ -10,7 +10,7 @@ use iced::mouse::{self, ScrollDelta};
 use iced::theme::Mode;
 use iced::widget::{
     Id, button, center, column, container, image, mouse_area, operation, row, scrollable, sensor, space, stack, svg,
-    text, text_input, tooltip,
+    text, tooltip,
 };
 use iced::{
     Alignment, ContentFit, Element, Event, Font, Length, Padding, Point, Size, Subscription, Task, Theme, event,
@@ -59,6 +59,7 @@ use crate::pdf;
 use crate::print::{self, Outcome};
 use crate::raster::{self, Picture};
 use crate::structure::{PageText, Target};
+use crate::ui;
 use crate::{icons, style};
 use hayro::kurbo::{Point as PagePoint, Rect};
 
@@ -2980,22 +2981,27 @@ fn icon_button<'a>(
         .padding(0)
         .style(if active { style::tool_active } else { style::tool })
         .on_press_maybe(on_press);
-    tooltip(b, container(text(label).size(12)).padding([4, 8]).style(style::pill), tooltip::Position::Bottom)
+    tooltip(b, container(text(label).size(style::SMALL)).padding([4, 8]).style(style::pill), tooltip::Position::Bottom)
         .gap(6)
         .into()
 }
 
 /// `content` with a tooltip below it.
 fn tip<'a>(content: Element<'a, Message>, label: impl text::IntoFragment<'a>) -> Element<'a, Message> {
-    tooltip(content, container(text(label).size(12)).padding([4, 8]).style(style::pill), tooltip::Position::Bottom)
-        .gap(6)
-        .into()
+    tooltip(
+        content,
+        container(text(label).size(style::SMALL)).padding([4, 8]).style(style::pill),
+        tooltip::Position::Bottom,
+    )
+    .gap(6)
+    .into()
 }
 
 /// A small text button that is on or off, with a tooltip (the search bar's options).
 fn search_toggle<'a>(label: &'a str, tip_text: String, on: bool, message: Message) -> Element<'a, Message> {
     let look = if on { style::tool_active } else { style::tool };
-    let b = button(center(text(label).size(12)).width(32).height(28)).padding(0).style(look).on_press(message);
+    let b =
+        button(center(text(label).size(style::SMALL)).width(32).height(28)).padding(0).style(look).on_press(message);
     tip(b.into(), tip_text)
 }
 
@@ -3024,12 +3030,7 @@ fn shorten_home(dir: &Path) -> String {
 }
 
 fn separator<'a>() -> Element<'a, Message> {
-    container(space().width(1).height(22))
-        .style(|t: &Theme| container::Style {
-            background: Some(t.extended_palette().background.strong.color.into()),
-            ..Default::default()
-        })
-        .into()
+    container(space().width(1).height(22)).style(style::separator).into()
 }
 
 impl App {
@@ -3135,10 +3136,10 @@ impl App {
         }
         if let Some((id, msg, error)) = &self.toast {
             let look = if *error { style::toast_error } else { style::panel };
-            let mut line = row![text(msg.as_str()).size(13)].spacing(12).align_y(Alignment::Center);
+            let mut line = row![text(msg.as_str()).size(style::BODY)].spacing(12).align_y(Alignment::Center);
             if self.trash_undo.as_ref().is_some_and(|t| t.toast == *id && crate::platform::caps().trash_undo) {
                 line = line.push(
-                    button(text(tr("Undo")).size(13))
+                    button(text(tr("Undo")).size(style::BODY))
                         .padding([3, 10])
                         .style(style::secondary)
                         .on_press(Message::UndoTrash),
@@ -3146,7 +3147,7 @@ impl App {
             }
             if self.pages_undo == Some(*id) {
                 line = line.push(
-                    button(text(tr("Undo")).size(13))
+                    button(text(tr("Undo")).size(style::BODY))
                         .padding([3, 10])
                         .style(style::secondary)
                         .on_press(Message::Pages(PagesMsg::Undo)),
@@ -3210,13 +3211,13 @@ impl App {
         if caps.title_in_header {
             titles = titles.push(
                 text(title)
-                    .size(15)
+                    .size(style::TITLE)
                     .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
                     .wrapping(text::Wrapping::None),
             );
         }
         if !subtitle.is_empty() {
-            let label = text(subtitle).size(12).style(muted).wrapping(text::Wrapping::None);
+            let label = text(subtitle).size(style::SMALL).style(muted).wrapping(text::Wrapping::None);
             titles = titles.push(if is_pdf {
                 let padding = if caps.title_centered { [0, 6] } else { [0, 0] };
                 tip(
@@ -3232,11 +3233,11 @@ impl App {
         let saves = is_pdf || self.picture_in_place().is_some();
         if saves && self.has_unsaved_changes() && !self.markup_open && !self.edit_open {
             let free = self.markup_busy.is_none();
-            let discard = button(text(tr("Discard")).size(13))
+            let discard = button(text(tr("Discard")).size(style::BODY))
                 .padding([6, 12])
                 .style(style::secondary)
                 .on_press_maybe(free.then_some(Message::Discard));
-            let save = button(text(tr("Save")).size(13))
+            let save = button(text(tr("Save")).size(style::BODY))
                 .padding([6, 14])
                 .style(style::primary)
                 .on_press_maybe(free.then_some(Message::Markup(MarkupMsg::Save)));
@@ -3353,13 +3354,13 @@ impl App {
     fn content(&self) -> Element<'_, Message> {
         match &self.doc {
             Doc::Empty => self.empty_state(),
-            Doc::Loading(_) => center(text(tr("Loading…")).size(15).style(muted)).into(),
+            Doc::Loading(_) => center(text(tr("Loading…")).size(style::TITLE).style(muted)).into(),
             Doc::Locked { path, wrong } => self.locked_view(path, *wrong),
             Doc::Failed { path, error } => center(
                 column![
                     svg(icons::broken()).width(56).height(56).style(style::icon_muted),
-                    text(trf!("Could not open “{}”", file_name(path))).size(18),
-                    text(error.as_str()).size(13).style(muted),
+                    text(trf!("Could not open “{}”", file_name(path))).size(style::HEADING),
+                    text(error.as_str()).size(style::BODY).style(muted),
                 ]
                 .spacing(10)
                 .align_x(Alignment::Center),
@@ -3444,12 +3445,12 @@ impl App {
                     .content_fit(ContentFit::Fill)
                     .filter_method(image::FilterMethod::Linear)
                     .into(),
-                None if view.slots[i].failed => {
-                    container(text(tr("This page cannot be shown")).size(13).color(iced::Color::from_rgb8(90, 90, 90)))
-                        .center_x(w)
-                        .center_y(h)
-                        .into()
-                }
+                None if view.slots[i].failed => container(
+                    text(tr("This page cannot be shown")).size(style::BODY).color(iced::Color::from_rgb8(90, 90, 90)),
+                )
+                .center_x(w)
+                .center_y(h)
+                .into(),
                 None => space().width(w).height(h).into(),
             };
             let mut layers = stack![inner].width(w).height(h);
@@ -3488,13 +3489,15 @@ impl App {
                 let area: Element<'_, Message> = match &link.target {
                     Target::Uri(uri) => tooltip(
                         area,
-                        container(text(uri.as_str()).size(12)).padding([4, 8]).style(style::pill),
+                        container(text(uri.as_str()).size(style::SMALL)).padding([4, 8]).style(style::pill),
                         tooltip::Position::FollowCursor,
                     )
                     .into(),
                     Target::Page { page, .. } => tooltip(
                         area,
-                        container(text(trf!("Go to page {}", page + 1)).size(12)).padding([4, 8]).style(style::pill),
+                        container(text(trf!("Go to page {}", page + 1)).size(style::SMALL))
+                            .padding([4, 8])
+                            .style(style::pill),
                         tooltip::Position::FollowCursor,
                     )
                     .into(),
@@ -3546,7 +3549,7 @@ impl App {
         let tabs = self.sidebar_tabs();
         if tabs.len() > 1 {
             let segment = |label: String, this: SidebarTab| {
-                button(text(label).size(12).width(Length::Fill).align_x(Alignment::Center))
+                button(text(label).size(style::SMALL).width(Length::Fill).align_x(Alignment::Center))
                     .padding([4, 8])
                     .width(Length::Fill)
                     .style(style::segment(tab == this))
@@ -3583,13 +3586,13 @@ impl App {
             let strong = item.depth == 0;
             let label = row![
                 space().width(item.depth.min(6) as f32 * 14.0),
-                container(text(item.title.as_str()).size(13).wrapping(text::Wrapping::None).font(Font {
+                container(text(item.title.as_str()).size(style::BODY).wrapping(text::Wrapping::None).font(Font {
                     weight: if strong { iced::font::Weight::Semibold } else { iced::font::Weight::Normal },
                     ..crate::style::FONT
                 }))
                 .width(Length::Fill)
                 .clip(true),
-                text(page).size(11).style(muted),
+                text(page).size(style::CAPTION).style(muted),
             ]
             .spacing(6)
             .align_y(Alignment::Center);
@@ -3602,7 +3605,10 @@ impl App {
             let entry: Element<'_, Message> = if item.title.chars().count() > 26 {
                 tooltip(
                     entry,
-                    container(text(item.title.as_str()).size(12)).padding([4, 8]).style(style::pill).max_width(420),
+                    container(text(item.title.as_str()).size(style::SMALL))
+                        .padding([4, 8])
+                        .style(style::pill)
+                        .max_width(420),
                     tooltip::Position::Right,
                 )
                 .into()
@@ -3612,10 +3618,8 @@ impl App {
             list = list.push(container(entry).padding([1, 6]).height(TOC_ROW_H));
         }
         list = list.push(space().height((outline.len() - last) as f32 * TOC_ROW_H));
-        scrollable(list.width(Length::Fill))
+        ui::thin_scroll(list.width(Length::Fill))
             .id(contents_id())
-            .direction(scrollable::Direction::Vertical(scrollable::Scrollbar::new().width(4).scroller_width(4)))
-            .style(style::scrollbar)
             .on_scroll(|vp| Message::ContentsScrolled(vp.absolute_offset().y, vp.bounds().height))
             .height(Length::Fill)
             .into()
@@ -3639,16 +3643,14 @@ impl App {
         container(
             row![
                 svg(icons::search()).width(16).height(16).style(style::icon_muted),
-                text_input(&find_hint, &search.query)
+                ui::bare_input(&find_hint, &search.query)
                     .id(search_input_id())
                     .on_input(Message::SearchInput)
                     .on_submit(Message::SearchSubmit)
-                    .size(14)
-                    .padding([6, 8])
                     .width(210),
                 search_toggle("Aa", tr("Match case"), search.options.match_case, Message::SearchMatchCase),
                 search_toggle("[ab]", tr("Whole words"), search.options.whole_words, Message::SearchWholeWords),
-                text(status).size(12).style(muted).width(78).align_x(Alignment::Center),
+                text(status).size(style::SMALL).style(muted).width(78).align_x(Alignment::Center),
                 icon_button(
                     icons::up(),
                     tr("Previous match (Shift+Enter)"),
@@ -3691,18 +3693,12 @@ impl App {
             // screen gets an accent ring and a stronger name; nothing is filled in.
             let current = i == self.current;
             let name = text(file_name(path))
-                .size(11)
-                .font(style::font(if current { iced::font::Weight::Medium } else { iced::font::Weight::Normal }))
+                .size(style::CAPTION)
                 .wrapping(text::Wrapping::None)
                 .align_x(Alignment::Center)
                 .width(Length::Fill)
-                .style(move |t: &Theme| text::Style {
-                    color: Some(t.extended_palette().background.base.text.scale_alpha(if current {
-                        1.0
-                    } else {
-                        0.55
-                    })),
-                });
+                // The ring around the picture is what says which one is on screen.
+                .style(muted);
             let framed = container(container(thumb).width(Length::Fill).height(Length::Fill))
                 .padding(3)
                 .width(Length::Fill)
@@ -3723,10 +3719,8 @@ impl App {
             );
         }
         list = list.push(space().height((self.files.len() - last) as f32 * ROW_H));
-        scrollable(list.width(Length::Fill))
+        ui::thin_scroll(list.width(Length::Fill))
             .id(sidebar_id())
-            .direction(scrollable::Direction::Vertical(scrollable::Scrollbar::new().width(4).scroller_width(4)))
-            .style(style::scrollbar)
             .on_scroll(|vp| Message::SidebarScrolled(vp.absolute_offset().y, vp.bounds().height))
             .height(Length::Fill)
             .into()
@@ -3736,7 +3730,7 @@ impl App {
         let open = button(
             row![
                 svg(icons::open()).width(16).height(16).style(style::icon_on_primary),
-                text(tr("Open Files…")).size(14)
+                text(tr("Open Files…")).size(style::BODY)
             ]
             .spacing(8)
             .align_y(Alignment::Center),
@@ -3744,36 +3738,29 @@ impl App {
         .padding([9, 16])
         .style(style::primary)
         .on_press(Message::Open { folder: false });
-        let folder = button(text(tr("Open a Folder")).size(14))
+        let folder = button(text(tr("Open a Folder")).size(style::BODY))
             .padding([9, 14])
             .style(style::tool)
             .on_press(Message::Open { folder: true });
         let key = |k: &'static str| {
-            container(text(k).size(11).font(style::font(iced::font::Weight::Medium))).padding([2, 6]).style(
-                |t: &Theme| container::Style {
-                    border: iced::Border {
-                        radius: 4.0.into(),
-                        width: 1.0,
-                        color: t.extended_palette().background.base.text.scale_alpha(0.18),
-                    },
-                    ..Default::default()
-                },
-            )
+            container(text(k).size(style::CAPTION).font(style::font(iced::font::Weight::Medium)))
+                .padding([2, 6])
+                .style(style::key_cap)
         };
         center(
             column![
                 svg(icons::app()).width(84).height(84),
                 space().height(6),
-                text(tr("Lumen")).size(24).font(style::font(iced::font::Weight::Semibold)),
-                text(tr("Pictures and PDFs, fast and simple")).size(14).style(muted),
+                text(tr("Lumen")).size(style::DISPLAY).font(style::font(iced::font::Weight::Semibold)),
+                text(tr("Pictures and PDFs, fast and simple")).size(style::BODY).style(muted),
                 space().height(14),
                 row![open, folder].spacing(8),
                 space().height(14),
                 row![
                     key("Ctrl O"),
-                    text(tr("open")).size(12).style(muted),
+                    text(tr("open")).size(style::SMALL).style(muted),
                     space().width(8),
-                    text(tr("or drop files and folders here")).size(12).style(muted),
+                    text(tr("or drop files and folders here")).size(style::SMALL).style(muted),
                 ]
                 .spacing(6)
                 .align_y(Alignment::Center),
@@ -3794,9 +3781,9 @@ impl App {
         let mut list = column![
             space().height(18),
             row![
-                text(tr("Recent")).size(12).font(style::font(iced::font::Weight::Medium)).style(muted),
+                text(tr("Recent")).size(style::SMALL).font(style::font(iced::font::Weight::Medium)).style(muted),
                 space().width(Length::Fill),
-                button(text(tr("Clear")).size(12).style(muted))
+                button(text(tr("Clear")).size(style::SMALL).style(muted))
                     .padding([0, 4])
                     .style(style::tool)
                     .on_press(Message::ClearRecent),
@@ -3810,8 +3797,8 @@ impl App {
             let folder = r.path.parent().map(shorten_home).unwrap_or_default();
             let entry = button(
                 row![
-                    text(file_name(&r.path)).size(13).wrapping(text::Wrapping::None),
-                    container(text(folder).size(11).style(muted).wrapping(text::Wrapping::None))
+                    text(file_name(&r.path)).size(style::BODY).wrapping(text::Wrapping::None),
+                    container(text(folder).size(style::CAPTION).style(muted).wrapping(text::Wrapping::None))
                         .width(Length::Fill)
                         .align_x(Alignment::End)
                         .clip(true),
@@ -3832,30 +3819,28 @@ impl App {
     /// Asks for the password of a protected PDF.
     fn locked_view<'a>(&'a self, path: &'a Path, wrong: bool) -> Element<'a, Message> {
         let password_hint = tr("Password");
-        let input = text_input(&password_hint, &self.password_input)
+        let input = ui::input(&password_hint, &self.password_input)
             .id(password_input_id())
             .secure(true)
             .on_input(Message::PasswordInput)
             .on_submit(Message::Unlock)
-            .size(15)
-            .padding([8, 10])
             .width(280);
-        let unlock = button(text(tr("Unlock")).size(15))
+        let unlock = button(text(tr("Unlock")).size(style::TITLE))
             .padding([8, 18])
             .style(style::primary)
             .on_press_maybe((!self.password_input.is_empty()).then_some(Message::Unlock));
         let hint: Element<'_, Message> = if wrong {
             text(tr("That password is not right. Try again."))
-                .size(13)
+                .size(style::BODY)
                 .style(|t: &Theme| text::Style { color: Some(t.extended_palette().danger.base.color) })
                 .into()
         } else {
-            text(tr("Enter the password to open it.")).size(13).style(muted).into()
+            text(tr("Enter the password to open it.")).size(style::BODY).style(muted).into()
         };
         center(
             column![
                 svg(icons::lock()).width(56).height(56).style(style::icon_muted),
-                text(trf!("“{}” is password-protected", file_name(path))).size(18),
+                text(trf!("“{}” is password-protected", file_name(path))).size(style::HEADING),
                 hint,
                 space().height(4),
                 row![input, unlock].spacing(8).align_y(Alignment::Center),
@@ -3871,19 +3856,12 @@ impl App {
             center(
                 column![
                     svg(icons::drop_files()).width(48).height(48).style(style::icon),
-                    text(tr("Drop to open")).size(20),
+                    text(tr("Drop to open")).size(style::HEADING),
                 ]
                 .spacing(12)
                 .align_x(Alignment::Center),
             )
-            .style(|t: &Theme| {
-                let p = t.extended_palette();
-                container::Style {
-                    background: Some(p.background.base.color.scale_alpha(0.85).into()),
-                    border: iced::Border { radius: 16.0.into(), width: 2.0, color: p.primary.base.color },
-                    ..Default::default()
-                }
-            }),
+            .style(style::drop_area),
         )
         .padding(16)
         .width(Length::Fill)
@@ -3924,7 +3902,7 @@ impl App {
         let label = self.zoom_percent().map(|z| format!("{z:.0}%")).unwrap_or_default();
         let percent = button(
             text(label)
-                .size(15)
+                .size(style::TITLE)
                 .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
                 .width(70)
                 .align_x(Alignment::Center)
@@ -3963,9 +3941,7 @@ impl App {
             if msg.is_none() {
                 return space().width(44).into();
             }
-            let glyph = svg(icon).width(22).height(22).style(move |t: &Theme, _| svg::Style {
-                color: Some(t.extended_palette().background.base.text.scale_alpha(alpha)),
-            });
+            let glyph = svg(icon).width(22).height(22).style(style::icon_faded(alpha));
             let disc = button(center(glyph))
                 .width(44)
                 .height(44)
@@ -3999,5 +3975,5 @@ fn on_scroll(offset: iced::Vector, view: iced::Size) -> Message {
 }
 
 fn muted(theme: &Theme) -> text::Style {
-    text::Style { color: Some(theme.extended_palette().background.base.text.scale_alpha(0.6)) }
+    text::Style { color: Some(style::muted(theme)) }
 }

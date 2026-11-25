@@ -13,6 +13,7 @@ use super::{App, Doc, Message, blocking, err_string, file_name, icon_button, mut
 use crate::i18n::tr;
 use crate::pages::{self, Entry};
 use crate::raster::Picture;
+use crate::ui;
 use crate::{icons, pdf, style};
 
 const CELL_W: f32 = 172.0;
@@ -545,7 +546,7 @@ impl App {
                 if o.is_changed() { " · unsaved" } else { "" }
             )
         };
-        let save = button(text(tr("Save")).size(13))
+        let save = button(text(tr("Save")).size(style::BODY))
             .padding([6, 14])
             .style(style::primary)
             .on_press_maybe((o.is_changed() && !busy).then_some(Message::Pages(PagesMsg::Save)));
@@ -597,8 +598,8 @@ impl App {
                 false
             ),
             separator(),
-            text(status).size(12).style(muted),
-            button(text(tr("Cancel")).size(13))
+            text(status).size(style::SMALL).style(muted),
+            button(text(tr("Cancel")).size(style::BODY))
                 .padding([6, 14])
                 .style(style::secondary)
                 .on_press(Message::Pages(PagesMsg::Close)),
@@ -631,7 +632,7 @@ impl App {
                 } else if pos == o.plan.len() && o.dragging {
                     // Somewhere to drop pages at the very end.
                     let target = o.drop_at == Some(pos);
-                    let end = container(center(text(tr("End")).size(13).style(muted)))
+                    let end = container(center(text(tr("End")).size(style::BODY).style(muted)))
                         .width(CELL_W - 2.0 * GAP)
                         .height(CELL_H - 2.0 * GAP)
                         .style(move |t: &iced::Theme| style::drop_slot(t, target));
@@ -643,7 +644,7 @@ impl App {
         }
         let below = total_rows.saturating_sub(rows.end) as f32 * CELL_H;
         grid = grid.push(space().height(below.max(0.0) + 24.0));
-        scrollable(grid.width(Length::Fill))
+        ui::thin_scroll(grid.width(Length::Fill))
             .id(grid_id())
             .on_scroll(|vp| Message::Pages(PagesMsg::Scrolled(vp.absolute_offset().y, vp.bounds().height)))
             .width(Length::Fill)
@@ -680,7 +681,7 @@ impl App {
         let cell = column![
             container(paper).width(Length::Fill).height(THUMB + 8.0).center_x(Length::Fill).center_y(THUMB + 8.0),
             text(label)
-                .size(12)
+                .size(style::SMALL)
                 .font(Font { weight: iced::font::Weight::Medium, ..crate::style::FONT })
                 .wrapping(text::Wrapping::None),
         ]

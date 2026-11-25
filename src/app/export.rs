@@ -163,24 +163,25 @@ impl App {
         let count = self.export_selection().map_or(0, |(pages, ..)| pages.len());
         let what = if count == 1 { "1 page".to_string() } else { format!("{count} pages") };
         let dpi = |d: u32| {
-            button(text(format!("{d} dpi")).size(13).width(Length::Fill).align_x(Alignment::Center))
+            button(text(format!("{d} dpi")).size(style::BODY).width(Length::Fill).align_x(Alignment::Center))
                 .padding([6, 10])
                 .width(Length::Fill)
                 .style(style::secondary)
                 .on_press(Message::Export(ExportMsg::Png(d)))
         };
-        let label =
-            |t: String| text(t).size(13).font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT });
+        let label = |t: String| {
+            text(t).size(style::BODY).font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
+        };
         column![
             title,
-            text(what).size(13).style(muted),
+            text(what).size(style::BODY).style(muted),
             label(tr("As PNG images")),
             row(export::DPIS.iter().map(|&d| dpi(d).into())).spacing(6),
             text(tr("Pages are drawn at that resolution; several pages go into a folder you choose."))
-                .size(12)
+                .size(style::SMALL)
                 .style(muted),
             label(tr("As a PDF")),
-            button(text(tr("Save the pages as a new PDF…")).size(13))
+            button(text(tr("Save the pages as a new PDF…")).size(style::BODY))
                 .padding([6, 12])
                 .style(style::secondary)
                 .on_press(Message::Export(ExportMsg::Pdf)),

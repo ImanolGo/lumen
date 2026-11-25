@@ -9,7 +9,7 @@ The plan has four parts, to be done in this order:
 1. **Fix what is wrong** (packages 1–4): defects found by reading the code.
 2. **Run on macOS and Windows** (packages 5–11).
 3. **Interface** (packages 12–17): one look that fits all three systems.
-4. **Features** (package 18): what a viewer and editor like this still lacks.
+4. **Features** (package 18): what a viewer and editor like this still lacks, and what macOS Preview has.
 
 A fifth part (package 19) confines the decoder on macOS and Windows, after the first builds there exist.
 
@@ -658,8 +658,9 @@ Each is its own piece of work; ask the user which to do. Verified absent by sear
 | Open several documents | Tabs or windows; today opening a file replaces the list. iced 0.14 supports several windows (`window::open`). |
 | Remember zoom and scroll per file, not only the PDF page | `state.rs` already keeps per-file data. |
 
-**From macOS Preview** (asked for on 25 November 2026; the rectangular selection with Copy and Crop is
-done). Offered, for the user to pick:
+**From macOS Preview: to be done** (the user asked for all of them on 25 November 2026; no need to ask
+again which). The rectangular selection on pictures, with Copy and Crop, is done. In this order, each
+a commit of its own with tests and docs:
 
 | Feature | Notes |
 |---|---|
@@ -763,12 +764,12 @@ say exactly which systems those are.
 | 8 | Keys, menus and file opening per system | Done in code; compiled, not seen on a Mac yet. Shortcut signs are applied in `tr()` rather than in each string. The ☰ button stays on macOS until package 14 gives the menu bar every command. Quit from the Dock icon, or logging out, still ends Lumen without asking: that needs `applicationShouldTerminate:` in winit, which decision 4 does not cover. |
 | 9 | End-to-end tests on every system | The ten scenarios pass over stdio and D-Bus on Linux; CI runs them on macOS and Windows too. |
 | 10 | Packages and releases | The workflow builds all packages. Not done: an installer for Windows, the two ways to build a Windows binary from Linux (they need system packages). |
-| 11 | Checked by hand on macOS and Windows | Done by the author on 0.2.0, except copying a picture and Spanish (see `STATUS.md`); what it found is fixed but not tried by hand again. |
+| 11 | Checked by hand on macOS and Windows | Done by the author (see `STATUS.md`); what it found is fixed and confirmed. |
 | 12 | Window frame per system | Done. Looked at on an X display without a window manager; GNOME, KDE, macOS and Windows not seen (package 11). Moving and resizing with the pointer were not tried. |
-| 13 | A complete set of controls; tokens for size and space | |
+| 13 | A complete set of controls; tokens for size and space | Done: type sizes, controls, button kinds and the contrast test (3:1 for disabled text; the edge of an input at rest is not checked, it has none). Paddings are not all tokens yet. At 520×360 the Find bar, Unlock, crop chips and the edit panels are still cut or overlap: packages 15 and 16. |
 | 14 | One table of commands; a menu that fits; context menu | |
 | 15 | Dialogs | |
 | 16 | The main view | |
 | 17 | A screenshot set that is kept | |
-| 18 | Features (the user picks) | |
+| 18 | Features: the ones from macOS Preview (all of them, see the list), then those the user picks | |
 | 19 | Confine the decoder on macOS and Windows | |

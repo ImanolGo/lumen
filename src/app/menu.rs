@@ -2,7 +2,7 @@
 //! menu behind ☰ with everything that does not need a button of its own. Also the
 //! keyboard shortcuts and about dialogs they open.
 
-use iced::widget::{button, center, column, container, mouse_area, opaque, row, rule, scrollable, space, stack, text};
+use iced::widget::{button, center, column, container, mouse_area, opaque, row, rule, space, stack, text};
 use iced::{Alignment, Element, Font, Length, Padding, Task, Theme};
 
 use super::edit::EditMsg;
@@ -14,6 +14,7 @@ use super::{App, Doc, Message, TOOLBAR_H, muted};
 use crate::i18n::tr;
 use crate::platform::keys;
 use crate::style;
+use crate::ui;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Menu {
@@ -313,14 +314,14 @@ impl App {
                 Some((label, keys, msg)) => {
                     let enabled = msg.is_some();
                     let line = row![
-                        text(label).size(14).width(Length::Fill).style(move |t: &Theme| text::Style {
+                        text(label).size(style::BODY).width(Length::Fill).style(move |t: &Theme| text::Style {
                             color: Some(t.extended_palette().background.base.text.scale_alpha(if enabled {
                                 1.0
                             } else {
                                 0.4
                             })),
                         }),
-                        text(keys::show(keys)).size(12).style(muted),
+                        text(keys::show(keys)).size(style::SMALL).style(muted),
                     ]
                     .align_y(Alignment::Center);
                     list.push(
@@ -342,25 +343,28 @@ impl App {
 
     pub(super) fn dialog_view(&self) -> Option<Element<'_, Message>> {
         let dialog = self.dialog?;
-        let title =
-            |t: String| text(t).size(18).font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT });
-        let close =
-            button(text(tr("Close")).size(14)).padding([8, 16]).style(style::secondary).on_press(Message::Dialog(None));
+        let title = |t: String| {
+            text(t).size(style::HEADING).font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
+        };
+        let close = button(text(tr("Close")).size(style::BODY))
+            .padding([8, 16])
+            .style(style::secondary)
+            .on_press(Message::Dialog(None));
         let body: Element<'_, Message> = match dialog {
             Dialog::Shortcuts => {
                 let mut groups = column![].spacing(16);
                 for (name, keys) in SHORTCUTS {
                     let mut group = column![
                         text(tr(name))
-                            .size(13)
+                            .size(style::BODY)
                             .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
                     ]
                     .spacing(6);
                     for (key, what) in *keys {
                         group = group.push(
                             row![
-                                text(tr(what)).size(13).width(Length::Fill),
-                                text(keys::show(key)).size(12).style(muted)
+                                text(tr(what)).size(style::BODY).width(Length::Fill),
+                                text(keys::show(key)).size(style::SMALL).style(muted)
                             ]
                             .spacing(12),
                         );
@@ -369,7 +373,7 @@ impl App {
                 }
                 column![
                     title(tr("Keyboard Shortcuts")),
-                    scrollable(groups).height(Length::Shrink),
+                    ui::scroll(groups).height(Length::Shrink),
                     row![space().width(Length::Fill), close]
                 ]
                 .spacing(14)
@@ -381,21 +385,21 @@ impl App {
             Dialog::Properties => {
                 let mut sections = column![].spacing(16);
                 match &self.properties {
-                    None => sections = sections.push(text(tr("Reading…")).size(13).style(muted)),
-                    Some(Err(e)) => sections = sections.push(text(e.as_str()).size(13)),
+                    None => sections = sections.push(text(tr("Reading…")).size(style::BODY).style(muted)),
+                    Some(Err(e)) => sections = sections.push(text(e.as_str()).size(style::BODY)),
                     Some(Ok(sheet)) => {
                         for (name, rows) in &sheet.sections {
                             let mut group = column![
                                 text(name.as_str())
-                                    .size(13)
+                                    .size(style::BODY)
                                     .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
                             ]
                             .spacing(6);
                             for (key, value) in rows {
                                 group = group.push(
                                     row![
-                                        text(key.as_str()).size(12).style(muted).width(104),
-                                        text(value.as_str()).size(13).width(Length::Fill),
+                                        text(key.as_str()).size(style::SMALL).style(muted).width(104),
+                                        text(value.as_str()).size(style::BODY).width(Length::Fill),
                                     ]
                                     .spacing(10),
                                 );
@@ -406,7 +410,7 @@ impl App {
                 }
                 column![
                     title(tr("Properties")),
-                    scrollable(container(sections).padding([0, 12])).height(Length::Shrink),
+                    ui::scroll(sections).height(Length::Shrink),
                     row![space().width(Length::Fill), close]
                 ]
                 .spacing(14)
@@ -416,15 +420,15 @@ impl App {
             Dialog::About => column![
                 center(iced::widget::svg(crate::icons::app()).width(80).height(80)).height(90),
                 container(title(tr("Lumen"))).center_x(Length::Fill),
-                container(text(trf!("Version {}", env!("CARGO_PKG_VERSION"))).size(13).style(muted))
+                container(text(trf!("Version {}", env!("CARGO_PKG_VERSION"))).size(style::BODY).style(muted))
                     .center_x(Length::Fill),
                 container(
                     text(tr("A fast, safe viewer and editor for pictures and PDFs, in pure Rust with iced."))
-                        .size(14)
+                        .size(style::BODY)
                         .align_x(Alignment::Center)
                 )
                 .center_x(Length::Fill),
-                container(text(tr("GPL-3.0-or-later · github.com/ImanolGo/lumen-rs")).size(12).style(muted))
+                container(text(tr("GPL-3.0-or-later · github.com/ImanolGo/lumen-rs")).size(style::SMALL).style(muted))
                     .center_x(Length::Fill),
                 row![space().width(Length::Fill), close],
             ]

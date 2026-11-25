@@ -192,12 +192,12 @@ impl App {
     pub(super) fn sign_menu_view(&self) -> Element<'_, Message> {
         let mut list = column![
             text(if self.sign_target.is_some() { tr("Sign this field") } else { tr("Add your signature") })
-                .size(14)
+                .size(style::BODY)
                 .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT }),
         ]
         .spacing(8);
         if self.signatures.items.is_empty() {
-            list = list.push(text(tr("No saved signatures yet.")).size(13).style(muted));
+            list = list.push(text(tr("No saved signatures yet.")).size(style::BODY).style(muted));
         }
         for (i, signature) in self.signatures.items.iter().enumerate() {
             let preview = canvas_widget(Preview { signature }).width(PREVIEW.width).height(PREVIEW.height);
@@ -211,7 +211,7 @@ impl App {
             list = list.push(row![pick, remove].spacing(4).align_y(Alignment::Center));
         }
         list = list.push(
-            button(text(tr("Draw a New Signature…")).size(13))
+            button(text(tr("Draw a New Signature…")).size(style::BODY))
                 .padding([7, 12])
                 .width(Length::Fill)
                 .style(style::secondary)
@@ -239,21 +239,21 @@ impl App {
         let card = container(
             column![
                 text(tr("Draw your signature"))
-                    .size(18)
+                    .size(style::HEADING)
                     .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT }),
-                text(tr("It is kept for next time, on this computer only.")).size(13).style(muted),
+                text(tr("It is kept for next time, on this computer only.")).size(style::BODY).style(muted),
                 drawing,
                 row![
-                    button(text(tr("Clear")).size(14))
+                    button(text(tr("Clear")).size(style::BODY))
                         .padding([8, 16])
                         .style(style::secondary)
                         .on_press(Message::Sign(SignMsg::PadClear)),
                     space().width(Length::Fill),
-                    button(text(tr("Cancel")).size(14))
+                    button(text(tr("Cancel")).size(style::BODY))
                         .padding([8, 16])
                         .style(style::secondary)
                         .on_press(Message::Sign(SignMsg::PadCancel)),
-                    button(text(tr("Use Signature")).size(14))
+                    button(text(tr("Use Signature")).size(style::BODY))
                         .padding([8, 16])
                         .style(style::primary)
                         .on_press_maybe(has_ink.then_some(Message::Sign(SignMsg::PadDone))),

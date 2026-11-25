@@ -10,6 +10,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - The language can be chosen in Preferences.
 
 ### Changed
+- One set of controls: inputs, drop-downs, check boxes, sliders and scrollbars look the same everywhere, buttons that cannot be pressed are neutral in every colour, and secondary text, icons and buttons are easier to read in both themes (a test checks the contrast). The file on screen is marked in the sidebar by its ring alone.
 - On Linux the header is the window's title bar: drag it to move the window, double-click to maximise, right-click for the system's menu, and drag the edges to resize. GNOME and KDE no longer draw a second title bar above it. Minimise and maximise buttons are a preference, off by default. On macOS the header is inside the title bar; on Windows it is a toolbar under the system's.
 
 ### Fixed

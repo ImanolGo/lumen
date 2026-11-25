@@ -10,10 +10,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime};
 
 use iced::widget::{
-    Id, button, center, checkbox, column, container, mouse_area, opaque, operation, row, scrollable, space, stack, svg,
-    text, text_input,
+    Id, button, center, column, container, mouse_area, opaque, operation, row, scrollable, space, stack, svg, text,
 };
-use iced::{Alignment, Element, Font, Length, Task, Theme};
+use iced::{Alignment, Element, Font, Length, Task};
 
 use super::export::ExportMsg;
 use super::markup::MarkupMsg;
@@ -22,6 +21,7 @@ use super::{App, Message, blocking, err_string, file_name, muted};
 use crate::i18n::tr;
 use crate::library::Kind;
 use crate::platform::{NoDialog, dialogs, dirs};
+use crate::ui;
 use crate::{icons, style};
 
 const ROW: f32 = 32.0;
@@ -414,10 +414,10 @@ impl App {
             at.push(part);
             let label = if k == 0 { "/".to_string() } else { part.as_os_str().to_string_lossy().into_owned() };
             if k > 1 {
-                crumbs = crumbs.push(text("›").size(13).style(muted));
+                crumbs = crumbs.push(text("›").size(style::BODY).style(muted));
             }
             crumbs = crumbs.push(
-                button(text(label).size(13).wrapping(text::Wrapping::None))
+                button(text(label).size(style::BODY).wrapping(text::Wrapping::None))
                     .padding([4, 6])
                     .style(style::menu_item)
                     .on_press(m(ChooserMsg::Go(at.clone()))),
@@ -425,9 +425,7 @@ impl App {
         }
         let bar = row![
             super::icon_button(icons::up(), tr("Up (Backspace)"), c.dir.parent().map(|_| m(ChooserMsg::Up)), false),
-            scrollable(crumbs)
-                .direction(scrollable::Direction::Horizontal(scrollable::Scrollbar::new().width(0).scroller_width(0)))
-                .width(Length::Fill),
+            ui::side_scroll(crumbs).width(Length::Fill),
         ]
         .spacing(6)
         .align_y(Alignment::Center);
@@ -436,7 +434,7 @@ impl App {
         for (name, path) in dirs::places() {
             let here = path == c.dir;
             side = side.push(
-                button(text(name).size(13).wrapping(text::Wrapping::None))
+                button(text(name).size(style::BODY).wrapping(text::Wrapping::None))
                     .padding([6, 10])
                     .width(Length::Fill)
                     .style(style::segment(here))
@@ -452,13 +450,13 @@ impl App {
             let icon = if e.dir { icons::folder() } else { icons::open() };
             let line = row![
                 svg(icon).width(18).height(18).style(style::icon_muted),
-                text(e.name.as_str()).size(13).width(Length::Fill).wrapping(text::Wrapping::None),
+                text(e.name.as_str()).size(style::BODY).width(Length::Fill).wrapping(text::Wrapping::None),
                 text(if e.dir { String::new() } else { human_size(e.size) })
-                    .size(12)
+                    .size(style::SMALL)
                     .style(muted)
                     .width(70)
                     .align_x(Alignment::End),
-                text(age(e.modified)).size(12).style(muted).width(100).align_x(Alignment::End),
+                text(age(e.modified)).size(style::SMALL).style(muted).width(100).align_x(Alignment::End),
             ]
             .spacing(10)
             .align_y(Alignment::Center);
@@ -473,28 +471,24 @@ impl App {
         }
         rows = rows.push(space().height((c.entries.len() - last) as f32 * ROW));
         let listing: Element<'_, Message> = if c.loading && c.entries.is_empty() {
-            center(text(tr("Loading…")).size(13).style(muted)).into()
+            center(text(tr("Loading…")).size(style::BODY).style(muted)).into()
         } else if let Some(e) = &c.error {
-            center(text(e.as_str()).size(13).style(muted)).into()
+            center(text(e.as_str()).size(style::BODY).style(muted)).into()
         } else if c.entries.is_empty() {
             center(
-                text(if c.purpose.folder() { tr("No folders here") } else { tr("Nothing here") }).size(13).style(muted),
+                text(if c.purpose.folder() { tr("No folders here") } else { tr("Nothing here") })
+                    .size(style::BODY)
+                    .style(muted),
             )
             .into()
         } else {
-            scrollable(rows.width(Length::Fill))
+            ui::scroll(rows.width(Length::Fill))
                 .id(list_id())
                 .on_scroll(|vp| Message::Chooser(ChooserMsg::Scrolled(vp.absolute_offset().y)))
                 .height(Length::Fill)
                 .into()
         };
-        let listing = container(listing).height(LIST_H).width(Length::Fill).style(|t: &Theme| {
-            let p = t.extended_palette();
-            container::Style {
-                border: iced::Border { radius: 8.0.into(), width: 1.0, color: p.background.strong.color },
-                ..Default::default()
-            }
-        });
+        let listing = container(listing).height(LIST_H).width(Length::Fill).padding([6, 4]).style(style::well);
 
         let confirm = match c.purpose {
             Purpose::OpenFiles | Purpose::OpenFolder => tr("Open"),
@@ -508,24 +502,17 @@ impl App {
             p if p.saves() => !c.name.trim().is_empty(),
             _ => !c.selected.is_empty(),
         };
-        let mut bottom = row![
-            checkbox(c.hidden)
-                .label(tr("Hidden files"))
-                .on_toggle(move |on| m(ChooserMsg::Hidden(on)))
-                .text_size(13)
-                .size(16)
-        ]
-        .spacing(10)
-        .align_y(Alignment::Center);
+        let mut bottom =
+            row![ui::check(c.hidden).label(tr("Hidden files")).on_toggle(move |on| m(ChooserMsg::Hidden(on)))]
+                .spacing(10)
+                .align_y(Alignment::Center);
         let file_name_hint = tr("File name");
         if c.purpose.saves() {
             bottom = bottom.push(
-                text_input(&file_name_hint, &c.name)
+                ui::input(&file_name_hint, &c.name)
                     .id(name_id())
                     .on_input(move |t| m(ChooserMsg::Name(t)))
                     .on_submit(m(ChooserMsg::Confirm))
-                    .size(14)
-                    .padding([6, 8])
                     .width(Length::Fill),
             );
         } else {
@@ -533,25 +520,27 @@ impl App {
         }
         bottom = bottom
             .push(
-                button(text(tr("Cancel")).size(14))
+                button(text(tr("Cancel")).size(style::BODY))
                     .padding([8, 16])
                     .style(style::secondary)
                     .on_press(m(ChooserMsg::Cancel)),
             )
             .push(
-                button(text(confirm).size(14))
+                button(text(confirm).size(style::BODY))
                     .padding([8, 16])
-                    .style(if c.replace { iced::widget::button::danger } else { style::primary })
+                    .style(if c.replace { style::danger } else { style::primary })
                     .on_press_maybe(can.then_some(m(ChooserMsg::Confirm))),
             );
         let mut card = column![
-            text(c.purpose.title()).size(18).font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT }),
+            text(c.purpose.title())
+                .size(style::HEADING)
+                .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT }),
             bar,
             row![side, listing].spacing(12),
         ]
         .spacing(12);
         if c.replace {
-            card = card.push(text(trf!("“{}” already exists. Saving will replace it.", c.name)).size(13));
+            card = card.push(text(trf!("“{}” already exists. Saving will replace it.", c.name)).size(style::BODY));
         }
         let card = container(card.push(bottom).width(Length::Fixed(760.0_f32.min(self.area.width.max(560.0)))))
             .padding(20)

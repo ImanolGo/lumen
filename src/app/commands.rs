@@ -2,7 +2,7 @@
 //! what the menus offer (and a few things only keys and buttons offer), leaving out whatever
 //! cannot be done right now.
 
-use iced::widget::{button, column, container, mouse_area, opaque, row, space, stack, text, text_input};
+use iced::widget::{button, column, container, mouse_area, opaque, row, space, stack, text};
 use iced::{Alignment, Element, Length, Padding, Task};
 
 use super::{App, Doc, Message, muted};
@@ -155,30 +155,29 @@ impl App {
         let found = self.palette_matches();
         let hint = tr("Type a command");
         let mut list = column![
-            text_input(&hint, &palette.query)
+            crate::ui::bare_input(&hint, &palette.query)
                 .id(input_id())
                 .on_input(|q| Message::Palette(PaletteMsg::Input(q)))
                 .on_submit(Message::Palette(PaletteMsg::Run))
-                .size(15)
-                .padding([8, 10])
+                .size(style::TITLE)
                 .width(Length::Fill)
         ]
         .spacing(6);
         if found.is_empty() {
-            list = list.push(text(tr("No matching command")).size(13).style(muted));
+            list = list.push(text(tr("No matching command")).size(style::BODY).style(muted));
         }
         for (i, (label, keys, _)) in found.iter().enumerate().take(SHOWN) {
             let line = row![
-                text(label.clone()).size(14),
+                text(label.clone()).size(style::BODY),
                 space().width(Length::Fill),
-                text(crate::platform::keys::show(keys)).size(12).style(muted),
+                text(crate::platform::keys::show(keys)).size(style::SMALL).style(muted),
             ]
             .align_y(Alignment::Center);
             list = list.push(
                 button(line)
                     .padding([6, 10])
                     .width(Length::Fill)
-                    .style(if i == palette.selected { style::tool_active } else { style::tool })
+                    .style(if i == palette.selected { style::list_row } else { style::tool })
                     .on_press(Message::Palette(PaletteMsg::Pick(i))),
             );
         }

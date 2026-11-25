@@ -125,9 +125,9 @@ impl App {
 
     pub(super) fn region_bar(&self) -> Option<Element<'_, Message>> {
         let region = self.region.as_ref().filter(|_| self.selects_region())?;
-        let size = text(format!("{} × {}", region.rect.w, region.rect.h)).size(13).style(muted);
+        let size = text(format!("{} × {}", region.rect.w, region.rect.h)).size(style::BODY).style(muted);
         let action = |label: String, message: Message| {
-            button(text(label).size(13)).padding([6, 12]).style(style::secondary).on_press(message)
+            button(text(label).size(style::BODY)).padding([6, 12]).style(style::secondary).on_press(message)
         };
         let bar = row![
             size,
