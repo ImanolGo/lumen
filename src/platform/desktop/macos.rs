@@ -16,7 +16,6 @@ pub const CAPS: crate::platform::Caps = crate::platform::Caps {
     own_title_bar: true,
     frameless: false,
     title_in_header: true,
-    title_centered: false,
     leading_inset: 78.0,
     confirm_first: false,
 };

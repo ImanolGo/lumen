@@ -5,6 +5,9 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 ## [Unreleased]
 
 ### Changed
+- The header has what is done most in its middle: the zoom, rotate and crop for pictures, Markup, Edit or Organise by name; Undo, Discard and Save appear there when something has changed.
+- Tools are in one row under the header, where they always are, with their names where there is room. They float over the page no more. Colours, Resize and Light and colour open under their own buttons.
+- Crop can be started from the header, without the other editing tools; the File menu has Discard Changes.
 - A file opened by itself is shown by itself: a picture without the sidebar, a PDF with its contents or pages. The arrows go through the pictures around a picture, and never leave a PDF. "Show Folder" (T) brings the folder's list, which is then what is browsed; several files or a folder are a list from the start.
 - Dropping a file on an open one adds that file, not its whole folder.
 - The preference to show the sidebar when Lumen starts is gone.

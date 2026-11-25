@@ -1056,3 +1056,12 @@ msgstr "{} coincidencias"
 
 msgid "Show Folder"
 msgstr "Mostrar la carpeta"
+
+msgid "Organise"
+msgstr "Organizar"
+
+msgid "Crop…"
+msgstr "Recortar…"
+
+msgid "Discard Changes…"
+msgstr "Descartar los cambios…"

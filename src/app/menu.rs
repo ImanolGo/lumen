@@ -28,6 +28,8 @@ pub enum Menu {
     File,
     /// From the percentage in the zoom control.
     Zoom,
+    /// From the one in the header.
+    HeaderZoom,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,13 +61,13 @@ impl Menu {
             Menu::View => msgid("View"),
             Menu::Export => msgid("Export"),
             Menu::File => msgid("File"),
-            Menu::Zoom => msgid("Zoom"),
+            Menu::Zoom | Menu::HeaderZoom => msgid("Zoom"),
         }
     }
 
     /// Whether it hangs from the ☰ button.
     pub fn is_main(self) -> bool {
-        !matches!(self, Menu::Open | Menu::Zoom)
+        !matches!(self, Menu::Open | Menu::Zoom | Menu::HeaderZoom)
     }
 }
 
@@ -188,7 +190,7 @@ impl App {
         };
         match menu {
             Menu::Open => self.lines(&["open", "open-folder"]),
-            Menu::Zoom => {
+            Menu::Zoom | Menu::HeaderZoom => {
                 let mut lines = self.lines(&["fit", "fit-width", ""]);
                 lines.extend([50, 100, 200].map(|percent| {
                     Line::Item(format!("{percent} %"), "", Some(Message::ZoomTo(percent as f32 / 100.0)))
@@ -211,6 +213,10 @@ impl App {
             }
             Menu::Main => {
                 let mut lines = placed(Place::Main(0));
+                // What the header has no room for.
+                if self.window_width() < super::TURN_FROM {
+                    lines.extend(self.lines(&["", "rotate-right", "crop-tool"]));
+                }
                 if self.state.listed().next().is_some() {
                     lines.push(Line::Into(Menu::Recent));
                 }
@@ -311,7 +317,7 @@ impl App {
         anchor: Anchor,
     ) -> Element<'a, Message> {
         let panel = self.menu.filter(|m| which(*m)).map(|m| {
-            let width = if m == Menu::Zoom { 180.0 } else { MENU_W };
+            let width = if matches!(m, Menu::Zoom | Menu::HeaderZoom) { 180.0 } else { MENU_W };
             Self::panel_of(self.menu_lines(m), width)
         });
         popup(base, panel, anchor, Message::Menu(None)).into()

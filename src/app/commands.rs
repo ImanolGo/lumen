@@ -288,6 +288,8 @@ impl App {
         add("quit", msgid("Quit"), File, None, &["Ctrl+Q", "Ctrl+W"], Some(Message::Quit));
 
         let undo = organising(PagesMsg::Undo).or_else(|| edit(EditMsg::Undo)).or_else(|| mark(MarkupMsg::Undo));
+        let discard = (has_doc && free && self.has_unsaved_changes()).then_some(Message::Discard);
+        add("discard", msgid("Discard Changes…"), File, Some(Place::File), &[], discard);
         add("undo", msgid("Undo"), Edit, None, &["Ctrl+Z"], undo);
         let redo = organising(PagesMsg::Redo).or_else(|| edit(EditMsg::Redo)).or_else(|| mark(MarkupMsg::Redo));
         add("redo", msgid("Redo"), Edit, None, &["Ctrl+Shift+Z", "Ctrl+Y"], redo);
@@ -325,7 +327,7 @@ impl App {
         add("first-page", msgid("First Page"), Go, None, &["Home"], pdf(Message::PageAt(0)));
         add("last-page", msgid("Last Page"), Go, None, &["End"], pdf(Message::PageAt(usize::MAX)));
         // A screen at a time, keeping a little of the last one in view.
-        let screen = (self.area.height - self.inset) * 0.9;
+        let screen = self.area.height * 0.9;
         let scroll = |y| pdf(Message::ScrollBy(y)).filter(|_| self.slideshow.is_none());
         add("screen-down", msgid("Scroll Down a Screen"), Go, None, &["Space"], scroll(screen));
         add("screen-up", msgid("Scroll Up a Screen"), Go, None, &["Shift+Space"], scroll(-screen));
@@ -353,6 +355,8 @@ impl App {
         add("tool-text", msgid("Text"), Tools, None, &["T"], tool(Tool::Text));
         let markup = (drawing && !pages).then_some(Message::Markup(MarkupMsg::Toggle)).filter(|_| has_doc);
         add("markup", msgid("Markup"), Tools, None, &["M"], markup);
+        let cropping = image(Message::Edit(EditMsg::CropAlone));
+        add("crop-tool", msgid("Crop…"), Tools, None, &[], cropping);
         add("edit", msgid("Edit Picture"), Tools, None, &["E"], image(Message::Edit(EditMsg::Toggle)));
         let organise = organising(PagesMsg::Close).or_else(|| pdf(Message::Pages(PagesMsg::Open)).filter(|_| free));
         add("organise", msgid("Organise Pages"), Tools, None, &["G"], organise);

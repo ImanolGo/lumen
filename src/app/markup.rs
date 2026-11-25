@@ -9,10 +9,11 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use iced::widget::{Id, button, canvas, column, container, operation, row, text, text_editor};
+use iced::widget::{Id, canvas, operation, row, text, text_editor};
 use iced::{Alignment, Element, Task};
 
 use super::overlay::{Capture, Overlay};
+use super::popup::{Anchor, popup};
 use super::{App, Doc, Message, TOOLBAR_H, blocking, err_string, file_name, icon_button, muted, placed, separator};
 use crate::annotate::model::Style;
 use crate::annotate::pdf::ObjRef;
@@ -600,8 +601,14 @@ impl App {
 
     pub(super) fn markup_update(&mut self, msg: MarkupMsg) -> Task<Message> {
         match msg {
+            // Find is in the place of its tools: they come back.
+            MarkupMsg::Toggle if self.markup_open && self.search.is_some() => {
+                self.search = None;
+                Task::none()
+            }
             MarkupMsg::Toggle => {
                 let done = self.finish_text();
+                self.search = None;
                 self.markup_open = !self.markup_open;
                 if self.markup_open {
                     // One bar at a time.
@@ -1253,8 +1260,11 @@ impl App {
     }
 
     pub(super) fn markup_bar(&self) -> Element<'_, Message> {
+        let names = self.names_fit();
         let tool = |t: Tool, icon: iced::widget::svg::Handle, label: String| {
-            icon_button(icon, label, Some(Message::Markup(MarkupMsg::Tool(t))), self.editor.tool == t)
+            // The first word of what it says is the tool's name.
+            let name = label.split([',', ' ']).next().unwrap_or_default().to_owned();
+            Self::named(icon, name, label, Some(Message::Markup(MarkupMsg::Tool(t))), self.editor.tool == t, names)
         };
         let is_pdf = matches!(self.doc, Doc::Pdf(_));
         let highlight_label = tr(if is_pdf { "Highlight text" } else { "Highlight" });
@@ -1298,40 +1308,10 @@ impl App {
         .spacing(2)
         .align_y(Alignment::Center);
 
-        let dirty = self.has_unsaved_changes();
-        let status = tr(match self.markup_busy {
-            Some(s) => s,
-            None if dirty => "Unsaved",
-            None => "",
-        });
+        // That there is something to save is said by Save in the header.
+        let status = tr(self.markup_busy.unwrap_or_default());
         let ready = self.markup_busy.is_none() && marks.is_some();
-        let picture_changed =
-            matches!(&self.doc, Doc::Image(v) if !v.edit.edits.is_none()) || marks.is_some_and(DocMarkup::has_items);
-        let (save_label, save_msg, save_tip) = if is_pdf {
-            (tr("Save"), (ready && dirty).then_some(Message::Markup(MarkupMsg::Save)), tr("Save into the PDF (Ctrl+S)"))
-        } else if self.picture_in_place().is_some() {
-            (
-                tr("Save"),
-                (ready && picture_changed).then_some(Message::Markup(MarkupMsg::Save)),
-                tr("Save the picture with its markup over the file (Ctrl+S)"),
-            )
-        } else {
-            (
-                tr("Save a Copy…"),
-                (ready && picture_changed).then_some(Message::Markup(MarkupMsg::SaveAs)),
-                tr("Save the picture with its markup as a new file (Ctrl+S)"),
-            )
-        };
-        let save =
-            button(text(save_label).size(style::BODY)).padding([6, 14]).style(style::primary).on_press_maybe(save_msg);
-        let discard = button(text(tr("Discard")).size(style::BODY))
-            .padding([6, 12])
-            .style(style::secondary)
-            .on_press_maybe((ready && dirty).then_some(Message::Discard));
-        let discard = super::tip(discard.into(), tr("Throw away what is not saved"));
-        let mut end = row![text(status).size(style::SMALL).style(muted), discard, super::tip(save.into(), save_tip)]
-            .spacing(6)
-            .align_y(Alignment::Center);
+        let mut end = row![text(status).size(style::SMALL).style(muted)].spacing(6).align_y(Alignment::Center);
         if is_pdf || self.picture_in_place().is_some() {
             end = end.push(icon_button(
                 icons::save_copy(),
@@ -1341,21 +1321,11 @@ impl App {
             ));
         }
 
-        // A floating island at the top of the view, and under it, while drawing or with
-        // something selected, a second one for colour and size.
-        let main = iced::widget::opaque(
-            container(
-                // In a narrow window the groups go under each other: nothing is cut off.
-                row![tools, self.style_button(), edit, separator(), end].spacing(4).align_y(Alignment::Center).wrap(),
-            )
-            .padding([4, 6])
-            .style(style::panel),
-        );
-        let mut islands = column![main].spacing(8).align_x(Alignment::Center);
-        if self.style_menu {
-            islands = islands.push(self.style_menu_view());
-        }
-        islands.into()
+        // Under its button, while it is open.
+        let panel = self.style_menu.then(|| crate::settle::down(self.style_menu_view()));
+        let style_button = popup(self.style_button(), panel, Anchor::Start, Message::Markup(MarkupMsg::StyleMenu));
+        // In a narrow window the groups go under each other: nothing is cut off.
+        row![tools, style_button, edit, separator(), end].spacing(4).align_y(Alignment::Center).wrap().into()
     }
 
     /// A question whose answer may lose something.

@@ -125,7 +125,7 @@ impl App {
                     saving: false,
                 });
                 let row = view.current_page / self.grid_columns();
-                let y = (self.inset + row as f32 * CELL_H - 80.0).max(0.0);
+                let y = (row as f32 * CELL_H - 80.0).max(0.0);
                 Task::batch([
                     done,
                     iced::widget::operation::scroll_to(grid_id(), scrollable::AbsoluteOffset { x: 0.0, y }),
@@ -444,8 +444,8 @@ impl App {
         let cols = self.grid_columns();
         let (offset, height) = o.scroll;
         let height = if height > 0.0 { height } else { self.area.height };
-        let first = ((offset - self.inset) / CELL_H).floor().max(0.0) as usize;
-        let last = ((offset + height - self.inset) / CELL_H).ceil().max(0.0) as usize + 1;
+        let first = (offset / CELL_H).floor().max(0.0) as usize;
+        let last = ((offset + height) / CELL_H).ceil().max(0.0) as usize + 1;
         let rows = o.plan.len().div_ceil(cols) + 1;
         first.min(rows)..last.min(rows)
     }
@@ -582,7 +582,7 @@ impl App {
         .spacing(4)
         .align_y(Alignment::Center)
         .wrap();
-        container(content).padding([4, 6]).style(style::panel).into()
+        content.into()
     }
 
     pub(super) fn pages_view(&self) -> Element<'_, Message> {
@@ -590,7 +590,7 @@ impl App {
         let cols = self.grid_columns();
         let rows = self.grid_rows();
         let total_rows = o.plan.len().div_ceil(cols) + usize::from(o.dragging);
-        let mut grid = column![space().height(self.inset + rows.start as f32 * CELL_H)].padding([0.0, GAP]);
+        let mut grid = column![space().height(rows.start as f32 * CELL_H)].padding([0.0, GAP]);
         for r in rows.clone().take_while(|&r| r < total_rows) {
             let mut line = row![].spacing(0);
             for c in 0..cols {

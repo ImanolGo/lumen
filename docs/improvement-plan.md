@@ -825,7 +825,7 @@ say exactly which systems those are.
 | 16 | The main view | Done. iced cannot fade a whole panel, so menus, dialogs and messages slide 8 px into place and only the dimming behind a dialog fades. The zoom menu, folding, dragging the sidebar's edge and the delayed hints were tried with a pointer on an X display; motion was not watched by a person. |
 | 17 | A screenshot set that is kept | Done: `tools/screenshots/review.py` (on an invisible X display, so the focus of the desktop does not matter). A full run was looked at; the sidebar's first position in a small window was wrong, and is fixed. `data/screenshots/` is taken again after package 21, which changes every one of them. |
 | 20 | What opening a file shows | Done. Showing the folder's list makes it what is browsed. |
-| 21 | A toolbar joined to the header | |
+| 21 | A toolbar joined to the header | Done. What is said of a selected part of a picture (Copy, Crop) stays a small island on the view: in the row it would move the picture under the pointer. Rotate, crop, a slider and a click outside its panel were tried with a pointer on an X display. `data/screenshots/` still to be taken again. |
 | 22 | The window's first size | |
 | 23 | A window for each opening | |
 | 18 | Features: the ones from macOS Preview (all of them, see the list), then those the user picks | |

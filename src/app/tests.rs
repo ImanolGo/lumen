@@ -1039,43 +1039,49 @@ fn a_window_larger_than_the_screen_is_brought_down() {
 }
 
 #[test]
-fn tools_over_the_view_do_not_cover_the_page() {
+fn what_is_read_stays_put_when_the_row_of_tools_comes_and_goes() {
+    let _inside = runtime().enter();
     let mut app = pdf_app();
-    let top = |app: &App| match &app.doc {
-        Doc::Pdf(v) => v.tops[0] - app.viewport.y,
-        _ => panic!("no PDF"),
-    };
-    let before = top(&app);
-    let tools = |h: f32| Message::ToolsResized(iced::Size::new(900.0, h));
-    let _ = app.update(tools(1.0));
-    assert_eq!(top(&app), before, "nothing there");
-    // At the top the page moves down, and back.
-    let _ = app.update(tools(60.0));
-    assert_eq!(top(&app), before + 60.0);
-    let _ = app.update(tools(1.0));
-    assert_eq!(top(&app), before);
-    // Further down what is read stays where it is.
+    let size = |h: f32| Message::AreaResized(iced::Size::new(900.0, h));
+    let _ = app.update(size(700.0));
     app.viewport.y = 500.0;
-    let reading = top(&app);
-    let _ = app.update(tools(60.0));
-    assert_eq!(top(&app), reading);
-    let _ = app.update(Message::GoToPage(1));
-    let Doc::Pdf(v) = &app.doc else { panic!("no PDF") };
-    assert!(v.tops[1] - app.viewport.y >= 60.0, "a page gone to is below the tools");
+    let _ = app.update(Message::SearchOpen);
+    let _ = app.update(size(656.0));
+    assert_eq!(app.viewport.y, 544.0, "the view begins 44 lower, so it is scrolled on by as much");
+    let _ = app.update(Message::SearchClose);
+    let _ = app.update(size(700.0));
+    assert_eq!(app.viewport.y, 500.0);
+    // The window's own edge is another matter.
+    let _ = app.update(size(600.0));
+    assert_eq!(app.viewport.y, 500.0);
 }
 
 #[test]
-fn a_fitted_picture_fits_below_the_tools() {
+fn the_row_of_tools_holds_one_thing_at_a_time() {
+    let _inside = runtime().enter();
+    let mut app = pdf_app();
+    assert!(app.tool_row().is_none());
+    let _ = app.update(Message::Markup(MarkupMsg::Toggle));
+    assert!(app.tool_row().is_some() && app.markup_open);
+    let _ = app.update(Message::SearchOpen);
+    assert!(app.search.is_some() && app.markup_open);
+    // Markup pressed while Find is in its place brings its tools back, and then closes them.
+    let _ = app.update(Message::Markup(MarkupMsg::Toggle));
+    assert!(app.search.is_none() && app.markup_open);
+    let _ = app.update(Message::Markup(MarkupMsg::Toggle));
+    assert!(app.tool_row().is_none());
+}
+
+#[test]
+fn crop_from_the_header_comes_and_goes_by_itself() {
     let mut app = app();
     let picture = raster::load(&fixture("pictures").join("g.png")).unwrap();
     let _ = app.show_picture(PathBuf::from("g.png"), picture.into());
-    let _ = app.update(Message::AreaResized(iced::Size::new(100.0, 60.0)));
-    let Doc::Image(v) = &app.doc else { panic!("no picture") };
-    let all = app.image_fit_zoom(v);
-    let _ = app.update(Message::ToolsResized(iced::Size::new(100.0, 16.0)));
-    let Doc::Image(v) = &app.doc else { panic!("no picture") };
-    let fit = app.image_fit_zoom(v);
-    assert!(fit < all && v.shown.height as f32 * fit <= 60.0 - 16.0 - 24.0 + 0.01);
+    let crop = || Message::Edit(edit::EditMsg::CropAlone);
+    let _ = app.update(crop());
+    assert!(app.crop.is_some() && !app.edit_open && app.tool_row().is_some());
+    let _ = app.update(crop());
+    assert!(app.crop.is_none() && app.tool_row().is_none());
 }
 
 #[test]

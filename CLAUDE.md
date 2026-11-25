@@ -15,7 +15,7 @@ what is left to do. Read the plan and the docs you need before starting.
   see `vendor/README.md`. Do not edit them for anything else.
 - Look and feel lives in `src/style.rs` (design tokens: one surface, floating panels,
   amber accent only for what is active, Inter via `style::FONT`/`style::font(..)`).
-  New UI uses those styles, `icon_button`, `tip`, and floats tools as islands.
+  New UI uses those styles, `icon_button`, `tip`, and puts tools in the row under the header (`App::tool_row`).
 - Things the user asked to keep like the GTK Lumen: big sidebar thumbnails with the
   name underneath, fading zoom pill and previous/next arrows, the header layout with
   the ☰ menu, the markup style menu (palette, custom colour, size slider).

@@ -85,6 +85,11 @@ const RECENT_SHOWN: usize = 5;
 const FALLBACK_LOOK: Duration = Duration::from_secs(3);
 
 const ZOOM_EASE: Duration = Duration::from_millis(170);
+/// The widths of the window from which the header has its buttons' names, the zoom and what is done
+/// to pictures most.
+const NAMES_FROM: f32 = 960.0;
+const ZOOM_FROM: f32 = 680.0;
+const TURN_FROM: f32 = 600.0;
 /// A file that takes longer than this to load is said to be loading.
 const SLOW: Duration = Duration::from_millis(150);
 /// How long the floating controls stay after the pointer stops moving.
@@ -300,8 +305,8 @@ pub struct App {
     previous: Option<Doc>,
     /// The generation whose file takes long to load, and since when.
     slow: Option<(u64, Instant)>,
-    /// The height of the tools floating over the top of the view.
-    inset: f32,
+    /// The row of tools was there when the size of the view was last heard of.
+    tools_were: bool,
     /// The size of the view has been heard of.
     area_known: bool,
     sidebar_w: f32,
@@ -515,8 +520,6 @@ struct PdfView {
     tops: Vec<f32>,
     slots: Vec<Slot>,
     current_page: usize,
-    /// Kept free above the first page for the tools floating there.
-    inset: f32,
 }
 
 #[derive(Default)]
@@ -561,7 +564,7 @@ impl TextSel {
 
 impl PdfView {
     fn layout(&mut self) {
-        let mut y = PAGE_PAD + self.inset;
+        let mut y = PAGE_PAD;
         self.tops.clear();
         for &(_, h) in self.doc.pages() {
             self.tops.push(y);
@@ -602,8 +605,6 @@ pub enum Message {
     Key(keyboard::Event),
     Wheel(ScrollDelta),
     AreaResized(Size),
-    /// The tools floating over the top of the view, with the space around them.
-    ToolsResized(Size),
     Scrolled(Viewport),
 
     Open {
@@ -925,7 +926,7 @@ impl App {
             over_controls: false,
             previous: None,
             slow: None,
-            inset: 0.0,
+            tools_were: false,
             area_known: false,
             sidebar_w: SIDEBAR_W,
             sidebar_drag: false,
@@ -1163,6 +1164,11 @@ impl App {
                 Task::none()
             }
             Message::AreaResized(size) => {
+                // What is being read stays where it is when the row of tools comes or goes.
+                let tools = self.tool_row().is_some();
+                if std::mem::replace(&mut self.tools_were, tools) != tools && self.viewport.y > 0.0 {
+                    self.viewport.y = (self.viewport.y + self.area.height - size.height).max(0.0);
+                }
                 self.area = size;
                 self.viewport.height = size.height;
                 // The file on screen was brought into view in the sidebar before its height was known.
@@ -1181,7 +1187,6 @@ impl App {
                 self.sidebar_w = x.clamp(least, most.min(window - 260.0).max(least)).round();
                 Task::none()
             }
-            Message::ToolsResized(size) => self.tools_resized(size.height),
             Message::Scrolled(vp) => {
                 self.viewport = vp;
                 let page_changed = self.note_page();
@@ -1549,6 +1554,9 @@ impl App {
 
             Message::SearchOpen => {
                 if !matches!(self.doc, Doc::Pdf(_)) {
+                    return Task::none();
+                }
+                if self.organizer.is_some() {
                     return Task::none();
                 }
                 if self.search.is_none() {
@@ -2437,7 +2445,7 @@ impl App {
             crate::settings::PdfFit::Width => PdfFit::Width,
             crate::settings::PdfFit::Page => PdfFit::Page,
         };
-        let mut view = PdfView { doc, zoom: 1.0, fit, tops: Vec::new(), slots, current_page: 0, inset: self.inset };
+        let mut view = PdfView { doc, zoom: 1.0, fit, tops: Vec::new(), slots, current_page: 0 };
         view.zoom = self.pdf_fit_zoom(&view, fit).min(1.5 * PT_TO_PX);
         view.layout();
         self.set_doc(Doc::Pdf(view));
@@ -2700,10 +2708,7 @@ impl App {
 
     fn image_fit_zoom(&self, view: &ImageView) -> f32 {
         let (w, h) = (view.shown.width as f32, view.shown.height as f32);
-        ((self.area.width - 24.0) / w)
-            .min((self.area.height - self.inset - 24.0) / h)
-            .min(1.0 / self.scale_factor)
-            .max(MIN_ZOOM)
+        ((self.area.width - 24.0) / w).min((self.area.height - 24.0) / h).min(1.0 / self.scale_factor).max(MIN_ZOOM)
     }
 
     fn pdf_fit_zoom(&self, view: &PdfView, fit: PdfFit) -> f32 {
@@ -2712,7 +2717,7 @@ impl App {
         let z = match fit {
             PdfFit::Page => {
                 let (_, h) = view.doc.page_size(view.current_page);
-                by_width.min((self.area.height - self.inset - 2.0 * PAGE_PAD) / h)
+                by_width.min((self.area.height - 2.0 * PAGE_PAD) / h)
             }
             _ => by_width,
         };
@@ -2849,7 +2854,7 @@ impl App {
         let content = match &self.doc {
             Doc::Image(v) => {
                 let zoom = v.zoom.unwrap_or_else(|| self.image_fit_zoom(v));
-                iced::Size::new(v.shown.width as f32 * zoom, v.shown.height as f32 * zoom + self.inset)
+                iced::Size::new(v.shown.width as f32 * zoom, v.shown.height as f32 * zoom)
             }
             Doc::Pdf(v) => iced::Size::new(v.content_width(), v.tops.last().copied().unwrap_or(0.0)),
             _ => return Task::none(),
@@ -2884,9 +2889,6 @@ impl App {
     fn set_image_zoom_at(&mut self, zoom: Option<f32>, anchor: Option<Point>) -> Task<Message> {
         let vp = self.viewport;
         let area = self.area;
-        // The picture is centred in what is left below the tools.
-        let inset = self.inset;
-        let room = area.height - inset;
         let Doc::Image(view) = &self.doc else { return Task::none() };
         let fit = self.image_fit_zoom(view);
         let Doc::Image(view) = &mut self.doc else { return Task::none() };
@@ -2902,16 +2904,16 @@ impl App {
         let (px, py) = match old {
             Some(z) => {
                 let left = ((area.width - w * z) / 2.0).max(0.0);
-                let top = inset + ((room - h * z) / 2.0).max(0.0);
+                let top = ((area.height - h * z) / 2.0).max(0.0);
                 ((vp.x + a.x - left) / z, (vp.y + a.y - top) / z)
             }
-            None => ((a.x - (area.width - w * fit) / 2.0) / fit, (a.y - inset - (room - h * fit) / 2.0) / fit),
+            None => ((a.x - (area.width - w * fit) / 2.0) / fit, (a.y - (area.height - h * fit) / 2.0) / fit),
         };
         let left = ((area.width - w * new) / 2.0).max(0.0);
-        let top = inset + ((room - h * new) / 2.0).max(0.0);
+        let top = ((area.height - h * new) / 2.0).max(0.0);
         // Where the view is going, known now, so the next step of a zoom builds on it.
         let x = (px * new + left - a.x).clamp(0.0, (w * new - area.width).max(0.0));
-        let y = (py * new + top - a.y).clamp(0.0, (h * new - room).max(0.0));
+        let y = (py * new + top - a.y).clamp(0.0, (h * new - area.height).max(0.0));
         self.viewport.x = x;
         self.viewport.y = y;
         Task::none()
@@ -2947,25 +2949,6 @@ impl App {
         pages
     }
 
-    /// The tools over the view came, went, or wrapped: what is under them is moved clear.
-    fn tools_resized(&mut self, height: f32) -> Task<Message> {
-        // Nothing there still has a height, so that it is noticed.
-        let inset = if height <= 1.0 { 0.0 } else { height };
-        let more = inset - std::mem::replace(&mut self.inset, inset);
-        if more == 0.0 {
-            return Task::none();
-        }
-        if let Doc::Pdf(view) = &mut self.doc {
-            view.inset = inset;
-            view.layout();
-        }
-        // At the top everything moves down; anywhere else what is read stays where it is.
-        if self.viewport.y > 0.0 {
-            self.viewport.y = (self.viewport.y + more).max(0.0);
-        }
-        Task::batch([self.refit(), self.request_pages()])
-    }
-
     /// Re-applies "fit" zoom after the window or the chrome changed size.
     fn refit(&mut self) -> Task<Message> {
         match &self.doc {
@@ -2982,7 +2965,7 @@ impl App {
         let Doc::Pdf(view) = &mut self.doc else { return Task::none() };
         let page = page.min(view.doc.page_count() - 1);
         view.current_page = page;
-        let y = (view.tops[page] - view.inset - PAGE_GAP / 2.0).max(0.0);
+        let y = (view.tops[page] - PAGE_GAP / 2.0).max(0.0);
         self.viewport.y = y;
         Task::batch([self.request_pages(), self.follow_in_sidebar()])
     }
@@ -3081,7 +3064,7 @@ impl App {
         let Doc::Pdf(view) = &mut self.doc else { return Task::none() };
         let page = page.min(view.doc.page_count() - 1);
         view.current_page = page;
-        let y = (view.tops[page] - view.inset + top * view.zoom - 16.0).max(0.0);
+        let y = (view.tops[page] + top * view.zoom - 16.0).max(0.0);
         let left = (view.content_width() - view.doc.page_size(page).0 * view.zoom) / 2.0;
         let x = (left + x * view.zoom - area.width / 2.0).max(0.0);
         self.viewport.y = y;
@@ -3160,11 +3143,11 @@ impl App {
         let (x0, y0) = (page_left + rect.x0 as f32 * view.zoom, view.tops[page] + rect.y0 as f32 * view.zoom);
         let (x1, y1) = (page_left + rect.x1 as f32 * view.zoom, view.tops[page] + rect.y1 as f32 * view.zoom);
         // Leave the view alone when the match is already comfortably visible.
-        if y0 >= vp.y + view.inset + 40.0 && y1 <= vp.y + area.height - 40.0 && x0 >= vp.x && x1 <= vp.x + area.width {
+        if y0 >= vp.y + 40.0 && y1 <= vp.y + area.height - 40.0 && x0 >= vp.x && x1 <= vp.x + area.width {
             return Task::none();
         }
         view.current_page = page;
-        let y = (y0 - view.inset - (area.height - view.inset) * 0.35).max(0.0);
+        let y = (y0 - area.height * 0.35).max(0.0);
         let x = if x0 < vp.x || x1 > vp.x + area.width { ((x0 + x1) / 2.0 - area.width / 2.0).max(0.0) } else { vp.x };
         self.viewport.y = y;
         self.viewport.x = x;
@@ -3305,41 +3288,13 @@ impl App {
         if let Some(controls) = self.floating_controls() {
             view_area = view_area.push(controls);
         }
-        // Tools float on the view as islands at its top, not as bars across the window.
-        let island: Option<Element<'_, Message>> = if self.organizer.is_some() {
-            Some(self.pages_bar())
-        } else if self.edit_open && matches!(self.doc, Doc::Image(_)) {
-            Some(self.edit_bar())
-        } else if self.markup_open && matches!(self.doc, Doc::Image(_) | Doc::Pdf(_)) {
-            Some(self.markup_bar())
-        } else {
-            None
-        };
-        let find = match (&self.search, &self.doc) {
-            (Some(search), Doc::Pdf(_)) => Some(self.search_bar(search)),
-            _ => None,
-        };
-        let tools = [island.filter(|_| !self.fullscreen), find];
-        let tools: Vec<_> = tools.into_iter().flatten().collect();
-        // Always there, so that it is noticed when nothing is left in it.
-        let row_of_tools: Element<'_, Message> = if tools.is_empty() {
-            space().width(Length::Fill).height(1).into()
-        } else {
-            container(column(tools).spacing(8).align_x(Alignment::Center))
-                .width(Length::Fill)
-                .align_x(Alignment::Center)
-                .padding(Padding { top: 10.0, bottom: 4.0, left: 16.0, right: 16.0 })
-                .into()
-        };
-        view_area =
-            view_area.push(sensor(row_of_tools).on_show(Message::ToolsResized).on_resize(Message::ToolsResized));
         // What is said of a selection does not move the picture selected on.
         if let Some(region) = self.region_bar().filter(|_| !self.fullscreen) {
             view_area = view_area.push(
                 container(region)
                     .width(Length::Fill)
                     .align_x(Alignment::Center)
-                    .padding(Padding { top: 10.0 + self.inset, ..Padding::new(16.0) }),
+                    .padding(Padding { top: 10.0, ..Padding::new(16.0) }),
             );
         }
         let content = mouse_area(view_area)
@@ -3362,7 +3317,7 @@ impl App {
                 container(self.goto_bar(typed, v.doc.page_count()))
                     .width(Length::Fill)
                     .align_x(Alignment::Center)
-                    .padding(Padding { top: 10.0 + self.inset, ..Padding::new(18.0) }),
+                    .padding(Padding { top: 10.0, ..Padding::new(18.0) }),
             );
         }
         let content: Element<'_, Message> = floating.into();
@@ -3370,6 +3325,10 @@ impl App {
         let mut layout = column![];
         if !self.fullscreen {
             layout = layout.push(self.toolbar());
+            layout = layout.push(match self.tool_row() {
+                Some(tools) => Self::second_row(tools),
+                None => space().into(),
+            });
         }
         let mut under = stack![body.height(Length::Fill)];
         if let Some(since) = self.slow_since() {
@@ -3381,14 +3340,6 @@ impl App {
         let mut layers = stack![window];
         if self.drop_hover {
             layers = layers.push(self.drop_overlay());
-        }
-        if self.edit_open && matches!(self.doc, Doc::Image(_)) && !self.fullscreen {
-            if self.adjust_open {
-                layers = layers.push(self.adjust_panel());
-            }
-            if self.resize_form.is_some() {
-                layers = layers.push(self.resize_panel());
-            }
         }
         if self.sign_menu {
             layers = layers.push(self.sign_menu_view());
@@ -3449,12 +3400,67 @@ impl App {
         layers.into()
     }
 
-    /// The header, as in the GTK Lumen: the sidebar and open buttons, the title, and on the
-    /// right the editing tools, the main menu and close.
+    /// The tools of what is going on, if anything: one thing at a time, in one place.
+    fn tool_row(&self) -> Option<Element<'_, Message>> {
+        match &self.doc {
+            Doc::Pdf(_) if self.organizer.is_some() => Some(self.pages_bar()),
+            Doc::Pdf(_) if self.search.is_some() => self.search.as_ref().map(|s| self.search_bar(s)),
+            Doc::Image(_) if self.edit_open || self.crop.is_some() => Some(self.edit_bar()),
+            Doc::Image(_) | Doc::Pdf(_) if self.markup_open => Some(self.markup_bar()),
+            _ => None,
+        }
+    }
+
+    /// The row under the header that holds them.
+    fn second_row(tools: Element<'_, Message>) -> Element<'_, Message> {
+        let line = container(space().width(Length::Fill).height(1)).style(style::separator);
+        let tools = container(tools).width(Length::Fill).align_x(Alignment::Center).padding([4, 8]);
+        container(column![tools, line]).width(Length::Fill).style(style::bar).into()
+    }
+
+    /// Whether there is room for the names of tools.
+    fn names_fit(&self) -> bool {
+        self.window_width() >= NAMES_FROM
+    }
+
+    /// The window's width, as far as the header needs to know.
+    fn window_width(&self) -> f32 {
+        let sidebar = self.show_sidebar && !self.fullscreen && self.sidebar_shows().is_some();
+        self.area.width + if sidebar { self.sidebar_w } else { 0.0 }
+    }
+
+    /// A button of the header with its name beside it, where there is room.
+    pub(crate) fn named<'a>(
+        icon: svg::Handle,
+        name: String,
+        tip_text: String,
+        on_press: Option<Message>,
+        active: bool,
+        names: bool,
+    ) -> Element<'a, Message> {
+        if !names {
+            return icon_button(icon, tip_text, on_press, active);
+        }
+        let look = if active { style::icon_accent } else { style::icon };
+        let content = row![svg(icon).width(18).height(18).style(look), text(name).size(style::BODY)]
+            .spacing(6)
+            .height(32)
+            .align_y(Alignment::Center);
+        let b = button(content)
+            .padding([0, 10])
+            .style(if active { style::tool_active } else { style::tool })
+            .on_press_maybe(on_press);
+        tip(b.into(), tip_text)
+    }
+
+    /// The header: the sidebar and open buttons and the title, in the middle what can be done, and at
+    /// the end what is not saved, Find, the main menu and close.
     fn toolbar(&self) -> Element<'_, Message> {
         let has_doc = matches!(self.doc, Doc::Image(_) | Doc::Pdf(_));
         let is_image = matches!(self.doc, Doc::Image(_));
         let is_pdf = matches!(self.doc, Doc::Pdf(_));
+        let width = self.window_width();
+        let (names, zooms, picture_tools) = (width >= NAMES_FROM, width >= ZOOM_FROM, width >= TURN_FROM);
         let browsed = self.browsed();
         let mut left = row![].spacing(2).align_y(Alignment::Center);
         if self.sidebar_shows().is_some() {
@@ -3493,22 +3499,16 @@ impl App {
             (false, false) => format!("{subtitle}  ·  {position}"),
         };
         let caps = crate::platform::caps();
-        let side = if caps.title_centered { Alignment::Center } else { Alignment::Start };
-        let mut titles = column![].align_x(side).spacing(1);
+        let mut titles = column![].spacing(1);
         if caps.title_in_header {
-            titles = titles.push(
-                text(title)
-                    .size(style::TITLE)
-                    .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
-                    .wrapping(text::Wrapping::None),
-            );
+            let font = Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT };
+            titles = titles.push(ellipsis(title, style::TITLE).font(font));
         }
         if !subtitle.is_empty() {
             let label = text(subtitle).size(style::SMALL).style(muted).wrapping(text::Wrapping::None);
             titles = titles.push(if is_pdf {
-                let padding = if caps.title_centered { [0, 6] } else { [0, 0] };
                 tip(
-                    button(label).padding(padding).style(style::tool).on_press(Message::GoToOpen).into(),
+                    button(label).padding(0).style(style::tool).on_press(Message::GoToOpen).into(),
                     tr("Go to page (Ctrl+G)"),
                 )
             } else {
@@ -3516,54 +3516,97 @@ impl App {
             });
         }
 
+        let mut middle = row![].spacing(2).align_y(Alignment::Center);
+        if has_doc && zooms && self.organizer.is_none() {
+            let label = self.zoom_percent().map(|z| format!("{z:.0}%")).unwrap_or_default();
+            let percent = button(text(label).size(style::BODY).width(46).align_x(Alignment::Center))
+                .padding([7, 2])
+                .style(if self.menu == Some(Menu::HeaderZoom) { style::tool_active } else { style::tool })
+                .on_press(Message::Menu(Some(Menu::HeaderZoom)));
+            let percent = tip(percent.into(), tr("Zoom"));
+            middle = middle
+                .push(icon_button(icons::zoom_out(), tr("Zoom out (−)"), Some(Message::ZoomOut), false))
+                .push(self.with_menu(percent, |m| m == Menu::HeaderZoom, popup::Anchor::Start))
+                .push(icon_button(icons::zoom_in(), tr("Zoom in (+)"), Some(Message::ZoomIn), false))
+                .push(separator());
+        }
+        if is_image && picture_tools {
+            middle = middle
+                .push(icon_button(icons::rotate_right(), tr("Rotate right (R)"), Some(Message::Rotate(1)), false))
+                .push(icon_button(
+                    icons::crop(),
+                    tr("Crop"),
+                    Some(Message::Edit(EditMsg::CropAlone)),
+                    self.crop.is_some(),
+                ))
+                .push(separator());
+        }
+        if has_doc {
+            middle = middle.push(Self::named(
+                icons::markup(),
+                tr("Markup"),
+                tr("Markup: draw, highlight, add text (M)"),
+                self.organizer.is_none().then_some(Message::Markup(MarkupMsg::Toggle)),
+                self.markup_open,
+                names,
+            ));
+        }
+        if is_image {
+            middle = middle.push(Self::named(
+                icons::adjust(),
+                tr("Edit"),
+                tr("Edit: crop, turn, resize, light and colour (E)"),
+                Some(Message::Edit(EditMsg::Toggle)),
+                self.edit_open && self.crop.is_none(),
+                names,
+            ));
+        }
+        if is_pdf {
+            middle = middle.push(Self::named(
+                icons::pages(),
+                tr("Organise"),
+                tr("Organise pages (G)"),
+                self.markup_busy.is_none().then_some(Message::Pages(PagesMsg::Open)),
+                self.organizer.is_some(),
+                names,
+            ));
+        }
+
         let mut right = row![].spacing(2).align_y(Alignment::Center);
-        let saves = is_pdf || self.picture_in_place().is_some();
-        if saves && self.has_unsaved_changes() && !self.markup_open && !self.edit_open {
-            let free = self.markup_busy.is_none();
-            let discard = button(text(tr("Discard")).size(style::BODY))
-                .padding([6, 12])
-                .style(style::secondary)
-                .on_press_maybe(free.then_some(Message::Discard));
-            let save = button(text(tr("Save")).size(style::BODY))
+        if has_doc && self.organizer.is_none() && self.has_unsaved_changes() {
+            let free = self.markup_busy.is_none() && self.editing.is_none();
+            let in_place = is_pdf || self.picture_in_place().is_some();
+            let undo = match &self.doc {
+                Doc::Image(v) if !v.edit.past.is_empty() && !self.markup_open => Some(Message::Edit(EditMsg::Undo)),
+                _ => self.marks.as_ref().filter(|m| m.history.can_undo()).map(|_| Message::Markup(MarkupMsg::Undo)),
+            };
+            // Where a row of tools is open it has its own.
+            if zooms && self.tool_row().is_none() {
+                right = right.push(icon_button(icons::undo(), tr("Undo (Ctrl+Z)"), undo, false));
+            }
+            if names {
+                let discard = button(text(tr("Discard")).size(style::BODY))
+                    .padding([6, 12])
+                    .style(style::secondary)
+                    .on_press_maybe(free.then_some(Message::Discard));
+                right = right.push(tip(discard.into(), tr("Throw away what is not saved"))).push(space().width(4));
+            }
+            let (label, save) =
+                if in_place { (tr("Save"), MarkupMsg::Save) } else { (tr("Save a Copy…"), MarkupMsg::SaveAs) };
+            let save = button(text(label).size(style::BODY).wrapping(text::Wrapping::None))
                 .padding([6, 14])
                 .style(style::primary)
-                .on_press_maybe(free.then_some(Message::Markup(MarkupMsg::Save)));
-            right = right
-                .push(tip(discard.into(), tr("Throw away what is not saved")))
-                .push(space().width(4))
-                .push(tip(save.into(), tr("Save (Ctrl+S)")))
-                .push(space().width(6));
+                .on_press_maybe(free.then_some(Message::Markup(save)));
+            right = right.push(tip(save.into(), tr("Save (Ctrl+S)"))).push(space().width(6));
         }
         if is_pdf {
             right = right.push(icon_button(
                 icons::search(),
                 tr("Find (Ctrl+F)"),
-                Some(Message::SearchOpen),
+                self.organizer
+                    .is_none()
+                    .then(|| if self.search.is_some() { Message::SearchClose } else { Message::SearchOpen }),
                 self.search.is_some(),
-            ));
-        }
-        if has_doc {
-            right = right.push(icon_button(
-                icons::markup(),
-                tr("Markup: draw, highlight, add text (M)"),
-                Some(Message::Markup(MarkupMsg::Toggle)),
-                self.markup_open,
-            ));
-        }
-        if is_image {
-            right = right.push(icon_button(
-                icons::adjust(),
-                tr("Edit: crop, turn, resize, light and colour (E)"),
-                Some(Message::Edit(EditMsg::Toggle)),
-                self.edit_open,
-            ));
-        }
-        if is_pdf {
-            right = right.push(icon_button(
-                icons::pages(),
-                tr("Organise pages (G)"),
-                self.markup_busy.is_none().then_some(Message::Pages(PagesMsg::Open)),
-                self.organizer.is_some(),
             ));
         }
         // Pressed again, the button closes whichever of its menus is open.
@@ -3593,9 +3636,19 @@ impl App {
             _ => titles.into(),
         };
         let bar = container(
-            row![left, container(titles).width(Length::Fill).align_x(side).clip(true), right]
-                .spacing(8)
-                .align_y(Alignment::Center),
+            row![
+                // The same on both sides, so that the middle is in the middle (while there is room).
+                row![left, container(titles).width(Length::Fill).clip(true)]
+                    .spacing(8)
+                    .width(Length::FillPortion(1))
+                    .align_y(Alignment::Center),
+                middle,
+                container(right)
+                    .width(if names { Length::FillPortion(1) } else { Length::Shrink })
+                    .align_x(Alignment::End),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
         )
         .width(Length::Fill)
         .height(TOOLBAR_H)
@@ -3745,18 +3798,12 @@ impl App {
             }
         }
         if fit {
-            return container(layers)
-                .padding(Padding { top: 12.0 + self.inset, ..Padding::new(12.0) })
-                .center(Length::Fill)
-                .into();
+            return container(layers).padding(12).center(Length::Fill).into();
         }
-        let canvas = container(layers)
-            .padding(Padding { top: self.inset, ..Padding::ZERO })
-            .center_x(w.max(self.area.width))
-            .center_y((h + self.inset).max(self.area.height));
+        let canvas = container(layers).center_x(w.max(self.area.width)).center_y(h.max(self.area.height));
         let offset = iced::Vector::new(self.viewport.x, self.viewport.y);
         let scroller = scroller::scroller(canvas, offset, on_scroll);
-        let can_pan = w > self.area.width || h + self.inset > self.area.height;
+        let can_pan = w > self.area.width || h > self.area.height;
         self.pannable(scroller.into(), can_pan)
     }
 
@@ -3979,36 +4026,32 @@ impl App {
         };
         let has_hits = !search.hits.is_empty();
         let none = !has_hits && search.done && !search.query.trim().is_empty();
-        container(
-            row![
-                svg(icons::search()).width(16).height(16).style(style::icon_muted),
-                ui::bare_input(&find_hint, &search.query)
-                    .id(search_input_id())
-                    .on_input(Message::SearchInput)
-                    .on_submit(Message::SearchSubmit)
-                    .width(210),
-                search_toggle("Aa", tr("Match case"), search.options.match_case, Message::SearchMatchCase),
-                search_toggle("[ab]", tr("Whole words"), search.options.whole_words, Message::SearchWholeWords),
-                text(status)
-                    .size(style::SMALL)
-                    .style(if none { problem } else { muted })
-                    .width(84)
-                    .align_x(Alignment::Center),
-                icon_button(
-                    icons::up(),
-                    tr("Previous match (Shift+Enter)"),
-                    has_hits.then_some(Message::SearchPrev),
-                    false
-                ),
-                icon_button(icons::down(), tr("Next match (Enter)"), has_hits.then_some(Message::SearchNext), false),
-                icon_button(icons::close(), tr("Close (Esc)"), Some(Message::SearchClose), false),
-            ]
-            .spacing(6)
-            .align_y(Alignment::Center)
-            .wrap(),
-        )
-        .padding([6, 10])
-        .style(style::panel)
+        row![
+            svg(icons::search()).width(16).height(16).style(style::icon_muted),
+            ui::bare_input(&find_hint, &search.query)
+                .id(search_input_id())
+                .on_input(Message::SearchInput)
+                .on_submit(Message::SearchSubmit)
+                .width(170),
+            search_toggle("Aa", tr("Match case"), search.options.match_case, Message::SearchMatchCase),
+            search_toggle("[ab]", tr("Whole words"), search.options.whole_words, Message::SearchWholeWords),
+            text(status)
+                .size(style::SMALL)
+                .style(if none { problem } else { muted })
+                .width(84)
+                .align_x(Alignment::Center),
+            icon_button(
+                icons::up(),
+                tr("Previous match (Shift+Enter)"),
+                has_hits.then_some(Message::SearchPrev),
+                false
+            ),
+            icon_button(icons::down(), tr("Next match (Enter)"), has_hits.then_some(Message::SearchNext), false),
+            icon_button(icons::close(), tr("Close (Esc)"), Some(Message::SearchClose), false),
+        ]
+        .spacing(6)
+        .align_y(Alignment::Center)
+        .wrap()
         .into()
     }
 

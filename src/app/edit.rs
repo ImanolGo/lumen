@@ -7,10 +7,11 @@
 use iced::mouse::{self, Cursor};
 use iced::widget::canvas::{self, Frame, Geometry, Path, Stroke};
 use iced::widget::{button, column, container, row, space, text};
-use iced::{Alignment, Color, Element, Font, Length, Padding, Point, Rectangle, Renderer, Size, Task, Theme, Vector};
+use iced::{Alignment, Color, Element, Font, Length, Point, Rectangle, Renderer, Size, Task, Theme, Vector};
 
 use super::markup::MarkupMsg;
-use super::{App, Doc, Message, TOOLBAR_H, blocking, icon_button, muted, tip};
+use super::popup::{Anchor, popup};
+use super::{App, Doc, Message, blocking, icon_button, muted};
 use crate::edit::crop::{self, Grab};
 use crate::edit::{Adjustments, CropRect, Edits, Step};
 use crate::i18n::tr;
@@ -22,7 +23,7 @@ use crate::{icons, style};
 #[derive(Default)]
 pub struct PicEdit {
     pub edits: Edits,
-    past: Vec<Step>,
+    pub(super) past: Vec<Step>,
     future: Vec<Step>,
     /// What the last saved copy had; nothing is unsaved while the edits equal it.
     pub saved: Edits,
@@ -89,6 +90,8 @@ pub enum EditMsg {
     /// The result is on the GPU: it can be shown.
     Shown(u64, u64, Box<super::Loaded>),
     CropStart,
+    /// Crop without the other tools before or after.
+    CropAlone,
     CropAspect(usize),
     CropPress(f64, f64),
     CropDrag(f64, f64),
@@ -323,6 +326,13 @@ impl App {
                 }
                 if std::mem::take(&mut view.edit.again) { self.render_edits() } else { Task::none() }
             }
+            EditMsg::CropAlone => {
+                if self.crop.take().is_some() {
+                    return Task::none();
+                }
+                let done = if self.markup_open { self.markup_update(MarkupMsg::Toggle) } else { Task::none() };
+                Task::batch([done, self.edit_update(EditMsg::CropStart)])
+            }
             EditMsg::CropStart => {
                 let Doc::Image(view) = &self.doc else { return Task::none() };
                 self.adjust_open = false;
@@ -539,31 +549,38 @@ impl App {
             let edit = &view.edit;
             let busy = edit.is_busy();
             let can_save = !busy && (edit.is_dirty() || self.marks.as_ref().is_some_and(|m| m.has_items()));
-            let in_place = self.picture_in_place().is_some();
-            let save = button(text(if in_place { tr("Save") } else { tr("Save a Copy…") }).size(style::BODY))
-                .padding([6, 14])
-                .style(style::primary)
-                .on_press_maybe(can_save.then_some(Message::Markup(if in_place {
-                    MarkupMsg::Save
-                } else {
-                    MarkupMsg::SaveAs
-                })));
-            let status = if busy {
-                tr("Working…")
-            } else if edit.is_dirty() {
-                tr("Unsaved")
-            } else {
-                String::new()
-            };
+            let status = if busy { tr("Working…") } else { String::new() };
             row![
                 icon_button(icons::rotate_left(), tr("Rotate left (Shift+R)"), e(EditMsg::RotateCcw), false),
                 icon_button(icons::rotate_right(), tr("Rotate right (R)"), e(EditMsg::RotateCw), false),
                 icon_button(icons::flip_h(), tr("Mirror left to right"), e(EditMsg::FlipH), false),
                 icon_button(icons::flip_v(), tr("Mirror top to bottom"), e(EditMsg::FlipV), false),
                 super::separator(),
-                icon_button(icons::crop(), tr("Crop"), e(EditMsg::CropStart), false),
-                icon_button(icons::resize(), tr("Resize"), e(EditMsg::ResizeOpen), self.resize_form.is_some()),
-                icon_button(icons::adjust(), tr("Light and colour"), e(EditMsg::AdjustOpen), self.adjust_open),
+                Self::named(icons::crop(), tr("Crop"), tr("Crop"), e(EditMsg::CropStart), false, self.names_fit()),
+                Self::with_panel(
+                    Self::named(
+                        icons::resize(),
+                        tr("Resize"),
+                        tr("Resize"),
+                        e(EditMsg::ResizeOpen),
+                        self.resize_form.is_some(),
+                        self.names_fit()
+                    ),
+                    self.resize_form.is_some().then(|| self.resize_panel()),
+                    Message::Edit(EditMsg::ResizeOpen),
+                ),
+                Self::with_panel(
+                    Self::named(
+                        icons::adjust(),
+                        tr("Light and colour"),
+                        tr("Light and colour"),
+                        e(EditMsg::AdjustOpen),
+                        self.adjust_open,
+                        self.names_fit()
+                    ),
+                    self.adjust_open.then(|| self.adjust_panel()),
+                    Message::Edit(EditMsg::AdjustOpen),
+                ),
                 super::separator(),
                 icon_button(
                     icons::undo(),
@@ -585,14 +602,6 @@ impl App {
                 ),
                 super::separator(),
                 text(status).size(style::SMALL).style(muted),
-                tip(
-                    save.into(),
-                    if in_place {
-                        tr("Save the edited picture over the file (Ctrl+S)")
-                    } else {
-                        tr("Save the edited picture as a new file (Ctrl+S)")
-                    },
-                ),
                 icon_button(
                     icons::save_copy(),
                     tr("Save a copy… (Ctrl+Shift+S)"),
@@ -605,21 +614,24 @@ impl App {
             .wrap()
             .into()
         };
-        container(content).padding([4, 6]).style(style::panel).into()
+        content
     }
 
-    /// A panel at the right of the view, below the tools; it scrolls when there is not room.
-    fn side_panel<'a>(&self, body: Element<'a, Message>) -> Element<'a, Message> {
-        let panel = container(ui::thin_scroll(body)).style(style::panel);
-        container(panel)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .align_x(Alignment::End)
-            .padding(Padding { top: TOOLBAR_H + self.inset + 4.0, right: 16.0, bottom: 12.0, left: 16.0 })
-            .into()
+    /// A panel under its button; it scrolls when there is not room.
+    fn side_panel<'a>(body: Element<'a, Message>) -> Element<'a, Message> {
+        crate::settle::down(container(ui::thin_scroll(body)).style(style::panel))
     }
 
-    pub(super) fn adjust_panel(&self) -> Element<'_, Message> {
+    /// `button`, with the panel under it while it is open; `toggle` closes it.
+    fn with_panel<'a>(
+        button: Element<'a, Message>,
+        panel: Option<Element<'a, Message>>,
+        toggle: Message,
+    ) -> Element<'a, Message> {
+        popup(button, panel, Anchor::End, toggle).into()
+    }
+
+    fn adjust_panel(&self) -> Element<'_, Message> {
         let Doc::Image(view) = &self.doc else { return space().into() };
         let a = view.edit.edits.adjust;
         let line = |label: String,
@@ -654,12 +666,12 @@ impl App {
             .width(240),
         )
         .padding(14);
-        self.side_panel(panel.into())
+        Self::side_panel(panel.into())
     }
 }
 
 impl App {
-    pub(super) fn resize_panel(&self) -> Element<'_, Message> {
+    fn resize_panel(&self) -> Element<'_, Message> {
         let (Some(form), Doc::Image(view)) = (&self.resize_form, &self.doc) else { return space().into() };
         let (uw, uh) = view.edit.edits.unscaled((view.original.width, view.original.height));
         let field = |value: &str, on: fn(String) -> EditMsg| {
@@ -708,7 +720,7 @@ impl App {
             .width(250),
         )
         .padding(14);
-        self.side_panel(panel.into())
+        Self::side_panel(panel.into())
     }
 }
 
