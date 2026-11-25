@@ -186,7 +186,7 @@ fn browsing_files_stays_inside_the_list() {
     let mut app = app();
     let pictures = fixture("pictures");
     let files: Vec<PathBuf> = ["g.png", "g.jpg", "g.gif"].iter().map(|n| pictures.join(n)).collect();
-    let _ = app.update(Message::Expanded { files: files.clone(), start: 1, append: false });
+    let _ = app.update(Message::Expanded { files: files.clone(), start: 1, append: false, alone: false });
     assert_eq!((app.current, app.files.len()), (1, 3));
     assert!(matches!(&app.doc, Doc::Loading(p) if *p == files[1]));
     let _ = app.update(Message::Next);
@@ -200,7 +200,7 @@ fn browsing_files_stays_inside_the_list() {
     assert_eq!(app.current, 2);
     assert_eq!(state(&app, "index"), 3);
     // Nothing to show is said out loud, and changes nothing.
-    let _ = app.update(Message::Expanded { files: Vec::new(), start: 0, append: false });
+    let _ = app.update(Message::Expanded { files: Vec::new(), start: 0, append: false, alone: false });
     assert!(app.toast.as_ref().is_some_and(|(_, _, error)| *error));
     assert_eq!(app.files.len(), 3);
 }
@@ -211,7 +211,7 @@ fn wrap_around_joins_the_ends_of_the_list_when_asked() {
     let mut app = app();
     let pictures = fixture("pictures");
     let files: Vec<PathBuf> = ["g.png", "g.jpg", "g.gif"].iter().map(|n| pictures.join(n)).collect();
-    let _ = app.update(Message::Expanded { files, start: 2, append: false });
+    let _ = app.update(Message::Expanded { files, start: 2, append: false, alone: false });
     let _ = app.update(Message::Next);
     assert_eq!(app.current, 2, "off by default: the end is the end");
     let _ = app.update(Message::Pref(PrefMsg::WrapAround(true)));
@@ -336,14 +336,14 @@ fn opened_files_are_remembered_and_a_pdf_comes_back_at_its_page() {
     let mut app = pdf_app();
     let pdf = fixture("pages.pdf");
     // Reading page 3, then moving on to a picture, notes the page...
-    let _ = app.update(Message::Expanded { files: vec![pdf.clone()], start: 0, append: false });
+    let _ = app.update(Message::Expanded { files: vec![pdf.clone()], start: 0, append: false, alone: false });
     assert_eq!(app.state.recent[0].path, pdf);
     app.doc = Doc::Empty;
     let doc = pdf::Document::open(&pdf).unwrap();
     let _ = app.open_pdf_view(pdf.clone(), doc);
     scrolled_to_page(&mut app, 3);
     let picture = fixture("pictures").join("g.png");
-    let _ = app.update(Message::Expanded { files: vec![picture.clone()], start: 0, append: false });
+    let _ = app.update(Message::Expanded { files: vec![picture.clone()], start: 0, append: false, alone: false });
     assert_eq!(app.state.recent[0].path, picture, "the newest file is first");
     assert_eq!(app.state.page_of(&pdf), Some(3));
     // ...and opening the PDF again starts there.
@@ -362,7 +362,7 @@ fn the_recent_list_can_be_opened_from_and_cleared() {
     let _inside = runtime().enter();
     let mut app = app();
     let picture = fixture("pictures").join("g.png");
-    let _ = app.update(Message::Expanded { files: vec![picture.clone()], start: 0, append: false });
+    let _ = app.update(Message::Expanded { files: vec![picture.clone()], start: 0, append: false, alone: false });
     app.doc = Doc::Empty;
     app.files.clear();
     assert_eq!(app.state.recent.len(), 1);
@@ -417,7 +417,7 @@ fn a_shown_file_is_baselined_at_once_and_a_watch_that_fails_falls_back_to_lookin
     let _inside = runtime().enter();
     let mut app = app();
     let picture = fixture("pictures").join("g.png");
-    let _ = app.update(Message::Expanded { files: vec![picture.clone()], start: 0, append: false });
+    let _ = app.update(Message::Expanded { files: vec![picture.clone()], start: 0, append: false, alone: false });
     // The stamp is taken as loading starts, so a change a moment later is another program's.
     let stamp = app.disk.clone().expect("a baseline");
     assert_eq!(stamp.0, picture);
@@ -451,9 +451,9 @@ fn dropping_more_files_adds_them_without_losing_the_place() {
     let mut app = app();
     let pictures = fixture("pictures");
     let (a, b, c) = (pictures.join("g.png"), pictures.join("g.jpg"), pictures.join("g.gif"));
-    let _ = app.update(Message::Expanded { files: vec![a.clone(), b.clone()], start: 0, append: false });
+    let _ = app.update(Message::Expanded { files: vec![a.clone(), b.clone()], start: 0, append: false, alone: false });
     // One already there and one new: no duplicates, and the first dropped file is shown.
-    let _ = app.update(Message::Expanded { files: vec![b.clone(), c.clone()], start: 0, append: true });
+    let _ = app.update(Message::Expanded { files: vec![b.clone(), c.clone()], start: 0, append: true, alone: false });
     assert_eq!(app.files, vec![a, b.clone(), c]);
     assert_eq!(app.files[app.current], b);
 }
@@ -561,7 +561,7 @@ fn control_commands_answer_with_the_state_or_a_reason() {
     let opened = ok(&mut app, Command::Open { paths: vec![fixture("form.pdf")], password: Some("pw".into()) });
     assert_eq!(opened["busy"], true);
     assert_eq!(app.passwords.get(&fixture("form.pdf")).map(String::as_str), Some("pw"));
-    let _ = app.update(Message::Expanded { files: vec![fixture("form.pdf")], start: 0, append: false });
+    let _ = app.update(Message::Expanded { files: vec![fixture("form.pdf")], start: 0, append: false, alone: false });
     assert!(!app.control_opening);
 
     let mut empty = super::tests::app();
@@ -1111,7 +1111,7 @@ fn the_file_before_is_drawn_until_the_next_is_ready() {
     let _inside = runtime().enter();
     let mut app = pdf_app();
     let other = fixture("form.pdf");
-    let _ = app.update(Message::Expanded { files: vec![other.clone()], start: 0, append: false });
+    let _ = app.update(Message::Expanded { files: vec![other.clone()], start: 0, append: false, alone: false });
     assert!(matches!(app.doc, Doc::Loading(_)) && matches!(app.shown_doc(), Doc::Pdf(_)));
     assert!(app.slow_since().is_none(), "not said at once");
     let _ = app.update(Message::LoadSlow(app.generation + 1));
@@ -1130,4 +1130,108 @@ fn the_zoom_menu_goes_to_a_zoom() {
     let _ = app.update(Message::MenuPick(Box::new(Message::ZoomTo(2.0))));
     assert_eq!(app.menu, None);
     assert_eq!(app.zoom_ease.map(|e| e.to), Some(2.0 * PT_TO_PX));
+}
+
+/// Two pictures and two PDFs, as a folder has them.
+fn mixed() -> Vec<PathBuf> {
+    let pictures = fixture("pictures");
+    vec![pictures.join("g.gif"), fixture("form.pdf"), pictures.join("g.png"), fixture("pages.pdf")]
+}
+
+fn opened(start: usize, alone: bool) -> App {
+    let mut app = app();
+    let _ = app.update(Message::Expanded { files: mixed(), start, append: false, alone });
+    app
+}
+
+#[test]
+fn a_picture_opened_by_itself_browses_the_pictures_around_it() {
+    let _inside = runtime().enter();
+    let mut app = opened(0, true);
+    assert!(!app.show_sidebar);
+    assert_eq!(app.browsed(), [0, 2]);
+    let _ = app.update(Message::Next);
+    assert_eq!(app.current, 2, "the PDF between them is passed over");
+    let _ = app.update(Message::Next);
+    assert_eq!(app.current, 2);
+    let _ = app.update(Message::Pref(PrefMsg::WrapAround(true)));
+    let _ = app.update(Message::Next);
+    assert_eq!(app.current, 0, "round at the end");
+    let _ = app.update(Message::Last);
+    assert_eq!(app.current, 2);
+    // Its folder is one key away, and is what is browsed from then on.
+    let _ = app.update(Message::ToggleSidebar);
+    assert!(app.show_sidebar && app.sidebar_shows() == Some(SidebarTab::Files));
+    let _ = app.update(Message::Next);
+    assert_eq!(app.current, 3);
+    // Closed again by hand, it stays closed.
+    let _ = app.update(Message::ToggleSidebar);
+    let _ = app.update(Message::Prev);
+    assert!(app.current == 2 && !app.show_sidebar);
+}
+
+#[test]
+fn a_pdf_opened_by_itself_stays_by_itself() {
+    let _inside = runtime().enter();
+    let mut app = opened(3, true);
+    assert!(!app.show_sidebar, "not before it is known what it has");
+    let path = fixture("pages.pdf");
+    let _ = app.open_pdf_view(path.clone(), pdf::Document::open(&path).unwrap());
+    assert!(app.show_sidebar && app.sidebar_shows() == Some(SidebarTab::Pages));
+    for go in [Message::Next, Message::Prev, Message::First, Message::Last] {
+        let _ = app.update(go);
+        assert_eq!(app.current, 3);
+    }
+    // Asking for the files makes them what is browsed.
+    let _ = app.update(Message::SidebarTab(SidebarTab::Files));
+    let _ = app.update(Message::Prev);
+    assert_eq!(app.current, 2);
+}
+
+#[test]
+fn a_pdf_of_one_page_shows_no_sidebar() {
+    let _inside = runtime().enter();
+    let mut app = opened(1, true);
+    let path = fixture("form.pdf");
+    let _ = app.open_pdf_view(path.clone(), pdf::Document::open(&path).unwrap());
+    assert!(!app.show_sidebar);
+}
+
+#[test]
+fn several_files_or_a_folder_are_a_list_to_browse() {
+    let _inside = runtime().enter();
+    let mut app = opened(0, false);
+    assert!(app.show_sidebar && app.sidebar_shows() == Some(SidebarTab::Files));
+    let _ = app.update(Message::Next);
+    assert_eq!(app.current, 1);
+    // Added files make a list of what was one file, without their folder.
+    let mut app = opened(0, true);
+    let (files, start) = library::expand_only(&[fixture("encrypted.pdf")]);
+    assert_eq!(files.len(), 1);
+    let _ = app.update(Message::Expanded { files, start, append: true, alone: false });
+    assert!(app.asked && app.show_sidebar && app.files.len() == 5 && app.current == 4);
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn putting_a_file_in_the_trash_shows_what_would_be_browsed_to() {
+    let _inside = runtime().enter();
+    let trashed = |app: &mut App, at: usize| {
+        let path = app.files[at].clone();
+        let item = crate::platform::trash::Trashed::for_test(path);
+        let _ = app.update(Message::Trashed(at, Ok(item)));
+    };
+    // A picture by itself: the next picture, not the PDF after it.
+    let mut app = opened(0, true);
+    trashed(&mut app, 0);
+    assert_eq!(app.files[app.current], mixed()[2]);
+    // A PDF by itself: nothing else.
+    let mut app = opened(1, true);
+    trashed(&mut app, 1);
+    assert!(matches!(app.doc, Doc::Empty) && app.browsed().is_empty());
+    let _ = app.update(Message::Next);
+    assert!(matches!(app.doc, Doc::Empty));
+    // It comes back among the same files, still by itself.
+    let _ = app.update(Message::Restored(1, Ok(mixed()[1].clone())));
+    assert_eq!((app.files.clone(), app.current, app.browsed()), (mixed(), 1, vec![1]));
 }

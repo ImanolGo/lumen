@@ -162,6 +162,11 @@ pub struct App {
     scale_factor: f32,
     fullscreen: bool,
     show_sidebar: bool,
+    /// The list of files was asked for (several, a folder, dropped, or shown in the sidebar); else it
+    /// is only what lies around the file that was opened.
+    asked: bool,
+    /// Whether the sidebar shows is still to be decided, when the PDF opened has been read.
+    sidebar_due: bool,
     /// Scroll offset and height of the sidebar list (logical px).
     sidebar_scroll: (f32, f32),
     /// The tab the user picked; until then a PDF's contents are preferred over the file list.
@@ -609,6 +614,8 @@ pub enum Message {
         files: Vec<PathBuf>,
         start: usize,
         append: bool,
+        /// It was one file, and the rest is what is in its folder.
+        alone: bool,
     },
     FlushDrops,
     Select(usize),
@@ -831,6 +838,8 @@ impl App {
             scale_factor: 1.0,
             fullscreen: false,
             show_sidebar: true,
+            asked: false,
+            sidebar_due: false,
             sidebar_scroll: (0.0, 0.0),
             sidebar_tab: None,
             contents_scroll: (0.0, 0.0),
@@ -952,7 +961,6 @@ impl App {
         if let Some(w) = app.state.sidebar {
             app.sidebar_w = (w as f32).clamp(SIDEBAR_WIDTHS.0, SIDEBAR_WIDTHS.1);
         }
-        app.show_sidebar = app.prefs.sidebar_open;
         app.night = app.prefs.night_mode;
         app.apply_theme();
         let mut tasks = vec![system::theme().map(Message::SystemTheme)];
@@ -1095,10 +1103,18 @@ fn row_of(rows: &[usize], i: usize) -> Option<usize> {
 }
 
 fn expand(paths: Vec<PathBuf>, append: bool) -> Task<Message> {
-    Task::perform(blocking(move || library::expand(&paths)), move |r| {
-        let (files, start) = r.unwrap_or_default();
-        Message::Expanded { files, start, append }
-    })
+    Task::perform(
+        blocking(move || {
+            let alone = matches!(paths.as_slice(), [one] if one.is_file());
+            // One file added to a list is only that file, without its folder.
+            let (files, start) = if append { library::expand_only(&paths) } else { library::expand(&paths) };
+            (files, start, alone && !append)
+        }),
+        move |r| {
+            let (files, start, alone) = r.unwrap_or_default();
+            Message::Expanded { files, start, append, alone }
+        },
+    )
 }
 
 fn file_name(p: &Path) -> String {
@@ -1181,26 +1197,22 @@ impl App {
             Message::Chosen(Ok(paths)) if paths.is_empty() => Task::none(),
             Message::Chosen(Ok(paths)) => expand(paths, false),
             Message::Chosen(Err(e)) => self.toast(e),
-            Message::Expanded { files, start, append } => {
+            Message::Expanded { files, start, append, alone } => {
                 self.control_opening = false;
-                self.set_files(files, start, append)
+                self.set_files(files, start, append, alone)
             }
             Message::Control(request) => self.control_update(request),
             Message::FlushDrops => {
                 let paths = std::mem::take(&mut self.pending_drops);
                 let opened = std::mem::take(&mut self.pending_opens);
-                if paths.is_empty() { Task::none() } else { expand(paths, !opened) }
+                let append = !opened && !self.files.is_empty();
+                if paths.is_empty() { Task::none() } else { expand(paths, append) }
             }
             Message::Select(i) => self.show(i),
-            Message::Next if self.prefs.wrap_around && self.current + 1 >= self.files.len() => self.show(0),
-            Message::Next => self.show(self.current + 1),
-            Message::Prev => match self.current.checked_sub(1) {
-                Some(i) => self.show(i),
-                None if self.prefs.wrap_around => self.show(self.files.len().saturating_sub(1)),
-                None => Task::none(),
-            },
-            Message::First => self.show(0),
-            Message::Last => self.show(self.files.len().saturating_sub(1)),
+            Message::Next => self.show_if(self.beside(true)),
+            Message::Prev => self.show_if(self.beside(false)),
+            Message::First => self.show_if(self.browsed().first().copied()),
+            Message::Last => self.show_if(self.browsed().last().copied()),
 
             Message::PictureLoaded(generation, path, result) => {
                 if generation != self.generation {
@@ -1211,7 +1223,6 @@ impl App {
                 }
                 match result {
                     Ok(p) => {
-                        self.log_opened(&path, "picture");
                         let loaded: Loaded = p.into();
                         self.remember(path.clone(), loaded.clone());
                         self.show_when_ready(generation, path, loaded)
@@ -1228,6 +1239,8 @@ impl App {
                 if generation != self.generation {
                     return Task::none();
                 }
+                // Only now: until it is shown, it is still being opened.
+                self.log_opened(&path, "picture");
                 // The picture before it may have been worked on while this one loaded.
                 self.put_aside();
                 self.viewport.x = 0.0;
@@ -1329,6 +1342,7 @@ impl App {
             }
             Message::SidebarTab(tab) => {
                 self.sidebar_tab = Some(tab);
+                self.note_list_shown();
                 match tab {
                     SidebarTab::Files => Task::batch([self.request_thumbs(), self.reveal_in_sidebar()]),
                     SidebarTab::Contents => self.reveal_in_contents(),
@@ -1716,8 +1730,10 @@ impl App {
             Message::ToggleFullscreen => self.set_fullscreen(!self.fullscreen),
             Message::ToggleSidebar => {
                 self.show_sidebar = !self.show_sidebar;
+                self.sidebar_due = false;
+                self.note_list_shown();
                 if self.show_sidebar {
-                    Task::batch([self.reveal_in_sidebar(), self.request_page_thumbs()])
+                    Task::batch([self.reveal_in_sidebar(), self.request_thumbs(), self.request_page_thumbs()])
                 } else {
                     Task::none()
                 }
@@ -1816,7 +1832,17 @@ impl App {
                 self.passwords.remove(&path);
                 self.pictures.retain(|(p, _)| *p != path);
                 let name = file_name(&path);
-                let show = if self.files.is_empty() {
+                // `at` is where the one after it is now.
+                let next = if self.asked {
+                    at.min(self.files.len().saturating_sub(1))
+                } else {
+                    let picture = |&i: &usize| Kind::of(&self.files[i]) != Some(Kind::Pdf);
+                    let pdf = Kind::of(&path) == Some(Kind::Pdf);
+                    let after = (at..self.files.len()).find(picture);
+                    after.or_else(|| (0..at).rev().find(picture)).filter(|_| !pdf).unwrap_or(usize::MAX)
+                };
+                let show = if next >= self.files.len() {
+                    self.show_sidebar = false;
                     self.put_pages_aside();
                     self.put_aside();
                     self.generation += 1;
@@ -1824,7 +1850,6 @@ impl App {
                     self.current = usize::MAX;
                     Task::none()
                 } else {
-                    let next = at.min(self.files.len() - 1);
                     self.current = usize::MAX; // force the next file to load
                     self.show(next)
                 };
@@ -1861,6 +1886,7 @@ impl App {
                 let at = index.min(self.files.len());
                 self.files.insert(at, path.clone());
                 self.current = usize::MAX;
+                self.sidebar_due = !self.asked;
                 let shown = self.show(at);
                 Task::batch([shown, self.notice(trf!("Restored “{}”", file_name(&path))), self.request_thumbs()])
             }
@@ -2148,11 +2174,63 @@ impl App {
 
     // ------------------------------------------------------------ files
 
-    fn set_files(&mut self, files: Vec<PathBuf>, start: usize, append: bool) -> Task<Message> {
+    /// The files the arrows go through: all of a list that was asked for; of the folder around one
+    /// picture its pictures; around one PDF nothing else.
+    fn browsed(&self) -> Vec<usize> {
+        let pdf = |i: usize| self.files.get(i).is_some_and(|p| Kind::of(p) == Some(Kind::Pdf));
+        let all = 0..self.files.len();
+        if self.asked {
+            all.collect()
+        } else if self.current >= self.files.len() {
+            Vec::new()
+        } else if pdf(self.current) {
+            vec![self.current]
+        } else {
+            all.filter(|&i| !pdf(i)).collect()
+        }
+    }
+
+    /// The place of the next (or previous) file to browse to, without going round.
+    fn straight_beside(&self, next: bool) -> Option<usize> {
+        let list = self.browsed();
+        let at = list.iter().position(|&i| i == self.current)?;
+        let to = if next { at + 1 } else { at.checked_sub(1)? };
+        list.get(to).copied()
+    }
+
+    /// The same, going round at the ends if that is preferred.
+    fn beside(&self, next: bool) -> Option<usize> {
+        let round = || {
+            let list = self.browsed();
+            let end = if next { list.first() } else { list.last() };
+            end.copied().filter(|&i| self.prefs.wrap_around && i != self.current)
+        };
+        self.straight_beside(next).or_else(round)
+    }
+
+    fn show_if(&mut self, index: Option<usize>) -> Task<Message> {
+        index.map_or_else(Task::none, |i| self.show(i))
+    }
+
+    /// The list of files is on view: from here on it is what is browsed.
+    fn note_list_shown(&mut self) {
+        if self.show_sidebar && self.sidebar_shows() == Some(SidebarTab::Files) {
+            self.asked = true;
+        }
+    }
+
+    fn set_files(&mut self, files: Vec<PathBuf>, start: usize, append: bool, alone: bool) -> Task<Message> {
         if files.is_empty() {
             return if append { Task::none() } else { self.toast(tr("Nothing to show: no pictures or PDFs there")) };
         }
-        let index = if append && !self.files.is_empty() {
+        let append = append && !self.files.is_empty();
+        self.asked = append || !alone;
+        self.show_sidebar = self.asked;
+        self.sidebar_due = alone;
+        if !append || self.sidebar_tab != Some(SidebarTab::Files) {
+            self.sidebar_tab = None;
+        }
+        let index = if append {
             let mut first = None;
             for f in files {
                 let i = match self.files.iter().position(|e| *e == f) {
@@ -2224,7 +2302,6 @@ impl App {
             }
             _ => {
                 if let Some(loaded) = self.cached(&path) {
-                    self.log_opened(&path, "cached");
                     self.show_when_ready(generation, path, loaded)
                 } else {
                     // Keep showing the previous picture until the next one is ready, unless
@@ -2368,6 +2445,10 @@ impl App {
         self.viewport.x = 0.0;
         self.contents_scroll = (0.0, 0.0);
         self.folded.clear();
+        // A PDF opened by itself has its own contents or pages beside it, if it has any.
+        if std::mem::take(&mut self.sidebar_due) {
+            self.show_sidebar = pages > 1 || self.has_contents();
+        }
         self.reset_page_thumbs();
         let restored = match (self.restore.take(), self.state.page_of(&path)) {
             (Some(place), _) => self.go_to_place(place),
@@ -2439,7 +2520,7 @@ impl App {
 
     fn preload_neighbours(&mut self) -> Task<Message> {
         let mut tasks = Vec::new();
-        for i in [self.current + 1, self.current.wrapping_sub(1)] {
+        for i in [true, false].map(|next| self.straight_beside(next)).into_iter().flatten() {
             let Some(path) = self.files.get(i).cloned() else { continue };
             if !matches!(Kind::of(&path), Some(Kind::Image | Kind::Svg))
                 || self.pictures.iter().any(|(p, _)| *p == path)
@@ -2483,7 +2564,7 @@ impl App {
     }
 
     fn request_thumbs(&mut self) -> Task<Message> {
-        if self.files.len() < 2 {
+        if self.files.len() < 2 || !self.show_sidebar {
             return Task::none();
         }
         // Rows on screen first (top to bottom), then the files you are likely to flip to next.
@@ -2573,7 +2654,14 @@ impl App {
         let available = |tab| self.sidebar_tabs().contains(&tab);
         match self.sidebar_tab {
             Some(tab) if available(tab) => Some(tab),
-            _ => [SidebarTab::Contents, SidebarTab::Files, SidebarTab::Pages].into_iter().find(|t| available(*t)),
+            _ => {
+                let mut order = [SidebarTab::Contents, SidebarTab::Pages, SidebarTab::Files];
+                // A list that was asked for is what is wanted to be seen.
+                if self.asked {
+                    order.rotate_right(1);
+                }
+                order.into_iter().find(|t| available(*t))
+            }
         }
     }
 
@@ -3367,8 +3455,7 @@ impl App {
         let has_doc = matches!(self.doc, Doc::Image(_) | Doc::Pdf(_));
         let is_image = matches!(self.doc, Doc::Image(_));
         let is_pdf = matches!(self.doc, Doc::Pdf(_));
-        let multi = self.files.len() > 1;
-
+        let browsed = self.browsed();
         let mut left = row![].spacing(2).align_y(Alignment::Center);
         if self.sidebar_shows().is_some() {
             // Usually on, so it stays quiet rather than lit.
@@ -3396,7 +3483,10 @@ impl App {
             Doc::Image(v) => (file_name(&v.path), String::new()),
             Doc::Pdf(v) => (file_name(v.doc.path()), trf!("Page {} of {}", v.current_page + 1, v.doc.page_count())),
         };
-        let position = if multi { trf!("{} of {}", self.current + 1, self.files.len()) } else { String::new() };
+        let position = match browsed.iter().position(|&i| i == self.current) {
+            Some(at) if browsed.len() > 1 => trf!("{} of {}", at + 1, browsed.len()),
+            _ => String::new(),
+        };
         let subtitle = match (subtitle.is_empty(), position.is_empty()) {
             (true, _) => position,
             (false, true) => subtitle,
@@ -4182,10 +4272,8 @@ impl App {
             .align_x(Alignment::Center)
             .align_y(Alignment::End)
             .padding(Padding { bottom: 22.0, ..Padding::ZERO });
-        let multi = self.files.len() > 1;
-        let wrap = self.prefs.wrap_around;
-        let prev = (multi && (wrap || self.current > 0)).then_some(Message::Prev);
-        let next = (multi && (wrap || self.current + 1 < self.files.len())).then_some(Message::Next);
+        let prev = self.beside(false).map(|_| Message::Prev);
+        let next = self.beside(true).map(|_| Message::Next);
         let side = |msg: Option<Message>, icon: svg::Handle, label: String| -> Element<'a, Message> {
             if msg.is_none() {
                 return space().width(44).into();

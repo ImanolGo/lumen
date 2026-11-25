@@ -59,8 +59,9 @@ Usage: lumen-rs [FILE|FOLDER]...
 
 A fast, safe viewer for pictures and PDFs.
 
-Opening one file also lets you flip through the other pictures and PDFs in
-its folder with the arrow keys. Opening a folder shows everything inside it.
+Opening one picture also lets you flip through the other pictures in its
+folder with the arrow keys. Opening several files, or a folder, shows them as
+a list.
 
 Options:
   -h, --help       Show this help

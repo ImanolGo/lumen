@@ -15,7 +15,6 @@ pub enum PrefMsg {
     Theme(Theme),
     SlideshowSeconds(u32),
     PdfFit(PdfFit),
-    SidebarOpen(bool),
     FloatingControls(bool),
     Portals(bool),
     Sandbox(bool),
@@ -58,7 +57,6 @@ impl App {
             }
             PrefMsg::SlideshowSeconds(s) => self.prefs.slideshow_seconds = s,
             PrefMsg::PdfFit(f) => self.prefs.pdf_fit = f,
-            PrefMsg::SidebarOpen(on) => self.prefs.sidebar_open = on,
             PrefMsg::FloatingControls(on) => self.prefs.floating_controls = on,
             PrefMsg::Portals(on) => {
                 self.prefs.portals = on;
@@ -201,7 +199,6 @@ impl App {
                 line(tr("Theme"), theme),
                 line(tr("Language"), language),
                 line(tr("Dragging over a picture"), drag),
-                toggle(tr("Show the sidebar when Lumen starts"), p.sidebar_open, PrefMsg::SidebarOpen),
                 toggle(tr("Zoom control and arrows over the picture"), p.floating_controls, PrefMsg::FloatingControls),
                 toggle(tr("Reduce motion"), p.reduce_motion, PrefMsg::ReduceMotion),
                 toggle(tr("Wrap around at the first and last file"), p.wrap_around, PrefMsg::WrapAround),

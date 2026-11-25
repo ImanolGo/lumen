@@ -57,6 +57,21 @@ pub fn list_dir(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
+/// Like [`expand`], but a file stands only for itself.
+pub fn expand_only(paths: &[PathBuf]) -> (Vec<PathBuf>, usize) {
+    let mut files: Vec<PathBuf> = Vec::new();
+    for path in paths {
+        let path = std::path::absolute(path).unwrap_or_else(|_| path.clone());
+        let found = if path.is_dir() { list_dir(&path) } else { vec![path] };
+        for f in found {
+            if Kind::of(&f).is_some() && !files.contains(&f) {
+                files.push(f);
+            }
+        }
+    }
+    (files, 0)
+}
+
 /// Expands what the user opened into the files to browse, plus the index to show first.
 ///
 /// * One file: every supported file in its folder, starting at that file, so the

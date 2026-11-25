@@ -547,9 +547,6 @@ msgstr "Enviado a la impresora"
 msgid "Show in Folder"
 msgstr "Mostrar en la carpeta"
 
-msgid "Show the sidebar when Lumen starts"
-msgstr "Mostrar la barra lateral al iniciar Lumen"
-
 msgid "Sidebar"
 msgstr "Barra lateral"
 
@@ -1056,3 +1053,6 @@ msgstr "Sin resultados"
 
 msgid "{} matches"
 msgstr "{} coincidencias"
+
+msgid "Show Folder"
+msgstr "Mostrar la carpeta"

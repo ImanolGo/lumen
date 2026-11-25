@@ -29,11 +29,11 @@ pub enum Step {
     End,
 }
 
-/// `page` is (current, count) for a PDF; `index` is the file's place among `files`.
-pub fn next_step(page: Option<(usize, usize)>, index: usize, files: usize) -> Step {
+/// `page` is (current, count) for a PDF; `more` is whether there is a file after it.
+pub fn next_step(page: Option<(usize, usize)>, more: bool) -> Step {
     match page {
         Some((current, count)) if current + 1 < count => Step::NextPage,
-        _ if index + 1 < files => Step::NextFile,
+        _ if more => Step::NextFile,
         _ => Step::End,
     }
 }
@@ -42,7 +42,9 @@ impl App {
     /// Whether there is anything to step through.
     pub(super) fn can_slideshow(&self) -> bool {
         let pages = matches!(&self.doc, Doc::Pdf(v) if v.doc.page_count() > 1);
-        self.unsaved_files() == 0 && matches!(self.doc, Doc::Image(_) | Doc::Pdf(_)) && (self.files.len() > 1 || pages)
+        self.unsaved_files() == 0
+            && matches!(self.doc, Doc::Image(_) | Doc::Pdf(_))
+            && (self.browsed().len() > 1 || pages)
     }
 
     pub(super) fn slideshow_toggle(&mut self) -> Task<Message> {
@@ -115,9 +117,10 @@ impl App {
             Doc::Pdf(v) => Some((v.current_page, v.doc.page_count())),
             _ => None,
         };
-        match next_step(page, self.current, self.files.len()) {
+        let next = self.straight_beside(true);
+        match next_step(page, next.is_some()) {
             Step::NextPage => self.go_to_page(key.1 + 1),
-            Step::NextFile => self.show(self.current + 1),
+            Step::NextFile => self.show_if(next),
             Step::End => {
                 let done = self.slideshow_stop();
                 Task::batch([done, self.notice(tr("End of the slideshow"))])
@@ -139,15 +142,15 @@ mod tests {
 
     #[test]
     fn steps_through_pages_then_files_then_ends() {
-        assert_eq!(next_step(Some((0, 3)), 0, 2), Step::NextPage);
-        assert_eq!(next_step(Some((2, 3)), 0, 2), Step::NextFile);
-        assert_eq!(next_step(Some((2, 3)), 1, 2), Step::End);
-        assert_eq!(next_step(None, 0, 3), Step::NextFile);
-        assert_eq!(next_step(None, 2, 3), Step::End);
+        assert_eq!(next_step(Some((0, 3)), true), Step::NextPage);
+        assert_eq!(next_step(Some((2, 3)), true), Step::NextFile);
+        assert_eq!(next_step(Some((2, 3)), false), Step::End);
+        assert_eq!(next_step(None, true), Step::NextFile);
+        assert_eq!(next_step(None, false), Step::End);
         // A one-page PDF in a folder just moves on.
-        assert_eq!(next_step(Some((0, 1)), 0, 2), Step::NextFile);
+        assert_eq!(next_step(Some((0, 1)), true), Step::NextFile);
         // A single multi-page PDF steps through its pages, then ends.
-        assert_eq!(next_step(Some((0, 2)), 0, 1), Step::NextPage);
-        assert_eq!(next_step(Some((1, 2)), 0, 1), Step::End);
+        assert_eq!(next_step(Some((0, 2)), false), Step::NextPage);
+        assert_eq!(next_step(Some((1, 2)), false), Step::End);
     }
 }

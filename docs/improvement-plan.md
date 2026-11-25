@@ -824,7 +824,7 @@ say exactly which systems those are.
 | 15 | Dialogs | Done. Enter does not run a button that discards something. Quitting offers Save only when all that is unsaved is in the file on screen. The page range and orientation were not tried on a printer, and Windows' order of buttons was not seen. |
 | 16 | The main view | Done. iced cannot fade a whole panel, so menus, dialogs and messages slide 8 px into place and only the dimming behind a dialog fades. The zoom menu, folding, dragging the sidebar's edge and the delayed hints were tried with a pointer on an X display; motion was not watched by a person. |
 | 17 | A screenshot set that is kept | Done: `tools/screenshots/review.py` (on an invisible X display, so the focus of the desktop does not matter). A full run was looked at; the sidebar's first position in a small window was wrong, and is fixed. `data/screenshots/` is taken again after package 21, which changes every one of them. |
-| 20 | What opening a file shows | |
+| 20 | What opening a file shows | Done. Showing the folder's list makes it what is browsed. |
 | 21 | A toolbar joined to the header | |
 | 22 | The window's first size | |
 | 23 | A window for each opening | |

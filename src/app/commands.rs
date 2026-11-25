@@ -237,7 +237,7 @@ impl App {
         let is_image = matches!(self.doc, Doc::Image(_));
         let has_doc = is_pdf || is_image;
         let pages = self.organizer.is_some();
-        let multi = self.files.len() > 1;
+        let multi = self.browsed().len() > 1;
         let free = self.markup_busy.is_none();
         let drawing = self.editing.is_none();
         let marks = self.marks.as_ref().filter(|_| drawing);
@@ -379,6 +379,7 @@ impl App {
                 "fullscreen" if self.fullscreen => msgid("Leave Fullscreen"),
                 "slideshow" if self.slideshow.is_some() => msgid("Stop Slideshow"),
                 "sidebar" if self.show_sidebar => msgid("Hide Sidebar"),
+                "sidebar" if self.sidebar_tabs() == [super::SidebarTab::Files] => msgid("Show Folder"),
                 "sidebar" => msgid("Show Sidebar"),
                 "night" if self.night => msgid("Leave Night Mode"),
                 _ => c.name,

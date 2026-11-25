@@ -36,8 +36,6 @@ pub struct Settings {
     pub slideshow_seconds: u32,
     /// How a PDF is fitted when it opens.
     pub pdf_fit: PdfFit,
-    /// Whether the sidebar is shown when Lumen starts.
-    pub sidebar_open: bool,
     /// The zoom control and previous/next arrows that appear over the picture.
     pub floating_controls: bool,
     /// Use the desktop's file and print dialogs when there is a portal (else Lumen's own).
@@ -70,7 +68,6 @@ impl Default for Settings {
             theme: Theme::System,
             slideshow_seconds: 5,
             pdf_fit: PdfFit::Width,
-            sidebar_open: true,
             floating_controls: true,
             portals: true,
             night_mode: false,
@@ -131,7 +128,6 @@ impl Settings {
         get(&table, "theme", &mut out.theme);
         get(&table, "slideshow_seconds", &mut out.slideshow_seconds);
         get(&table, "pdf_fit", &mut out.pdf_fit);
-        get(&table, "sidebar_open", &mut out.sidebar_open);
         get(&table, "floating_controls", &mut out.floating_controls);
         get(&table, "portals", &mut out.portals);
         get(&table, "night_mode", &mut out.night_mode);
@@ -235,7 +231,6 @@ mod tests {
             theme: Theme::Dark,
             slideshow_seconds: 12,
             pdf_fit: PdfFit::Page,
-            sidebar_open: false,
             floating_controls: false,
             portals: false,
             night_mode: true,
@@ -257,11 +252,11 @@ mod tests {
     #[test]
     fn bad_values_and_unknown_keys_only_affect_themselves() {
         let s = Settings::parse(
-            "theme = \"purple\"\nslideshow_seconds = 9\nfuture_option = true\nsidebar_open = \"yes\"\npdf_fit = \"page\"\n",
+            "theme = \"purple\"\nslideshow_seconds = 9\nfuture_option = true\nwrap_around = \"yes\"\npdf_fit = \"page\"\n",
         );
         assert_eq!(s.theme, Theme::System, "an unknown theme keeps the default");
         assert_eq!(s.slideshow_seconds, 9);
-        assert!(s.sidebar_open, "a value of the wrong kind keeps the default");
+        assert!(!s.wrap_around, "a value of the wrong kind keeps the default");
         assert_eq!(s.pdf_fit, PdfFit::Page);
     }
 

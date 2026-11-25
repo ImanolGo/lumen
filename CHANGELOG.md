@@ -4,6 +4,14 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Changed
+- A file opened by itself is shown by itself: a picture without the sidebar, a PDF with its contents or pages. The arrows go through the pictures around a picture, and never leave a PDF. "Show Folder" (T) brings the folder's list, which is then what is browsed; several files or a folder are a list from the start.
+- Dropping a file on an open one adds that file, not its whole folder.
+- The preference to show the sidebar when Lumen starts is gone.
+
+### Fixed
+- A picture counts as opened (for the control interface and the progress line) only once it is on screen.
+
 ## [0.5.0] - 2026-11-25
 
 ### Added
