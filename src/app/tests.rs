@@ -384,7 +384,7 @@ fn the_command_palette_finds_and_runs_commands() {
     let mut empty = app();
     key(&mut empty, Key::Character("p".into()), Modifiers::COMMAND | Modifiers::SHIFT);
     assert!(empty.palette.is_some());
-    let names: Vec<String> = empty.palette_matches().into_iter().map(|c| c.0).collect();
+    let names: Vec<String> = empty.palette_matches().into_iter().map(|c| c.label.to_string()).collect();
     assert!(names.iter().any(|n| n.starts_with("Open Files")) && !names.iter().any(|n| n.starts_with("Print")));
     key(&mut empty, Key::Named(Named::Escape), Modifiers::empty());
     let _ = empty.update(Message::Escape);
@@ -832,17 +832,134 @@ fn a_file_that_goes_away_is_noticed_once_and_reloaded_when_it_is_back() {
 }
 
 #[test]
-fn every_item_of_the_menu_bar_does_something() {
+fn every_item_of_the_menu_bar_is_a_command_once() {
     let _inside = runtime().enter();
     let app = pdf_app();
-    for entry in App::menu_bar().iter().flat_map(|g| g.items.iter().flatten()) {
-        // Saving needs something to save.
-        assert_eq!(app.menu_bar_message(entry.id).is_some(), entry.id != "save", "{}", entry.id);
+    let mut ids: Vec<_> = app.menu_bar().iter().flat_map(|g| g.items.iter().flatten()).map(|e| e.id).collect();
+    for id in ["print", "find", "quit", "preferences", "palette"] {
+        assert!(app.menu_bar_message(id).is_some(), "{id}");
     }
-    assert!(app.menu_bar_message("nonsense").is_none());
+    assert_eq!(ids.len(), app.commands().len());
+    ids.sort_unstable();
+    ids.dedup();
+    assert_eq!(ids.len(), app.commands().len(), "two commands with one id");
+    // Saving needs something to save.
+    assert!(app.menu_bar_message("save").is_none() && app.menu_bar_message("nonsense").is_none());
     let mut asked = pdf_app();
     asked.confirm_quit = true;
-    assert!(asked.menu_bar_message("open").is_none());
+    assert!(asked.menu_bar_message("open").is_none() && asked.menu_bar_message("quit").is_some());
+}
+
+#[test]
+fn shortcuts_are_found_by_key_and_mean_what_can_be_done() {
+    use iced::keyboard::{Key, Modifiers, key::Named};
+    let is = commands::pressed;
+    let c = |s: &str| Key::Character(s.into());
+    let (none, cmd, shift) = (Modifiers::empty(), Modifiers::COMMAND, Modifiers::SHIFT);
+    assert!(is("Ctrl+Shift+S", &c("S"), cmd | shift) && !is("Ctrl+Shift+S", &c("s"), cmd));
+    assert!(is("R", &c("r"), none) && !is("R", &c("R"), shift) && is("Shift+R", &c("R"), shift));
+    assert!(is("+", &c("="), none) && is("+", &c("+"), shift) && is("Ctrl++", &c("+"), cmd));
+    assert!(is("Page Down", &Key::Named(Named::PageDown), none) && !is("T", &c("t"), Modifiers::ALT));
+
+    let _inside = runtime().enter();
+    let mut app = pdf_app();
+    let got = |app: &App, key: &Key, m| app.key_message(key, m);
+    assert!(matches!(got(&app, &Key::Named(Named::Home), none), Some(Message::PageAt(0))));
+    assert!(matches!(got(&app, &Key::Named(Named::Space), shift), Some(Message::ScrollBy(y)) if y < 0.0));
+    assert!(matches!(got(&app, &c(","), cmd), Some(Message::Dialog(Some(Dialog::Preferences)))));
+    assert!(got(&app, &Key::Named(Named::Backspace), none).is_none(), "a PDF is not left with Backspace");
+    assert!(matches!(got(&app, &c("g"), none), Some(Message::Pages(PagesMsg::Open))));
+    let _ = app.update(Message::Pages(PagesMsg::Open));
+    assert!(matches!(got(&app, &c("g"), none), Some(Message::Pages(PagesMsg::Close))));
+    assert!(matches!(got(&app, &Key::Named(Named::ArrowRight), cmd), Some(Message::Pages(PagesMsg::MoveBy(1)))));
+    assert!(got(&app, &c("m"), none).is_none() && got(&app, &c("p"), cmd).is_none());
+}
+
+#[test]
+fn every_key_is_a_key_and_no_two_commands_fight_over_one() {
+    let _inside = runtime().enter();
+    let app = pdf_app();
+    let mut seen = std::collections::HashMap::new();
+    for c in app.commands().iter().filter(|c| c.message.is_some()) {
+        for key in c.keys {
+            // These mean the first of the two that can be done, on purpose.
+            if let Some(other) = seen.insert(*key, c.id) {
+                assert_eq!((other, c.id), ("", ""), "{key}");
+            }
+        }
+    }
+}
+
+#[test]
+fn the_right_button_opens_the_menu_of_what_is_under_it() {
+    use menu::{Context, Line};
+    let _inside = runtime().enter();
+    let mut app = pdf_app();
+    let _ = app.update(Message::RightPress(Point::new(30.0, 40.0)));
+    let _ = app.update(Message::Context(Context::View));
+    assert_eq!(app.context, Some((Context::View, Point::new(30.0, 40.0))));
+    assert!(app.menu_escape() && app.context.is_none());
+    // Over an annotation, which is selected, the page under it keeps quiet.
+    let _ = app.update(Message::Markup(MarkupMsg::Toggle));
+    app.marks = Some(DocMarkup::new(Default::default(), vec![Vec::new(); 5], 1.0));
+    let shape = |x| crate::annotate::Shape::Rect(crate::annotate::Rect::new(x, 10.0, 50.0, 50.0));
+    let marks = app.marks.as_mut().unwrap();
+    let layer = marks.store.pages.layer_mut(0);
+    let lower = layer.add(shape(10.0), Default::default());
+    let upper = layer.add(shape(300.0), Default::default());
+    let _ = app.update(Message::RightPress(Point::new(5.0, 5.0)));
+    let _ = app.update(Message::Markup(MarkupMsg::PickAt { page: 0, x: 10.0, y: 30.0 }));
+    let _ = app.update(Message::Context(Context::View));
+    assert!(matches!(app.context, Some((Context::Mark, _))));
+    assert_eq!(app.context_lines(Context::Mark).iter().filter(|l| matches!(l, Line::Item(_, _, Some(_)))).count(), 2);
+    let _ = app.update(Message::Markup(MarkupMsg::ToFront));
+    let ids: Vec<_> = app.marks.as_ref().unwrap().store.layer(0).unwrap().items.iter().map(|a| a.id).collect();
+    assert_eq!(ids, [upper, lower]);
+    // The next press on the page is heard again.
+    let _ = app.update(Message::RightPress(Point::new(6.0, 6.0)));
+    let _ = app.update(Message::Context(Context::View));
+    assert!(matches!(app.context, Some((Context::View, _))));
+}
+
+#[test]
+fn the_menu_is_short() {
+    use menu::{Line, Menu};
+    let _inside = runtime().enter();
+    let mut app = pdf_app();
+    app.state.touch(&fixture("pages.pdf"));
+    let rows = app.menu_lines(Menu::Main).iter().filter(|l| !matches!(l, Line::Rule)).count();
+    assert!(rows <= 12, "{rows}");
+}
+
+/// The table is made from the commands: `LUMEN_WRITE_DOCS=1 cargo test keyboard_table` renews it.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_keyboard_table_in_the_docs_is_the_commands() {
+    use std::fmt::Write;
+    let _inside = runtime().enter();
+    let mut table = String::from("| | Keys | Action |\n|---|---|---|\n");
+    let commands = app().commands();
+    for group in commands::Group::ALL {
+        let mut rows: Vec<(String, &str)> = commands
+            .iter()
+            .filter(|c| c.group == group && !c.keys.is_empty())
+            .map(|c| (c.keys.join(", "), c.name))
+            .collect();
+        rows.extend(commands::gestures().iter().filter(|g| g.0 == group).map(|g| (g.1.to_string(), g.2)));
+        for (i, (keys, what)) in rows.iter().enumerate() {
+            let name = if i == 0 { group.name() } else { "" };
+            writeln!(table, "| {name} | {keys} | {what} |").unwrap();
+        }
+    }
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/FEATURES.md");
+    let docs = std::fs::read_to_string(&path).unwrap();
+    let start = docs.find("<!-- keyboard -->\n").unwrap() + "<!-- keyboard -->\n".len();
+    let end = docs.find("<!-- /keyboard -->").unwrap();
+    if std::env::var_os("LUMEN_WRITE_DOCS").is_some() {
+        std::fs::write(&path, format!("{}{table}{}", &docs[..start], &docs[end..])).unwrap();
+    } else {
+        assert_eq!(docs[start..end], table);
+    }
 }
 
 #[test]

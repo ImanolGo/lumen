@@ -5,11 +5,16 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 ## [Unreleased]
 
 ### Added
+- A right-click menu on the picture or page, on selected text, on an annotation (delete, bring to front) and on a file in the sidebar.
+- Open Recent in the ☰ menu; Ctrl+, opens the preferences; a Mac's menu bar has every command.
 - Drag over a picture to select a part of it: copy it (Ctrl+C), crop to it (Ctrl+K), or select everything (Ctrl+A). A preference makes dragging move the picture, as before; the middle button and the wheel always do.
 - Discard: unsaved markup, form values and edits can be thrown away with a button beside Save, or with Escape once nothing else is open. It asks first.
 - The language can be chosen in Preferences.
 
 ### Changed
+- The ☰ menu is short: eleven rows, with View, Export and File leading to more. It hangs from its button, stays inside the window and scrolls when it must. On Windows and macOS the preferences are called Settings.
+- The command palette names each command's group.
+- The keys, the menus, the palette, the list of shortcuts and its documentation come from one table of commands. A plain letter no longer answers while Alt is held.
 - One set of controls: inputs, drop-downs, check boxes, sliders and scrollbars look the same everywhere, buttons that cannot be pressed are neutral in every colour, and secondary text, icons and buttons are easier to read in both themes (a test checks the contrast). The file on screen is marked in the sidebar by its ring alone.
 - On Linux the header is the window's title bar: drag it to move the window, double-click to maximise, right-click for the system's menu, and drag the edges to resize. GNOME and KDE no longer draw a second title bar above it. Minimise and maximise buttons are a preference, off by default. On macOS the header is inside the title bar; on Windows it is a toolbar under the system's.
 

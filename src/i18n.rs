@@ -43,6 +43,11 @@ macro_rules! trf {
     }};
 }
 
+/// Marks text that is translated later, where it is shown.
+pub const fn msgid(text: &'static str) -> &'static str {
+    text
+}
+
 /// What [`trf!`] calls.
 pub fn trf_args(template: &str, args: &[String]) -> String {
     fill(&tr(template), &args.iter().map(String::as_str).collect::<Vec<_>>())
@@ -357,7 +362,7 @@ msgstr "Después"
                 continue;
             }
             let mut from = 0;
-            while let Some(at) = ["tr(", "trf!("]
+            while let Some(at) = ["tr(", "trf!(", "msgid("]
                 .iter()
                 .filter_map(|p| text[from..].find(p).map(|i| (i + from, *p)))
                 .min_by_key(|(i, _)| *i)

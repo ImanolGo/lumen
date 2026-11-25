@@ -149,6 +149,11 @@ impl App {
         use super::{Confirm, ExportMsg, SidebarTab, chooser::Purpose};
         let message = match what {
             "menu" => Message::Menu(Some(Menu::Main)),
+            "menu-view" => Message::Menu(Some(Menu::View)),
+            "context" => {
+                self.right_press = iced::Point::new(380.0, 220.0);
+                Message::Context(super::menu::Context::View)
+            }
             "open-menu" => Message::Menu(Some(Menu::Open)),
             "prefs" => Message::Dialog(Some(Dialog::Preferences)),
             "keys" => Message::Dialog(Some(Dialog::Shortcuts)),

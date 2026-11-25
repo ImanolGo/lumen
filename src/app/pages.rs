@@ -478,36 +478,6 @@ impl App {
         Task::batch(tasks)
     }
 
-    /// Keys while organising pages; `None` for the rest.
-    pub(super) fn pages_key(
-        &mut self,
-        key: &iced::keyboard::Key,
-        modifiers: iced::keyboard::Modifiers,
-    ) -> Option<Task<Message>> {
-        use iced::keyboard::{Key, key::Named};
-        self.organizer.as_ref()?;
-        let ctrl = modifiers.command();
-        let msg = match key.as_ref() {
-            Key::Character(c) => match (c.to_lowercase().as_str(), ctrl, modifiers.shift()) {
-                ("a", true, _) => PagesMsg::SelectAll,
-                ("z", true, false) => PagesMsg::Undo,
-                ("z", true, true) | ("y", true, false) => PagesMsg::Redo,
-                ("s", true, false) => PagesMsg::Save,
-                ("s", true, true) => PagesMsg::SaveAs,
-                ("r", false, false) => PagesMsg::Rotate(90),
-                ("r", false, true) => PagesMsg::Rotate(-90),
-                ("g", false, _) => PagesMsg::Close,
-                _ => return Some(Task::none()),
-            },
-            Key::Named(Named::Delete | Named::Backspace) => PagesMsg::Delete,
-            Key::Named(Named::ArrowLeft | Named::ArrowUp) if ctrl => PagesMsg::MoveBy(-1),
-            Key::Named(Named::ArrowRight | Named::ArrowDown) if ctrl => PagesMsg::MoveBy(1),
-            Key::Named(Named::Escape) => return Some(Task::none()),
-            _ => return Some(Task::none()),
-        };
-        Some(self.pages_update(msg))
-    }
-
     /// Escape closes the organiser when nothing would be lost.
     /// Closes the organiser. What was rearranged and not saved is there when it is opened again.
     pub(super) fn put_pages_aside(&mut self) {

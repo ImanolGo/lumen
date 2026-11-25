@@ -76,7 +76,7 @@ impl App {
                 crate::i18n::set_language(code);
                 self.prefs.language = code.into();
                 if crate::platform::caps().menu_bar && !cfg!(test) {
-                    crate::platform::menu_bar::install(&Self::menu_bar());
+                    crate::platform::menu_bar::install(&self.menu_bar());
                 }
             }
             PrefMsg::WindowButtons(on) => self.prefs.window_buttons = on,

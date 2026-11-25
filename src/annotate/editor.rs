@@ -273,6 +273,19 @@ impl Editor {
         Outcome { redraw: true, committed: removed, ..Outcome::default() }
     }
 
+    /// The selected annotation is drawn over the others.
+    pub fn bring_to_front(&mut self, store: &mut Store) -> Outcome {
+        let Some(Selection { page, id }) = store.selection else {
+            return Outcome::default();
+        };
+        let Some(layer) = store.pages.layers.get_mut(&page) else { return Outcome::default() };
+        let before = layer.clone();
+        if let Some(item) = layer.remove(id) {
+            layer.insert(item);
+        }
+        Outcome { redraw: true, committed: !layer.same_as(&before), ..Outcome::default() }
+    }
+
     /// Arrow keys: nudge the selected annotation.
     pub fn nudge(&mut self, store: &mut Store, dx: f64, dy: f64) -> Outcome {
         let Some(Selection { page, id }) = store.selection else {

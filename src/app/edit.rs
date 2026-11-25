@@ -478,28 +478,10 @@ impl App {
         }
     }
 
-    /// Keys while editing a picture; `None` for the rest.
-    pub(super) fn edit_key(
-        &mut self,
-        key: &iced::keyboard::Key,
-        modifiers: iced::keyboard::Modifiers,
-    ) -> Option<Task<Message>> {
+    /// Enter applies the crop.
+    pub(super) fn edit_key(&mut self, key: &iced::keyboard::Key) -> Option<Task<Message>> {
         use iced::keyboard::{Key, key::Named};
-        if !matches!(self.doc, Doc::Image(_)) {
-            return None;
-        }
-        let ctrl = modifiers.command();
-        let msg = match key.as_ref() {
-            Key::Character(c) => match (c.to_lowercase().as_str(), ctrl, modifiers.shift()) {
-                ("e", false, false) => EditMsg::Toggle,
-                ("z", true, false) if self.edit_open => EditMsg::Undo,
-                ("z", true, true) | ("y", true, false) if self.edit_open => EditMsg::Redo,
-                _ => return None,
-            },
-            Key::Named(Named::Enter) if self.crop.is_some() => EditMsg::CropApply,
-            _ => return None,
-        };
-        Some(self.edit_update(msg))
+        (*key == Key::Named(Named::Enter) && self.crop.is_some()).then(|| self.edit_update(EditMsg::CropApply))
     }
 
     /// Escape while editing: drop the crop, then close the panel.

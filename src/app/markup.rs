@@ -181,6 +181,13 @@ pub enum MarkupMsg {
     Undo,
     Redo,
     Delete,
+    /// The right button went down on an annotation: select it, and open its menu.
+    PickAt {
+        page: usize,
+        x: f64,
+        y: f64,
+    },
+    ToFront,
     Nudge(f64, f64),
     Save,
     SaveAs,
@@ -740,6 +747,21 @@ impl App {
                 let outcome = self.editor.delete_selected(&mut marks.store);
                 self.apply(outcome)
             }
+            MarkupMsg::PickAt { page, x, y } => {
+                let done = self.finish_text();
+                let tolerance = (REACH / self.markup_zoom()) as f64;
+                let Some(marks) = &mut self.marks else { return done };
+                let Some(id) = marks.store.layer(page).and_then(|l| l.hit(Point::new(x, y), tolerance)) else {
+                    return done;
+                };
+                marks.store.selection = Some(crate::annotate::editor::Selection { page, id });
+                Task::batch([done, self.context_open(super::menu::Context::Mark)])
+            }
+            MarkupMsg::ToFront => {
+                let Some(marks) = &mut self.marks else { return Task::none() };
+                let outcome = self.editor.bring_to_front(&mut marks.store);
+                self.apply(outcome)
+            }
             MarkupMsg::Nudge(dx, dy) => {
                 let Some(marks) = &mut self.marks else { return Task::none() };
                 let outcome = self.editor.nudge(&mut marks.store, dx, dy);
@@ -760,7 +782,12 @@ impl App {
                 match result {
                     Ok(opened) => {
                         let thumb = self.unlocked_thumb(&path);
-                        Task::batch([self.install_opened(path, opened), thumb])
+                        let installed = self.install_opened(path, opened);
+                        // Highlighting was asked for before there was anything to put it in.
+                        if self.markup_open && self.editor.tool == Tool::Highlight {
+                            let _ = self.highlight_selection();
+                        }
+                        Task::batch([installed, thumb])
                     }
                     Err(error) if matches!(&self.doc, Doc::Loading(p) if *p == path) => self.pdf_failed(path, error),
                     Err(pdf::OpenError::Failed(e)) => self.toast(trf!("Markup is not available for this PDF: {}", e)),
@@ -1081,52 +1108,26 @@ impl App {
         }
     }
 
-    /// Keys that mean something while marking up; `None` for the rest.
+    /// The arrow keys move the selected annotation.
     pub(super) fn markup_key(
         &mut self,
         key: &iced::keyboard::Key,
         modifiers: iced::keyboard::Modifiers,
     ) -> Option<Task<Message>> {
         use iced::keyboard::{Key, key::Named};
-        if self.editing.is_some() || !matches!(self.doc, Doc::Image(_) | Doc::Pdf(_)) {
+        let marks = self.marks.as_ref().filter(|m| m.store.selection.is_some())?;
+        if self.editing.is_some() || modifiers.command() || modifiers.alt() {
             return None;
         }
-        let ctrl = modifiers.command();
-        let has_marks = self.marks.is_some();
-        let selected = self.marks.as_ref().is_some_and(|m| m.store.selection.is_some());
-        let unit = self.marks.as_ref().map_or(1.0, |m| m.unit) * if modifiers.shift() { 10.0 } else { 1.0 };
-        let msg = match key.as_ref() {
-            Key::Character(c) => match (c.to_lowercase().as_str(), ctrl, modifiers.shift()) {
-                ("z", true, false) if has_marks => MarkupMsg::Undo,
-                ("z", true, true) | ("y", true, false) if has_marks => MarkupMsg::Redo,
-                ("s", true, false) if has_marks || self.has_unsaved_changes() => MarkupMsg::Save,
-                ("s", true, true) if has_marks || self.form.is_some() || self.has_unsaved_changes() => {
-                    MarkupMsg::SaveAs
-                }
-                ("m", false, false) => MarkupMsg::Toggle,
-                // With the markup bar open, letters pick the tool (as in the GTK Lumen).
-                (letter, false, _) if self.markup_open && !modifiers.alt() => MarkupMsg::Tool(match letter {
-                    "v" => Tool::Select,
-                    "h" => Tool::Highlight,
-                    "p" => Tool::Pen,
-                    "r" => Tool::Rectangle,
-                    "o" => Tool::Ellipse,
-                    "l" => Tool::Line,
-                    "a" => Tool::Arrow,
-                    "t" => Tool::Text,
-                    _ => return None,
-                }),
-                _ => return None,
-            },
-            // Delete is heard by the app whatever has focus (see `markup_delete_key`).
-            Key::Named(Named::Backspace) if selected => MarkupMsg::Delete,
-            Key::Named(Named::ArrowLeft) if selected => MarkupMsg::Nudge(-unit, 0.0),
-            Key::Named(Named::ArrowRight) if selected => MarkupMsg::Nudge(unit, 0.0),
-            Key::Named(Named::ArrowUp) if selected => MarkupMsg::Nudge(0.0, -unit),
-            Key::Named(Named::ArrowDown) if selected => MarkupMsg::Nudge(0.0, unit),
+        let unit = marks.unit * if modifiers.shift() { 10.0 } else { 1.0 };
+        let (dx, dy) = match key.as_ref() {
+            Key::Named(Named::ArrowLeft) => (-unit, 0.0),
+            Key::Named(Named::ArrowRight) => (unit, 0.0),
+            Key::Named(Named::ArrowUp) => (0.0, -unit),
+            Key::Named(Named::ArrowDown) => (0.0, unit),
             _ => return None,
         };
-        Some(self.markup_update(msg))
+        Some(self.markup_update(MarkupMsg::Nudge(dx, dy)))
     }
 
     /// Escape, while marking up: stop typing or close the style menu, then deselect, then

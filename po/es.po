@@ -49,17 +49,11 @@ msgstr "Volver al original"
 msgid "Best Fit"
 msgstr "Ajustar a la ventana"
 
-msgid "Best fit"
-msgstr "Ajustar a la ventana"
-
 msgid "COLOUR"
 msgstr "COLOR"
 
 msgid "Cancel"
 msgstr "Cancelar"
-
-msgid "Cancel, close"
-msgstr "Cancelar, cerrar"
 
 msgid "Clear"
 msgstr "Borrar"
@@ -84,9 +78,6 @@ msgstr "Contraste"
 
 msgid "Copies"
 msgstr "Copias"
-
-msgid "Copy text, select all"
-msgstr "Copiar texto, seleccionar todo"
 
 msgid "Could not edit the picture: {}"
 msgstr "No se pudo editar la imagen: {}"
@@ -130,9 +121,6 @@ msgstr "Decodificar vecinas hasta"
 msgid "Wrap around at the first and last file"
 msgstr "Dar la vuelta al llegar al primer o último archivo"
 
-msgid "Back / forward after following a link"
-msgstr "Atrás / adelante tras seguir un enlace"
-
 msgid "Reloaded “{}”: it changed on disk"
 msgstr "Se ha vuelto a cargar «{}»: ha cambiado en el disco"
 
@@ -144,9 +132,6 @@ msgstr "1 página eliminada"
 
 msgid "Deleted {} pages"
 msgstr "{} páginas eliminadas"
-
-msgid "Command palette: find a command by name"
-msgstr "Paleta de comandos: buscar un comando por su nombre"
 
 msgid "Type a command"
 msgstr "Escribe un comando"
@@ -178,12 +163,6 @@ msgstr "Página anterior"
 msgid "Share thumbnails with the desktop's cache"
 msgstr "Compartir las miniaturas con la caché del escritorio"
 
-msgid "Copy Picture"
-msgstr "Copiar imagen"
-
-msgid "Copy the picture (pictures)"
-msgstr "Copiar la imagen (imágenes)"
-
 msgid "Copied the picture"
 msgstr "Imagen copiada"
 
@@ -196,20 +175,11 @@ msgstr "Distinguir mayúsculas"
 msgid "Whole words"
 msgstr "Palabras completas"
 
-msgid "Scroll a screen down / up"
-msgstr "Desplazar una pantalla hacia abajo / arriba"
-
-msgid "Markup tools (with the bar open): select, highlight, pen, rectangle, ellipse, line, arrow, text"
-msgstr "Herramientas de anotación (con la barra abierta): seleccionar, resaltar, lápiz, rectángulo, elipse, línea, flecha, texto"
-
 msgid "Decode pictures in a sandbox"
 msgstr "Decodificar imágenes en un entorno aislado"
 
 msgid "Delete (Del)"
 msgstr "Eliminar (Supr)"
-
-msgid "Delete the selection"
-msgstr "Eliminar la selección"
 
 msgid "Draw a New Signature…"
 msgstr "Dibujar una firma nueva…"
@@ -225,9 +195,6 @@ msgstr "Cada imagen la abre un proceso aparte que solo puede decodificarla. Cues
 
 msgid "Edit Picture"
 msgstr "Editar imagen"
-
-msgid "Edit the picture"
-msgstr "Editar la imagen"
 
 msgid "Edit: crop, turn, resize, light and colour (E)"
 msgstr "Editar: recortar, girar, cambiar el tamaño, luz y color (E)"
@@ -274,23 +241,14 @@ msgstr "Buscar (Ctrl+F)"
 msgid "Find in document"
 msgstr "Buscar en el documento"
 
-msgid "Find, next match"
-msgstr "Buscar, siguiente resultado"
-
 msgid "Find…"
 msgstr "Buscar…"
-
-msgid "First / last file (page in a PDF)"
-msgstr "Primer / último archivo (página en un PDF)"
 
 msgid "Fit Width"
 msgstr "Ajustar al ancho"
 
 msgid "Fit width"
 msgstr "Ajustar al ancho"
-
-msgid "Fit width (PDF)"
-msgstr "Ajustar al ancho (PDF)"
 
 msgid "Forget this signature"
 msgstr "Olvidar esta firma"
@@ -300,9 +258,6 @@ msgstr "Tamaño completo: {} × {}"
 
 msgid "Fullscreen"
 msgstr "Pantalla completa"
-
-msgid "Go to page"
-msgstr "Ir a la página"
 
 msgid "Go to page (Ctrl+G)"
 msgstr "Ir a la página (Ctrl+G)"
@@ -436,16 +391,7 @@ msgstr "Abrir con…"
 msgid "Open a Folder"
 msgstr "Abrir una carpeta"
 
-msgid "Open a folder"
-msgstr "Abrir una carpeta"
-
-msgid "Open files"
-msgstr "Abrir archivos"
-
 msgid "Organise Pages"
-msgstr "Organizar páginas"
-
-msgid "Organise pages"
 msgstr "Organizar páginas"
 
 msgid "Organise pages (G)"
@@ -486,12 +432,6 @@ msgstr "Preferencias"
 
 msgid "Preparing…"
 msgstr "Preparando…"
-
-msgid "Previous / next file"
-msgstr "Archivo anterior / siguiente"
-
-msgid "Previous / next page"
-msgstr "Página anterior / siguiente"
 
 msgid "Previous match (Shift+Enter)"
 msgstr "Coincidencia anterior (Mayús+Intro)"
@@ -580,17 +520,11 @@ msgstr "Saturación"
 msgid "Save"
 msgstr "Guardar"
 
-msgid "Save (a copy of a picture)"
-msgstr "Guardar (una copia de una imagen)"
-
 msgid "Save a Copy"
 msgstr "Guardar una copia"
 
 msgid "Save a Copy…"
 msgstr "Guardar una copia…"
-
-msgid "Save a copy"
-msgstr "Guardar una copia"
 
 msgid "Save a copy… (Ctrl+Shift+S)"
 msgstr "Guardar una copia… (Ctrl+Mayús+S)"
@@ -667,9 +601,6 @@ msgstr "Firmar…"
 msgid "Sizes go from 1 to {} pixels"
 msgstr "Los tamaños van de 1 a {} píxeles"
 
-msgid "Slideshow (Space pauses, Esc leaves)"
-msgstr "Presentación (Espacio pausa, Esc sale)"
-
 msgid "Slideshow paused"
 msgstr "Presentación en pausa"
 
@@ -700,9 +631,6 @@ msgstr "Girar a la izquierda (Mayús+R)"
 msgid "Turn right (R)"
 msgstr "Girar a la derecha (R)"
 
-msgid "Turn right / left"
-msgstr "Girar a la derecha / izquierda"
-
 msgid "Type a width and a height in pixels"
 msgstr "Escribe un ancho y un alto en píxeles"
 
@@ -714,9 +642,6 @@ msgstr "Deshacer"
 
 msgid "Undo (Ctrl+Z)"
 msgstr "Deshacer (Ctrl+Z)"
-
-msgid "Undo, redo"
-msgstr "Deshacer, rehacer"
 
 msgid "Unlock"
 msgstr "Desbloquear"
@@ -988,8 +913,98 @@ msgstr "Selecciona una parte"
 msgid "Moves it"
 msgstr "La mueve"
 
-msgid "Copy the picture, or the selected part"
-msgstr "Copiar la imagen, o la parte seleccionada"
+msgid "Edit"
+msgstr "Edición"
 
-msgid "Select the whole picture, crop to the selection"
-msgstr "Seleccionar toda la imagen, recortar a la selección"
+msgid "Go"
+msgstr "Ir"
+
+msgid "Tools"
+msgstr "Herramientas"
+
+msgid "Move the selected annotation (Shift: further)"
+msgstr "Mover la anotación seleccionada (Mayús: más lejos)"
+
+msgid "Apply the crop"
+msgstr "Aplicar el recorte"
+
+msgid "Cancel, close, and finally discard what is not saved"
+msgstr "Cancelar, cerrar y, al final, descartar lo no guardado"
+
+msgid "Pause / leave the slideshow"
+msgstr "Pausar / salir de la presentación"
+
+msgid "Leave fullscreen"
+msgstr "Salir de la pantalla completa"
+
+msgid "Scroll"
+msgstr "Desplazarse"
+
+msgid "Next / previous match, in the Find box"
+msgstr "Coincidencia siguiente / anterior, en el cuadro de búsqueda"
+
+msgid "Extend the selection"
+msgstr "Ampliar la selección"
+
+msgid "Settings"
+msgstr "Ajustes"
+
+msgid "Redo"
+msgstr "Rehacer"
+
+msgid "Select All"
+msgstr "Seleccionar todo"
+
+msgid "Crop to Selection"
+msgstr "Recortar a la selección"
+
+msgid "Delete Selection"
+msgstr "Eliminar la selección"
+
+msgid "Next Match"
+msgstr "Coincidencia siguiente"
+
+msgid "Previous Match"
+msgstr "Coincidencia anterior"
+
+msgid "Back"
+msgstr "Atrás"
+
+msgid "Forward"
+msgstr "Adelante"
+
+msgid "First Page"
+msgstr "Primera página"
+
+msgid "Last Page"
+msgstr "Última página"
+
+msgid "Scroll Down a Screen"
+msgstr "Bajar una pantalla"
+
+msgid "Scroll Up a Screen"
+msgstr "Subir una pantalla"
+
+msgid "First File"
+msgstr "Primer archivo"
+
+msgid "Last File"
+msgstr "Último archivo"
+
+msgid "Select"
+msgstr "Seleccionar"
+
+msgid "Highlighter"
+msgstr "Resaltador"
+
+msgid "Move Pages Earlier"
+msgstr "Adelantar las páginas"
+
+msgid "Move Pages Later"
+msgstr "Atrasar las páginas"
+
+msgid "Open Recent"
+msgstr "Abrir reciente"
+
+msgid "Bring to Front"
+msgstr "Traer al frente"

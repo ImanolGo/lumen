@@ -51,7 +51,7 @@ dependencies (touchpad pinch); see `vendor/README.md`.
 | `src/style.rs`, `src/icons.rs` | Design tokens, widget styles, symbolic icons |
 | `src/ui.rs` | Controls that come styled; views use these, never iced's bare ones |
 | `src/settings.rs`, `src/app/prefs.rs` | Preferences: the settings file, and the dialog |
-| `src/app/commands.rs` | The command palette (Ctrl+Shift+P): the menus' commands, filtered by name |
+| `src/app/commands.rs` | The table of commands (names, shortcuts, where they are, what they do now), and the palette |
 | `src/clipboard.rs` | Pictures as PNGs for the clipboard |
 | `src/thumbcache.rs` | A shared thumbnail cache (freedesktop standard): read, write, MD5 naming |
 | `src/fsio.rs` | Writing files all at once, private folders and files |
@@ -100,7 +100,8 @@ dependencies (touchpad pinch); see `vendor/README.md`.
 
 | File | What it does |
 |---|---|
-| `src/app/menu.rs` | The header's menus, and the keyboard shortcuts, properties and about dialogs |
+| `src/app/menu.rs` | The header's menus, the context menu, a Mac's menu bar, the dialogs the menu opens |
+| `src/app/popup.rs` | A panel that opens under a button or at the pointer, inside the window |
 | `src/app/scroller.rs` | The scrolled view of a picture or PDF, at the position the app says |
 | `src/app/region.rs` | Selecting a part of a picture: copy, crop |
 | `src/app/slideshow.rs` | The slideshow |

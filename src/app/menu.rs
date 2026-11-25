@@ -2,24 +2,27 @@
 //! menu behind ☰ with everything that does not need a button of its own. Also the
 //! keyboard shortcuts and about dialogs they open.
 
-use iced::widget::{button, center, column, container, mouse_area, opaque, row, rule, space, stack, text};
-use iced::{Alignment, Element, Font, Length, Padding, Task, Theme};
+use iced::widget::{button, center, column, container, mouse_area, opaque, row, rule, space, stack, svg, text};
+use iced::{Alignment, Element, Font, Length, Point, Task, Theme};
 
-use super::edit::EditMsg;
-use super::export::ExportMsg;
+use super::commands::{Command, Group, Place, gestures};
 use super::markup::MarkupMsg;
-use super::pages::PagesMsg;
-use super::signature::SignMsg;
-use super::{App, Doc, Message, TOOLBAR_H, muted};
-use crate::i18n::tr;
+use super::popup::{Anchor, popup};
+use super::{App, Doc, Message, muted};
+use crate::annotate::Tool;
+use crate::i18n::{msgid, tr};
 use crate::platform::keys;
-use crate::style;
-use crate::ui;
+use crate::{icons, style, ui};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Menu {
     Open,
+    /// Behind ☰, and the menus it leads to.
     Main,
+    Recent,
+    View,
+    Export,
+    File,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,72 +34,49 @@ pub enum Dialog {
     Preferences,
 }
 
-/// One line of a menu: a label, its shortcut, and what it does (greyed out without).
-type Item = (String, &'static str, Option<Message>);
+/// One line of a menu.
+#[allow(clippy::large_enum_variant)] // Most of them are the large one.
+pub enum Line {
+    /// A command, or what else there is: a label, its shortcut, and what it does (greyed out without).
+    Item(String, &'static str, Option<Message>),
+    /// Another menu in this one's place.
+    Into(Menu),
+    /// The way back from one.
+    Back(Menu),
+    Rule,
+}
 
-/// The keyboard shortcuts, in the groups the dialog shows them.
-const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
-    (
-        "Files",
-        &[
-            ("Ctrl+O", "Open files"),
-            ("Ctrl+Shift+O", "Open a folder"),
-            ("← →", "Previous / next file"),
-            ("Home / End", "First / last file (page in a PDF)"),
-            ("Alt+Enter", "Properties"),
-            ("Ctrl+Shift+P", "Command palette: find a command by name"),
-            ("Ctrl+P", "Print"),
-            ("Ctrl+S", "Save"),
-            ("Ctrl+Shift+S", "Save a copy"),
-            ("Ctrl+Q", "Quit"),
-        ],
-    ),
-    (
-        "View",
-        &[
-            ("+ −, Ctrl+scroll, pinch", "Zoom in / out"),
-            ("0", "Best fit"),
-            ("1", "Actual size"),
-            ("W", "Fit width (PDF)"),
-            ("T", "Sidebar"),
-            ("F, F11", "Fullscreen"),
-            ("F5", "Slideshow (Space pauses, Esc leaves)"),
-        ],
-    ),
-    (
-        "PDF",
-        &[
-            ("Ctrl+F, F3", "Find, next match"),
-            ("Ctrl+G", "Go to page"),
-            ("Ctrl+Shift+N", "Night mode"),
-            ("Page Up / Down", "Previous / next page"),
-            ("Space, Shift+Space", "Scroll a screen down / up"),
-            ("Alt+←, Alt+→", "Back / forward after following a link"),
-            ("Ctrl+C, Ctrl+A", "Copy text, select all"),
-            ("Ctrl+C", "Copy the picture, or the selected part"),
-            ("Ctrl+A, Ctrl+K", "Select the whole picture, crop to the selection"),
-            ("G", "Organise pages"),
-        ],
-    ),
-    (
-        "Editing",
-        &[
-            ("M", "Markup"),
-            (
-                "V H P R O L A T",
-                "Markup tools (with the bar open): select, highlight, pen, rectangle, ellipse, line, arrow, text",
-            ),
-            ("E", "Edit the picture"),
-            ("R, Shift+R", "Turn right / left"),
-            ("Ctrl+Z, Ctrl+Shift+Z", "Undo, redo"),
-            ("Delete", "Delete the selection"),
-            ("Esc", "Cancel, close"),
-        ],
-    ),
-];
+impl Menu {
+    fn name(self) -> &'static str {
+        match self {
+            Menu::Open | Menu::Main => msgid("Menu"),
+            Menu::Recent => msgid("Open Recent"),
+            Menu::View => msgid("View"),
+            Menu::Export => msgid("Export"),
+            Menu::File => msgid("File"),
+        }
+    }
+
+    /// Whether it hangs from the ☰ button.
+    pub fn is_main(self) -> bool {
+        self != Menu::Open
+    }
+}
+
+/// What was clicked with the right button.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Context {
+    /// The picture or page, or what is selected on it.
+    View,
+    /// A drawn annotation, which is selected now.
+    Mark,
+    /// A file in the sidebar.
+    File(usize),
+}
 
 impl App {
     pub(super) fn menu_update(&mut self, menu: Option<Menu>) -> Task<Message> {
+        self.context = None;
         self.menu = if self.menu == menu { None } else { menu };
         Task::none()
     }
@@ -104,241 +84,244 @@ impl App {
     /// A menu item was chosen: close the menu, then do it.
     pub(super) fn menu_pick(&mut self, msg: Message) -> Task<Message> {
         self.menu = None;
+        self.context = None;
         self.update(msg)
     }
 
     /// Escape closes an open menu or dialog first.
     pub(super) fn menu_escape(&mut self) -> bool {
-        self.menu.take().is_some() || self.dialog.take().is_some()
+        self.context.take().is_some() || self.menu.take().is_some() || self.dialog.take().is_some()
     }
 
-    pub(super) fn main_items(&self) -> Vec<Option<Item>> {
-        let has_doc = matches!(self.doc, Doc::Image(_) | Doc::Pdf(_));
-        let is_pdf = matches!(self.doc, Doc::Pdf(_));
-        let is_image = matches!(self.doc, Doc::Image(_));
-        let doc = |m: Message| has_doc.then_some(m);
-        let mut items: Vec<Option<Item>> = vec![
-            Some((tr("Print…"), "Ctrl+P", (has_doc && !self.printing).then_some(Message::Print))),
-            None,
-            Some((tr("Best Fit"), "0", doc(Message::ZoomFit))),
-        ];
-        if is_pdf {
-            items.push(Some((tr("Fit Width"), "W", Some(Message::ZoomFitWidth))));
+    /// The right button went down on something.
+    pub(super) fn context_open(&mut self, on: Context) -> Task<Message> {
+        // The layer of annotations says it first, then the view it lies on.
+        if std::mem::take(&mut self.context_taken) && on == Context::View {
+            return Task::none();
         }
-        items.push(Some((tr("Actual Size"), "1", doc(Message::ZoomActual))));
-        if is_image {
-            items.push(Some((tr("Rotate Right"), "R", Some(Message::Rotate(1)))));
-            items.push(Some((tr("Rotate Left"), "Shift+R", Some(Message::Rotate(-1)))));
+        if self.organizer.is_some() || self.crop.is_some() || self.slideshow.is_some() {
+            return Task::none();
         }
-        items.push(Some((
-            tr(if self.slideshow.is_some() { "Stop Slideshow" } else { "Slideshow" }),
-            "F5",
-            (self.can_slideshow() || self.slideshow.is_some()).then_some(Message::Slideshow),
-        )));
-        items.push(Some((
-            tr(if self.fullscreen { "Leave Fullscreen" } else { "Fullscreen" }),
-            "F",
-            Some(Message::ToggleFullscreen),
-        )));
-        if self.sidebar_shows().is_some() {
-            items.push(Some((
-                tr(if self.show_sidebar { "Hide Sidebar" } else { "Show Sidebar" }),
-                "T",
-                Some(Message::ToggleSidebar),
-            )));
-        }
-        items.push(None);
-        if is_image {
-            items.push(Some((tr("Copy Picture"), "Ctrl+C", Some(Message::CopyPicture))));
-        }
-        if is_pdf {
-            items.push(Some((tr("Find…"), "Ctrl+F", Some(Message::SearchOpen))));
-            items.push(Some((
-                tr(if self.night { "Leave Night Mode" } else { "Night Mode" }),
-                "Ctrl+Shift+N",
-                Some(Message::ToggleNight),
-            )));
-            items.push(Some((
-                tr("Organise Pages"),
-                "G",
-                self.markup_busy.is_none().then_some(Message::Pages(PagesMsg::Open)),
-            )));
-        }
-        if is_image {
-            items.push(Some((tr("Edit Picture"), "E", Some(Message::Edit(EditMsg::Toggle)))));
-        }
-        items.push(Some((tr("Markup"), "M", doc(Message::Markup(MarkupMsg::Toggle)))));
-        items.push(Some((tr("Sign…"), "", doc(Message::Sign(SignMsg::Menu)))));
-        items.push(None);
-        if is_pdf {
-            let save = self.has_unsaved_changes() && self.markup_busy.is_none();
-            items.push(Some((tr("Save"), "Ctrl+S", save.then_some(Message::Markup(MarkupMsg::Save)))));
-        }
-        if self.picture_in_place().is_some() {
-            let changed = matches!(&self.doc, Doc::Image(v) if v.edit.is_dirty())
-                || self.marks.as_ref().is_some_and(|m| m.has_items());
-            items.push(Some((
-                tr("Save"),
-                "Ctrl+S",
-                (changed && self.markup_busy.is_none()).then_some(Message::Markup(MarkupMsg::Save)),
-            )));
-        }
-        items.push(Some((tr("Save a Copy…"), "Ctrl+Shift+S", doc(Message::Markup(MarkupMsg::SaveAs)))));
-        if is_pdf {
-            items.push(Some((tr("Export Pages…"), "", Some(Message::Export(ExportMsg::Open)))));
-            items.push(Some((
-                tr("Combine Files…"),
-                "",
-                self.markup_busy.is_none().then_some(Message::Export(ExportMsg::Combine)),
-            )));
-        }
-        if is_image {
-            items.push(Some((tr("Export as PDF…"), "", Some(Message::Export(ExportMsg::Picture)))));
-        }
-        items.push(None);
-        items.push(Some((tr("Properties…"), "Alt+Enter", doc(Message::ShowProperties))));
-        items.push(None);
-        items.push(Some((tr("Show in Folder"), "", doc(Message::ShowInFolder))));
-        if crate::platform::caps().open_with {
-            items.push(Some((tr("Open With…"), "", doc(Message::OpenWith))));
-        }
-        items.push(Some((tr("Move to Trash"), "", doc(Message::Trash))));
-        items.push(None);
-        items.push(Some((tr("Preferences"), "", Some(Message::Dialog(Some(Dialog::Preferences))))));
-        items.push(Some((tr("Keyboard Shortcuts"), "", Some(Message::Dialog(Some(Dialog::Shortcuts))))));
-        items.push(Some((tr("About Lumen"), "", Some(Message::Dialog(Some(Dialog::About))))));
-        items
+        self.menu = None;
+        let task = match on {
+            Context::View if !matches!(self.doc, Doc::Image(_) | Doc::Pdf(_)) => return Task::none(),
+            // What is done in the menu is done to the file on screen.
+            Context::File(i) if i != self.current => self.update(Message::Select(i)),
+            _ => Task::none(),
+        };
+        self.context_taken = on == Context::Mark;
+        self.context = Some((on, self.right_press));
+        task
     }
 
-    /// The menus of the system's menu bar, where there is one. Shortcuts that text boxes use
-    /// (copy, paste, undo) are not among them: the menu bar would take them away.
-    pub(super) fn menu_bar() -> Vec<crate::platform::MenuGroup> {
-        let item = |id, label: &str, keys| Some(crate::platform::MenuEntry { id, label: tr(label), keys });
-        let group = |title: &str, items| crate::platform::MenuGroup { title: tr(title), items };
-        vec![
-            group(
-                "Lumen",
-                vec![
-                    item("about", "About Lumen", ""),
-                    None,
-                    item("preferences", "Preferences", "Ctrl+,"),
-                    None,
-                    item("quit", "Quit", "Ctrl+Q"),
-                ],
-            ),
-            group(
-                "File",
-                vec![
-                    item("open", "Open Files…", "Ctrl+O"),
-                    item("open-folder", "Open Folder…", "Ctrl+Shift+O"),
-                    None,
-                    item("save", "Save", "Ctrl+S"),
-                    item("save-copy", "Save a Copy…", "Ctrl+Shift+S"),
-                    item("print", "Print…", "Ctrl+P"),
-                    None,
-                    item("properties", "Properties…", ""),
-                    item("show", "Show in Folder", ""),
-                    item("trash", "Move to Trash", ""),
-                ],
-            ),
-            group(
-                "View",
-                vec![
-                    item("fit", "Best Fit", ""),
-                    item("actual", "Actual Size", ""),
-                    item("fullscreen", "Fullscreen", ""),
-                    item("sidebar", "Sidebar", ""),
-                    item("slideshow", "Slideshow", ""),
-                    None,
-                    item("find", "Find…", "Ctrl+F"),
-                    item("palette", "Command Palette", "Ctrl+Shift+P"),
-                ],
-            ),
-            group("Help", vec![item("shortcuts", "Keyboard Shortcuts", "")]),
-        ]
+    /// Commands by their ids, as menu lines; "" is a rule. Ones that make no sense now are left out.
+    fn lines(&self, ids: &[&str]) -> Vec<Line> {
+        let all = self.commands();
+        let mut lines: Vec<Line> = Vec::new();
+        for id in ids {
+            match all.iter().find(|c| c.id == *id) {
+                Some(c) if c.message.is_some() => {
+                    lines.push(Line::Item(tr(c.label), c.key(), c.message.clone()));
+                }
+                None if id.is_empty() && !matches!(lines.last(), None | Some(Line::Rule)) => lines.push(Line::Rule),
+                _ => {}
+            }
+        }
+        if let Some(Line::Rule) = lines.last() {
+            lines.pop();
+        }
+        lines
+    }
+
+    pub(super) fn context_lines(&self, on: Context) -> Vec<Line> {
+        match on {
+            Context::Mark => {
+                let front = Line::Item(tr("Bring to Front"), "", Some(Message::Markup(MarkupMsg::ToFront)));
+                let mut lines = self.lines(&["delete"]);
+                lines.push(front);
+                lines
+            }
+            Context::File(_) => self.lines(&["show", "open-with", "properties", "", "trash"]),
+            Context::View => {
+                let picture = matches!(self.doc, Doc::Image(_));
+                let text = matches!(self.doc, Doc::Pdf(_)) && self.selection.is_some_and(|s| !s.is_empty());
+                let mut lines = if picture || text { self.lines(&["copy"]) } else { Vec::new() };
+                if text {
+                    let mark = Message::Markup(MarkupMsg::Tool(Tool::Highlight));
+                    lines.push(Line::Item(tr("Highlight"), "", Some(mark)));
+                }
+                if picture && self.region.is_some() {
+                    lines.extend(self.lines(&["crop"]));
+                }
+                if !lines.is_empty() {
+                    lines.push(Line::Rule);
+                }
+                lines.extend(self.lines(&["fit", "fit-width", "actual"]));
+                if picture {
+                    lines.extend(self.lines(&["rotate-right", "rotate-left"]));
+                }
+                lines.push(Line::Rule);
+                lines.extend(self.lines(&["show", "properties"]));
+                lines
+            }
+        }
+    }
+
+    pub(super) fn menu_lines(&self, menu: Menu) -> Vec<Line> {
+        let all = self.commands();
+        let placed = |place: Place| {
+            all.iter()
+                .filter(move |c| c.place == Some(place))
+                .map(|c| Line::Item(tr(c.label), c.key(), c.message.clone()))
+                .collect::<Vec<_>>()
+        };
+        let sub = |place: Place| {
+            let mut lines = vec![Line::Back(menu), Line::Rule];
+            lines.extend(placed(place));
+            lines
+        };
+        match menu {
+            Menu::Open => self.lines(&["open", "open-folder"]),
+            Menu::View => sub(Place::View),
+            Menu::Export => sub(Place::Export),
+            Menu::File => sub(Place::File),
+            Menu::Recent => {
+                let mut lines = vec![Line::Back(menu), Line::Rule];
+                lines.extend(
+                    self.state
+                        .listed()
+                        .map(|r| Line::Item(super::file_name(&r.path), "", Some(Message::OpenRecent(r.path.clone())))),
+                );
+                lines.push(Line::Rule);
+                lines.push(Line::Item(tr("Clear"), "", Some(Message::ClearRecent)));
+                lines
+            }
+            Menu::Main => {
+                let mut lines = placed(Place::Main(0));
+                if self.state.listed().next().is_some() {
+                    lines.push(Line::Into(Menu::Recent));
+                }
+                lines.push(Line::Rule);
+                lines.extend(placed(Place::Main(1)));
+                lines.push(Line::Rule);
+                lines.extend([Menu::View, Menu::Export, Menu::File].map(Line::Into));
+                lines.push(Line::Rule);
+                lines.extend(placed(Place::Main(2)));
+                lines
+            }
+        }
+    }
+
+    /// The menus of the system's menu bar, where there is one: the program's own, then every command.
+    pub(super) fn menu_bar(&self) -> Vec<crate::platform::MenuGroup> {
+        use crate::platform::{MenuEntry, MenuGroup};
+        let own = ["about", "preferences", "quit"];
+        let entry = |c: &Command| {
+            // Plain letters, and what text boxes use, would be taken away from typing.
+            let keys = if c.key().starts_with("Ctrl+") && !c.text_key() && !c.key().ends_with(['←', '→']) {
+                c.key()
+            } else {
+                ""
+            };
+            Some(MenuEntry { id: c.id, label: tr(c.name), keys })
+        };
+        let all = self.commands();
+        let mut program: Vec<_> = Vec::new();
+        for id in own {
+            program.extend(all.iter().find(|c| c.id == id).map(entry));
+            program.push(None);
+        }
+        program.pop();
+        let mut groups = vec![MenuGroup { title: "Lumen".into(), items: program }];
+        groups.extend(Group::ALL.into_iter().map(|group| {
+            let items = all.iter().filter(|c| c.group == group && !own.contains(&c.id)).map(entry).collect();
+            MenuGroup { title: tr(group.name()), items }
+        }));
+        groups
     }
 
     /// What an item of the menu bar does, if it can be done now.
     pub(super) fn menu_bar_message(&self, id: &str) -> Option<Message> {
-        let has_doc = matches!(self.doc, Doc::Image(_) | Doc::Pdf(_));
         // A question or a chooser on screen is answered first.
-        if self.confirm.is_some() || self.confirm_quit || self.chooser.is_some() || self.print_dialog.is_some() {
-            return (id == "quit").then_some(Message::Quit);
+        let asked = self.confirm.is_some()
+            || self.confirm_quit
+            || self.chooser.is_some()
+            || self.print_dialog.is_some()
+            || self.pad.is_some();
+        if asked && id != "quit" {
+            return None;
         }
-        let message = match id {
-            "about" => Message::Dialog(Some(Dialog::About)),
-            "preferences" => Message::Dialog(Some(Dialog::Preferences)),
-            "shortcuts" => Message::Dialog(Some(Dialog::Shortcuts)),
-            "quit" => Message::Quit,
-            "open" => Message::Open { folder: false },
-            "open-folder" => Message::Open { folder: true },
-            "palette" => Message::Palette(super::commands::PaletteMsg::Open),
-            "sidebar" => Message::ToggleSidebar,
-            "fullscreen" => Message::ToggleFullscreen,
-            _ if !has_doc => return None,
-            "save" if self.organizer.is_some() => Message::Pages(PagesMsg::Save),
-            "save" if self.has_unsaved_changes() => Message::Markup(MarkupMsg::Save),
-            "save-copy" if self.organizer.is_some() => Message::Pages(PagesMsg::SaveAs),
-            "save-copy" => Message::Markup(MarkupMsg::SaveAs),
-            "print" => Message::Print,
-            "properties" => Message::ShowProperties,
-            "show" => Message::ShowInFolder,
-            "trash" => Message::Trash,
-            "fit" => Message::ZoomFit,
-            "actual" => Message::ZoomActual,
-            "slideshow" => Message::Slideshow,
-            "find" => Message::SearchOpen,
-            _ => return None,
-        };
-        Some(message)
+        self.command(id)?.message
     }
 
-    pub(super) fn open_items() -> Vec<Option<Item>> {
-        vec![
-            Some((tr("Open Files…"), "Ctrl+O", Some(Message::Open { folder: false }))),
-            Some((tr("Open Folder…"), "Ctrl+Shift+O", Some(Message::Open { folder: true }))),
-        ]
-    }
-
-    /// The open menu, floating under its button, with a backdrop that closes it.
-    pub(super) fn menu_view(&self) -> Option<Element<'_, Message>> {
-        let menu = self.menu?;
-        let (items, align, pad) = match menu {
-            Menu::Open => (Self::open_items(), Alignment::Start, Padding { left: 44.0, ..Padding::ZERO }),
-            Menu::Main => (self.main_items(), Alignment::End, Padding { right: 46.0, ..Padding::ZERO }),
+    fn line_view<'a>(line: Line) -> Element<'a, Message> {
+        let item = |content: Element<'a, Message>, press: Option<Message>| -> Element<'a, Message> {
+            button(content).padding([7, 10]).width(Length::Fill).style(style::menu_item).on_press_maybe(press).into()
         };
-        let mut list = column![].spacing(1).width(250);
-        for item in items {
-            list = match item {
-                None => list.push(container(rule::horizontal(1)).padding([4, 6])),
-                Some((label, keys, msg)) => {
-                    let enabled = msg.is_some();
-                    let line = row![
-                        text(label).size(style::BODY).width(Length::Fill).style(move |t: &Theme| text::Style {
-                            color: Some(t.extended_palette().background.base.text.scale_alpha(if enabled {
-                                1.0
-                            } else {
-                                0.4
-                            })),
-                        }),
-                        text(keys::show(keys)).size(style::SMALL).style(muted),
-                    ]
+        let glyph = |handle| svg(handle).width(14).height(14).style(style::icon_muted);
+        match line {
+            Line::Rule => container(rule::horizontal(1)).padding([4, 6]).into(),
+            Line::Item(label, keys, message) => {
+                let enabled = message.is_some();
+                let name = text(label)
+                    .size(style::BODY)
+                    .width(Length::Fill)
+                    .style(move |t: &Theme| text::Style { color: (!enabled).then(|| style::unavailable(t)) });
+                let line = row![name, text(keys::show(keys)).size(style::SMALL).style(muted)]
+                    .spacing(12)
                     .align_y(Alignment::Center);
-                    list.push(
-                        button(line)
-                            .padding([7, 10])
-                            .width(Length::Fill)
-                            .style(style::menu_item)
-                            .on_press_maybe(msg.map(|m| Message::MenuPick(Box::new(m)))),
-                    )
-                }
-            };
+                item(line.into(), message.map(|m| Message::MenuPick(Box::new(m))))
+            }
+            Line::Into(menu) => {
+                let line = row![text(tr(menu.name())).size(style::BODY).width(Length::Fill), glyph(icons::next())]
+                    .align_y(Alignment::Center);
+                item(line.into(), Some(Message::Menu(Some(menu))))
+            }
+            Line::Back(menu) => {
+                let name = text(tr(menu.name())).size(style::BODY).font(style::font(iced::font::Weight::Semibold));
+                let line = row![glyph(icons::prev()), name].spacing(6).align_y(Alignment::Center);
+                item(line.into(), Some(Message::Menu(Some(Menu::Main))))
+            }
         }
-        let panel = opaque(container(list).padding(6).style(style::panel));
-        let backdrop = mouse_area(space().width(Length::Fill).height(Length::Fill)).on_press(Message::Menu(None));
-        let placed =
-            container(panel).width(Length::Fill).align_x(align).padding(Padding { top: TOOLBAR_H - 4.0, ..pad });
-        Some(stack![backdrop, placed].into())
+    }
+
+    fn panel_of<'a>(lines: Vec<Line>) -> Element<'a, Message> {
+        let list = column(lines.into_iter().map(Self::line_view)).spacing(1);
+        container(ui::scroll(list)).width(262).padding(6).style(style::panel).into()
+    }
+
+    /// `base`, a button of the header, with the menu `which` says hangs from it, if it is open.
+    pub(super) fn with_menu<'a>(
+        &self,
+        base: Element<'a, Message>,
+        which: fn(Menu) -> bool,
+        anchor: Anchor,
+    ) -> Element<'a, Message> {
+        let panel = self.menu.filter(|m| which(*m)).map(|m| Self::panel_of(self.menu_lines(m)));
+        popup(base, panel, anchor, Message::Menu(None)).into()
+    }
+
+    /// The window, with the context menu over it.
+    pub(super) fn with_context<'a>(&self, base: Element<'a, Message>) -> Element<'a, Message> {
+        let panel = self.context.map(|(on, _)| Self::panel_of(self.context_lines(on)));
+        let at = self.context.map_or(Point::ORIGIN, |(_, at)| at);
+        popup(base, panel, Anchor::At(at), Message::Menu(None)).on_right_press(Message::RightPress).into()
+    }
+
+    /// The shortcuts and what they do, by group.
+    fn shortcuts(&self) -> Vec<(Group, Vec<(String, String)>)> {
+        let all = self.commands();
+        Group::ALL
+            .into_iter()
+            .map(|group| {
+                let commands = all.iter().filter(|c| c.group == group && !c.keys.is_empty());
+                let mut entries: Vec<_> = commands.map(|c| (keys::show(&c.keys.join(", ")), tr(c.name))).collect();
+                let more = gestures().into_iter().filter(|g| g.0 == group);
+                entries.extend(more.map(|(_, keys, what)| (keys::show(keys), tr(what))));
+                (group, entries)
+            })
+            .filter(|(_, entries)| !entries.is_empty())
+            .collect()
     }
 
     pub(super) fn dialog_view(&self) -> Option<Element<'_, Message>> {
@@ -353,23 +336,21 @@ impl App {
         let body: Element<'_, Message> = match dialog {
             Dialog::Shortcuts => {
                 let mut groups = column![].spacing(16);
-                for (name, keys) in SHORTCUTS {
-                    let mut group = column![
-                        text(tr(name))
-                            .size(style::BODY)
-                            .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
+                for (group, entries) in self.shortcuts() {
+                    let mut list = column![
+                        text(tr(group.name())).size(style::BODY).font(style::font(iced::font::Weight::Semibold))
                     ]
                     .spacing(6);
-                    for (key, what) in *keys {
-                        group = group.push(
+                    for (key, what) in entries {
+                        list = list.push(
                             row![
-                                text(tr(what)).size(style::BODY).width(Length::Fill),
-                                text(keys::show(key)).size(style::SMALL).style(muted)
+                                text(what).size(style::BODY).width(Length::Fill),
+                                text(key).size(style::SMALL).style(muted)
                             ]
                             .spacing(12),
                         );
                     }
-                    groups = groups.push(group);
+                    groups = groups.push(list);
                 }
                 column![
                     title(tr("Keyboard Shortcuts")),

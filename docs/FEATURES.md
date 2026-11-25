@@ -48,7 +48,7 @@ Everything Lumen does, in detail. The [README](../README.md) has the short versi
 - **Page organiser:** press G (or the grid button) on a PDF to see every page as a thumbnail. Drag pages to reorder them (Ctrl/Shift+click picks several), turn them, delete them (a toast offers **Undo** for eight seconds), or insert the pages of other PDFs, with undo. Saving rewrites the PDF with the new order; outline and links follow their pages, unsaved markup and form values are written too, and a password-protected PDF stays protected.
 - **Folders:** open a folder, or open one file and flip through its neighbours. You can also drop files and folders onto the window. A sidebar on the left shows the files as big thumbnails with their names underneath, loaded lazily (only the rows on screen are built, so huge folders stay fast); camera JPEGs use their embedded EXIF thumbnail, other JPEGs are decoded at a fraction of their size, and PNGs are shrunk while they are read, so big folders stay light on memory.
 - **Printing:** uses the desktop's native print dialog through the XDG print portal. PDFs are sent as they are. Pictures are fitted to the paper and margins you choose and sent as a one-page PDF at up to 300 dpi.
-- **A tidy header:** as in the GTK Lumen, the header has the sidebar and open buttons, the file's name, the markup and edit buttons, and a ☰ menu with everything else (print, fit, turn, fullscreen, sign, save, keyboard shortcuts, about), each with its shortcut.
+- **A tidy header:** as in the GTK Lumen, the header has the sidebar and open buttons, the file's name, the markup and edit buttons, and a short ☰ menu (open, save, print, and View, Export and File leading to more), each command with its shortcut. The right button opens a menu on a picture, a page, selected text, an annotation or a file in the sidebar; the command palette (Ctrl+Shift+P) finds everything.
 - **A calm interface:** one surface for the header, sidebar and canvas; tools float as islands over the view (the markup island shows colours and sizes only while you draw); Lumen's amber marks only what is active. Set in Inter, bundled.
 - **Light and dark mode:** follows the system colour scheme and switches live when you change it (`LUMEN_THEME=light` or `dark` overrides it).
 - **Zoom and pan:** best fit, fit width (PDF), actual size, Ctrl + scroll wheel (around the pointer), pinch on a touchpad (Wayland; see `vendor/README.md`), and drag to pan. Zoom changes ease in. Moving the pointer over the picture fades in a zoom control at the bottom and previous/next arrows at the sides, as in the GTK Lumen; they fade out again when the pointer rests.
@@ -57,37 +57,76 @@ Everything Lumen does, in detail. The [README](../README.md) has the short versi
 
 ## Keyboard
 
-| Keys | Action |
-|---|---|
-| Ctrl+O / Ctrl+Shift+O | Open files / open a folder |
-| Ctrl+P | Print |
-| M | Markup on or off |
-| V H P R O L A T | With the markup bar open: select, highlight, pen, rectangle, ellipse, line, arrow, text |
-| Alt+Enter | Properties |
-| Ctrl+Shift+P | Command palette: type a few words, Up / Down to choose, Enter to run, Esc to close |
-| Ctrl+Z / Ctrl+Shift+Z | Undo / redo markup |
-| Delete, arrow keys | Delete / nudge the selected annotation (Shift moves further) |
-| Ctrl+S / Ctrl+Shift+S | Save markup and form values into the PDF, or an edited JPEG/PNG/WebP over its file / save a copy |
-| Ctrl+C / Ctrl+A | Copy the selected text / select all text (PDF); Ctrl+C on a picture copies it or the selected part, Ctrl+A selects all of it |
-| Ctrl+K | Crop to the selected part of the picture |
-| Ctrl+F | Find in the PDF (Enter / Shift+Enter or F3 / Shift+F3 for next / previous, Esc to close) |
-| Ctrl+G | Go to page (PDF) |
-| F5 / Space / Esc | Start or stop the slideshow / pause it / leave it |
-| Ctrl+Shift+N | Night mode (PDF) |
-| ← → (Space / Backspace for pictures) | Next / previous file |
-| Home / End | First / last file (first / last page in a PDF) |
-| Page Up / Page Down | Previous / next page (PDF) |
-| Space / Shift+Space | Scroll a screen down / up (PDF) |
-| Alt+← / Alt+→ | Back / forward after following a link or a contents entry (PDF) |
-| ↑ ↓ | Scroll |
-| + − 0 1 | Zoom in, zoom out, best fit, actual size |
-| W | Fit width (PDF) |
-| R / Shift+R | Turn right / left (pictures; selected pages in the organiser) |
-| E | Edit the picture (Enter applies a crop, Esc cancels it) |
-| G | Organise the PDF's pages (Del deletes, Ctrl+← / → moves, Ctrl+A selects all) |
-| T | Show or hide the sidebar (files, the PDF's contents and pages) |
-| F / F11, Esc | Fullscreen, leave fullscreen |
-| Ctrl+Q / Ctrl+W | Quit |
+Single letters of the tools work while the markup bar is open. On a Mac, ⌘ stands for Ctrl.
+
+<!-- keyboard -->
+| | Keys | Action |
+|---|---|---|
+| File | Ctrl+O | Open Files… |
+|  | Ctrl+Shift+O | Open Folder… |
+|  | Ctrl+S | Save |
+|  | Ctrl+Shift+S | Save a Copy… |
+|  | Ctrl+P | Print… |
+|  | Alt+Enter | Properties… |
+|  | Ctrl+, | Preferences |
+|  | Ctrl+Q, Ctrl+W | Quit |
+| Edit | Ctrl+Z | Undo |
+|  | Ctrl+Shift+Z, Ctrl+Y | Redo |
+|  | Ctrl+C | Copy |
+|  | Ctrl+A | Select All |
+|  | Ctrl+K | Crop to Selection |
+|  | Delete, Backspace | Delete Selection |
+|  | ← → ↑ ↓ | Move the selected annotation (Shift: further) |
+|  | Enter | Apply the crop |
+|  | Esc | Cancel, close, and finally discard what is not saved |
+| View | +, Ctrl++ | Zoom In |
+|  | -, Ctrl+- | Zoom Out |
+|  | 0, Ctrl+0 | Best Fit |
+|  | W | Fit Width |
+|  | 1, Ctrl+1 | Actual Size |
+|  | F, F11 | Fullscreen |
+|  | F5 | Slideshow |
+|  | T | Sidebar |
+|  | Ctrl+Shift+N | Night Mode |
+|  | Ctrl+scroll, pinch | Zoom in / out |
+|  | Space, Esc | Pause / leave the slideshow |
+|  | Esc | Leave fullscreen |
+| Go | Ctrl+F | Find… |
+|  | F3 | Next Match |
+|  | Shift+F3 | Previous Match |
+|  | Ctrl+G | Go to Page… |
+|  | Alt+← | Back |
+|  | Alt+→ | Forward |
+|  | Page Down | Next Page |
+|  | Page Up | Previous Page |
+|  | Home | First Page |
+|  | End | Last Page |
+|  | Space | Scroll Down a Screen |
+|  | Shift+Space | Scroll Up a Screen |
+|  | →, Space, Page Down | Next File |
+|  | ←, Backspace, Page Up | Previous File |
+|  | Home | First File |
+|  | End | Last File |
+|  | ↑ ↓ | Scroll |
+|  | Enter, Shift+Enter | Next / previous match, in the Find box |
+| Tools | V | Select |
+|  | H | Highlighter |
+|  | P | Pen |
+|  | R | Rectangle |
+|  | O | Ellipse |
+|  | L | Line |
+|  | A | Arrow |
+|  | T | Text |
+|  | M | Markup |
+|  | E | Edit Picture |
+|  | G | Organise Pages |
+|  | R | Rotate Right |
+|  | Shift+R | Rotate Left |
+|  | Ctrl+←, Ctrl+↑ | Move Pages Earlier |
+|  | Ctrl+→, Ctrl+↓ | Move Pages Later |
+|  | Shift+click | Extend the selection |
+| Help | Ctrl+Shift+P | Command Palette |
+<!-- /keyboard -->
 
 ## Accessibility
 

@@ -30,6 +30,7 @@ mod overlay;
 mod pagelist;
 mod pages;
 mod palette;
+mod popup;
 mod prefs;
 mod printing;
 mod region;
@@ -289,6 +290,11 @@ pub struct App {
     /// The scale of the touchpad pinch in progress, since it began.
     pinch_scale: f32,
     menu: Option<Menu>,
+    /// The context menu and where it is, where the right button last went down, and whether the
+    /// press was on an annotation (so that the page under it does not answer too).
+    context: Option<(menu::Context, Point)>,
+    right_press: Point,
+    context_taken: bool,
     dialog: Option<Dialog>,
     /// What the Properties dialog shows; none while it is being read.
     properties: Option<Result<crate::properties::Sheet, String>>,
@@ -707,6 +713,11 @@ pub enum Message {
     /// Open a header menu (or close it with `None`), or pick one of its items.
     Menu(Option<Menu>),
     MenuPick(Box<Message>),
+    /// The right button went down somewhere, and on something that has a menu.
+    RightPress(Point),
+    Context(menu::Context),
+    ScrollBy(f32),
+    PageAt(usize),
     /// An item of the system's menu bar, by its id.
     MenuBar(String),
     Dialog(Option<Dialog>),
@@ -869,6 +880,9 @@ impl App {
             pointer_at: None,
             pinch_scale: 1.0,
             menu: None,
+            context: None,
+            right_press: Point::ORIGIN,
+            context_taken: false,
             dialog: None,
             properties: None,
             export_job: None,
@@ -1825,6 +1839,14 @@ impl App {
                 None => Task::none(),
             },
             Message::MenuPick(msg) => self.menu_pick(*msg),
+            Message::RightPress(at) => {
+                self.right_press = at;
+                self.context_taken = false;
+                Task::none()
+            }
+            Message::Context(on) => self.context_open(on),
+            Message::ScrollBy(y) => self.scroll_by(0.0, y),
+            Message::PageAt(page) => self.go_to_page(page),
             Message::ShowProperties => {
                 let (path, password) = match &self.doc {
                     Doc::Pdf(v) => (v.doc.path().to_path_buf(), v.doc.password().map(str::to_string)),
@@ -1878,7 +1900,7 @@ impl App {
                 tracing::info!(ms = crate::since_start(), "window built");
                 self.window = Some(id);
                 if crate::platform::caps().menu_bar {
-                    crate::platform::menu_bar::install(&Self::menu_bar());
+                    crate::platform::menu_bar::install(&self.menu_bar());
                 }
                 let problem = match self.signatures.take_problem() {
                     Some(aside) => {
@@ -1950,92 +1972,36 @@ impl App {
         if let Some(task) = self.palette_key(&key) {
             return task;
         }
-        if let Some(task) = self.pages_key(&key, modifiers) {
+        if self.organizer.is_none()
+            && let Some(task) = self
+                .edit_key(&key)
+                .or_else(|| self.markup_key(&key, modifiers))
+                .or_else(|| self.view_key(&key, modifiers))
+        {
             return task;
         }
-        if let Some(task) = self.edit_key(&key, modifiers) {
-            return task;
+        // Delete is heard whatever has the focus (see `subscription`).
+        if key == Key::Named(Named::Delete) && self.organizer.is_none() {
+            return Task::none();
         }
-        if let Some(task) = self.markup_key(&key, modifiers) {
-            return task;
+        match self.key_message(&key, modifiers) {
+            Some(message) => self.update(message),
+            None => Task::none(),
         }
-        let ctrl = modifiers.command();
-        let is_pdf = matches!(self.doc, Doc::Pdf(_));
-        let msg = match key.as_ref() {
-            Key::Character(c) => match (c.to_lowercase().as_str(), ctrl, modifiers.shift()) {
-                ("o", true, false) => Message::Open { folder: false },
-                ("o", true, true) => Message::Open { folder: true },
-                ("p", true, true) => Message::Palette(commands::PaletteMsg::Open),
-                ("p", true, _) => Message::Print,
-                // A Mac's own shortcut for it.
-                ("f", true, _) if cfg!(target_os = "macos") && modifiers.control() => Message::ToggleFullscreen,
-                ("f", true, _) if is_pdf => Message::SearchOpen,
-                ("c", true, _) if is_pdf => Message::Copy,
-                ("c", true, _) if matches!(self.doc, Doc::Image(_)) => Message::CopyPicture,
-                ("a", true, _) if is_pdf => Message::SelectAll,
-                ("a", true, _) if matches!(self.doc, Doc::Image(_)) => Message::Region(region::RegionMsg::All),
-                ("k", true, _) if self.region.is_some() => Message::Region(region::RegionMsg::Crop),
-                ("g", true, _) if is_pdf => Message::GoToOpen,
-                ("n", true, true) if is_pdf => Message::ToggleNight,
-                ("q" | "w", true, _) => Message::Quit,
-                ("+" | "=", _, _) => Message::ZoomIn,
-                ("-" | "_", _, _) => Message::ZoomOut,
-                ("0", _, _) => Message::ZoomFit,
-                ("1", _, _) => Message::ZoomActual,
-                ("w", false, _) if is_pdf => Message::ZoomFitWidth,
-                ("r", false, false) => Message::Rotate(1),
-                ("r", false, true) => Message::Rotate(-1),
-                ("f", false, _) => Message::ToggleFullscreen,
-                ("t", false, _) => Message::ToggleSidebar,
-                ("g", false, _) if is_pdf => Message::Pages(PagesMsg::Open),
-                _ => return Task::none(),
-            },
-            Key::Named(named) => match named {
-                Named::ArrowLeft if modifiers.alt() && is_pdf => Message::LinkBack,
-                Named::ArrowRight if modifiers.alt() && is_pdf => Message::LinkForward,
-                Named::ArrowRight if !ctrl => Message::Next,
-                Named::ArrowLeft if !ctrl => Message::Prev,
-                Named::Space if self.slideshow.is_some() => Message::SlideshowPause,
-                Named::F5 => Message::Slideshow,
-                Named::Space if !is_pdf => Message::Next,
-                // A screen at a time, keeping a little of the last one in view.
-                Named::Space if is_pdf => {
-                    let screen = self.area.height * 0.9;
-                    let y = if modifiers.shift() { -screen } else { screen };
-                    return self.scroll_by(0.0, y);
-                }
-                Named::Enter if modifiers.alt() => Message::ShowProperties,
-                Named::Backspace if !is_pdf => Message::Prev,
-                Named::PageDown if is_pdf => Message::PageNext,
-                Named::PageUp if is_pdf => Message::PagePrev,
-                Named::PageDown => Message::Next,
-                Named::PageUp => Message::Prev,
-                Named::Home if is_pdf => return self.go_to_page(0),
-                Named::End if is_pdf => {
-                    let last = if let Doc::Pdf(v) = &self.doc { v.doc.page_count() - 1 } else { 0 };
-                    return self.go_to_page(last);
-                }
-                Named::Home => Message::First,
-                Named::End => Message::Last,
-                Named::ArrowDown => {
-                    return self.scroll_by(0.0, 64.0);
-                }
-                Named::ArrowUp => {
-                    return self.scroll_by(0.0, -64.0);
-                }
-                Named::F11 => Message::ToggleFullscreen,
-                Named::F3 if is_pdf => {
-                    if modifiers.shift() {
-                        Message::SearchPrev
-                    } else {
-                        Message::SearchNext
-                    }
-                }
-                _ => return Task::none(),
-            },
-            _ => return Task::none(),
-        };
-        self.update(msg)
+    }
+
+    /// Keys that only mean something to the view, and are not commands.
+    fn view_key(&mut self, key: &Key, modifiers: Modifiers) -> Option<Task<Message>> {
+        match key.as_ref() {
+            // A Mac's own shortcut for it.
+            Key::Character("f") if cfg!(target_os = "macos") && modifiers.command() && modifiers.control() => {
+                Some(self.update(Message::ToggleFullscreen))
+            }
+            Key::Named(Named::Space) if self.slideshow.is_some() => Some(self.update(Message::SlideshowPause)),
+            Key::Named(Named::ArrowDown) if modifiers.is_empty() => Some(self.scroll_by(0.0, 64.0)),
+            Key::Named(Named::ArrowUp) if modifiers.is_empty() => Some(self.scroll_by(0.0, -64.0)),
+            _ => None,
+        }
     }
 
     /// The window's size brought down to fit `screen` with its frame and a panel; none if it fits.
@@ -3060,7 +3026,10 @@ impl App {
             view_area =
                 view_area.push(container(island).width(Length::Fill).align_x(Alignment::Center).padding([10, 16]));
         }
-        let content = mouse_area(view_area).on_move(Message::Pointer).on_exit(Message::PointerLeft);
+        let content = mouse_area(view_area)
+            .on_move(Message::Pointer)
+            .on_exit(Message::PointerLeft)
+            .on_right_press(Message::Context(menu::Context::View));
 
         let mut body = row![];
         if !self.fullscreen
@@ -3092,7 +3061,8 @@ impl App {
         }
         layout = layout.push(body.height(Length::Fill));
 
-        let mut layers = stack![layout.width(Length::Fill).height(Length::Fill)];
+        let window = self.with_context(layout.width(Length::Fill).height(Length::Fill).into());
+        let mut layers = stack![window];
         if self.drop_hover {
             layers = layers.push(self.drop_overlay());
         }
@@ -3109,9 +3079,6 @@ impl App {
         }
         if let Some(palette) = self.palette_view() {
             layers = layers.push(palette);
-        }
-        if let Some(menu) = self.menu_view() {
-            layers = layers.push(menu);
         }
         if let Some(dialog) = self.dialog_view() {
             layers = layers.push(dialog);
@@ -3189,7 +3156,8 @@ impl App {
         .padding([8, 8])
         .style(if self.menu == Some(Menu::Open) { style::tool_active } else { style::tool })
         .on_press(Message::Menu(Some(Menu::Open)));
-        left = left.push(tip(open.into(), tr("Open")));
+        let open = self.with_menu(open.into(), |m| m == Menu::Open, popup::Anchor::Start);
+        left = left.push(tip(open, tr("Open")));
 
         let (title, subtitle) = match &self.doc {
             Doc::Empty => ("Lumen".to_string(), String::new()),
@@ -3277,12 +3245,15 @@ impl App {
                 self.organizer.is_some(),
             ));
         }
-        right = right.push(icon_button(
+        // Pressed again, the button closes whichever of its menus is open.
+        let main = self.menu.filter(|m| m.is_main());
+        let menu = icon_button(
             icons::menu(),
             tr("Menu"),
-            Some(Message::Menu(Some(Menu::Main))),
-            self.menu == Some(Menu::Main),
-        ));
+            Some(Message::Menu(Some(main.unwrap_or(Menu::Main)))),
+            main.is_some(),
+        );
+        right = right.push(self.with_menu(menu, Menu::is_main, popup::Anchor::End));
         if caps.frameless {
             if self.prefs.window_buttons {
                 right = right
@@ -3705,18 +3676,14 @@ impl App {
                 .height(ROW_THUMB)
                 .style(style::thumb_frame(current));
             let content = column![framed, container(name).width(Length::Fill).clip(true)].spacing(5);
-            list = list.push(
-                container(
-                    button(content)
-                        .padding(4)
-                        .width(Length::Fill)
-                        .height(Length::Fill)
-                        .style(style::thumb(false))
-                        .on_press(Message::Select(i)),
-                )
-                .padding([2, 8])
-                .height(ROW_H),
-            );
+            let entry = button(content)
+                .padding(4)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(style::thumb(false))
+                .on_press(Message::Select(i));
+            let entry = mouse_area(entry).on_right_press(Message::Context(menu::Context::File(i)));
+            list = list.push(container(entry).padding([2, 8]).height(ROW_H));
         }
         list = list.push(space().height((self.files.len() - last) as f32 * ROW_H));
         ui::thin_scroll(list.width(Length::Fill))

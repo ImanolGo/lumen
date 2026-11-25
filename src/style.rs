@@ -205,6 +205,11 @@ pub fn muted(theme: &Theme) -> Color {
     text_color(theme).scale_alpha(MUTED)
 }
 
+/// What cannot be done now.
+pub fn unavailable(theme: &Theme) -> Color {
+    text_color(theme).scale_alpha(DISABLED)
+}
+
 /// A button that cannot be pressed now, whatever kind it is.
 fn disabled(theme: &Theme) -> button::Style {
     button::Style {

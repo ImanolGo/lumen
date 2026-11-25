@@ -183,6 +183,11 @@ impl canvas::Program<Message> for Overlay<'_> {
                         .and_capture(),
                 )
             }
+            mouse::Event::ButtonPressed(mouse::Button::Right) if self.capture != Capture::None => {
+                let (x, y) = self.to_doc(cursor.position_in(bounds)?);
+                let page = self.page;
+                self.hits(x, y).then(|| canvas::Action::publish(Message::Markup(MarkupMsg::PickAt { page, x, y })))
+            }
             mouse::Event::CursorMoved { .. } if state.dragging => {
                 // Not the event's position: that does not know how far the view is scrolled.
                 let position = cursor.land().position()?;
