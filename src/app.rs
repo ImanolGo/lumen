@@ -40,6 +40,8 @@ mod signature;
 mod slideshow;
 #[cfg(test)]
 mod tests;
+mod uploads;
+pub mod windows;
 
 use anim::Anim;
 use chooser::{Chooser, ChooserMsg, Purpose};
@@ -90,6 +92,8 @@ const ZOOM_EASE: Duration = Duration::from_millis(170);
 const NAMES_FROM: f32 = 960.0;
 const ZOOM_FROM: f32 = 680.0;
 const TURN_FROM: f32 = 600.0;
+static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// A file that takes longer than this to load is said to be loading.
 const SLOW: Duration = Duration::from_millis(150);
 /// How long the floating controls stay after the pointer stops moving.
@@ -111,19 +115,6 @@ const PT_TO_PX: f32 = 96.0 / 72.0;
 const MIN_ZOOM: f32 = 0.05;
 const MAX_ZOOM: f32 = 32.0;
 const ZOOM_STEP: f32 = 1.25;
-
-fn sidebar_id() -> Id {
-    Id::new("sidebar")
-}
-fn contents_id() -> Id {
-    Id::new("contents")
-}
-fn search_input_id() -> Id {
-    Id::new("search")
-}
-fn password_input_id() -> Id {
-    Id::new("password")
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidebarTab {
@@ -314,6 +305,10 @@ pub struct App {
     own_sizes: Vec<Size>,
     sidebar_w: f32,
     sidebar_drag: bool,
+    /// Tells this window from the others of the process.
+    serial: u64,
+    uploads: uploads::Uploads,
+    asks: Vec<windows::Ask>,
     /// Entries of the contents that are folded.
     folded: HashSet<usize>,
     zoom_ease: Option<ZoomEase>,
@@ -604,6 +599,8 @@ pub enum Message {
     Pref(prefs::PrefMsg),
     Control(crate::control::Shared),
     WindowEvent(window::Id, window::Event),
+    Raw(window::Id, Event, event::Status),
+    QuitAll,
     ScaleFactor(f32),
     Key(keyboard::Event),
     Wheel(ScrollDelta),
@@ -831,6 +828,32 @@ fn worker_pool() -> &'static Pool {
     })
 }
 
+/// Calls through the control interface, if it is on.
+fn control_subscription() -> Subscription<crate::control::Shared> {
+    if crate::control::stdio() {
+        Subscription::run(crate::control::stdio_requests)
+    } else if crate::control::enabled() {
+        Subscription::run(crate::platform::control::requests)
+    } else {
+        Subscription::none()
+    }
+}
+
+/// Whether the program wants to hear of `event` (wherever it was used already).
+fn wanted(event: &Event) -> bool {
+    match event {
+        Event::Window(e) => !matches!(e, window::Event::RedrawRequested(_)),
+        Event::Keyboard(_) => true,
+        Event::Mouse(e) => matches!(
+            e,
+            mouse::Event::WheelScrolled { .. }
+                | mouse::Event::Pinched { .. }
+                | mouse::Event::ButtonReleased(mouse::Button::Left)
+        ),
+        _ => false,
+    }
+}
+
 // ---------------------------------------------------------------- boot
 
 impl App {
@@ -937,6 +960,9 @@ impl App {
             own_sizes: Vec::new(),
             sidebar_w: SIDEBAR_W,
             sidebar_drag: false,
+            serial: SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            uploads: uploads::Uploads::default(),
+            asks: Vec::new(),
             folded: HashSet::new(),
             zoom_ease: None,
             pointer_at: None,
@@ -1002,24 +1028,17 @@ impl App {
             fading,
             self.slideshow_subscription(),
             self.anim_subscription(),
-            if crate::control::stdio() {
-                Subscription::run(crate::control::stdio_requests).map(Message::Control)
-            } else if crate::control::enabled() {
-                Subscription::run(crate::platform::control::requests).map(Message::Control)
-            } else {
-                Subscription::none()
-            },
+            if windows::in_process() { Subscription::none() } else { control_subscription().map(Message::Control) },
             system::theme_changes().map(Message::SystemTheme),
-            window::events().map(|(id, e)| Message::WindowEvent(id, e)),
-            if crate::platform::caps().menu_bar {
+            if crate::platform::caps().menu_bar && !windows::in_process() {
                 Subscription::run(crate::platform::menu_bar::chosen).map(Message::MenuBar)
             } else {
                 Subscription::none()
             },
-            keyboard::listen().map(Message::Key),
+            event::listen_with(|event, status, id| wanted(&event).then(|| Message::Raw(id, event, status))),
             if self.sidebar_drag {
-                event::listen_with(|event, _, _| match event {
-                    Event::Mouse(mouse::Event::CursorMoved { position }) => Some(Message::SidebarDrag(position.x)),
+                event::listen_with(|event, status, id| match event {
+                    Event::Mouse(mouse::Event::CursorMoved { .. }) => Some(Message::Raw(id, event, status)),
                     _ => None,
                 })
             } else {
@@ -1039,24 +1058,54 @@ impl App {
             } else {
                 Subscription::none()
             },
-            event::listen_with(|event, status, _id| match event {
-                Event::Mouse(mouse::Event::WheelScrolled { delta }) => Some(Message::Wheel(delta)),
-                Event::Mouse(mouse::Event::Pinched { delta }) => Some(Message::Pinch(delta)),
-                // Not while it deletes text in a box that has the focus.
-                Event::Keyboard(keyboard::Event::KeyPressed { key: Key::Named(Named::Delete), .. })
-                    if status == event::Status::Ignored =>
-                {
-                    Some(Message::DeleteKey)
-                }
-                // Modifiers are tracked whatever has focus, so Ctrl is never thought held down.
-                Event::Keyboard(keyboard::Event::ModifiersChanged(m)) => Some(Message::Modifiers(m)),
-                Event::Keyboard(keyboard::Event::KeyPressed { key: Key::Named(Named::Escape), .. }) => {
-                    Some(Message::Escape)
-                }
-                Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => Some(Message::MouseUp),
-                _ => None,
-            }),
         ])
+    }
+
+    /// An event of a window, as what it means here.
+    fn raw(&mut self, id: window::Id, event: Event, status: event::Status) -> Task<Message> {
+        let means = match event {
+            Event::Window(e) => vec![Message::WindowEvent(id, e)],
+            Event::Mouse(mouse::Event::CursorMoved { position }) => vec![Message::SidebarDrag(position.x)],
+            Event::Mouse(mouse::Event::WheelScrolled { delta }) => vec![Message::Wheel(delta)],
+            Event::Mouse(mouse::Event::Pinched { delta }) => vec![Message::Pinch(delta)],
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => vec![Message::MouseUp],
+            Event::Keyboard(e) => {
+                let ignored = status == event::Status::Ignored;
+                let more = match &e {
+                    // Not while it deletes text in a box that has the focus.
+                    keyboard::Event::KeyPressed { key: Key::Named(Named::Delete), .. } if ignored => {
+                        Some(Message::DeleteKey)
+                    }
+                    // Modifiers are tracked whatever has focus, so Ctrl is never thought held down.
+                    keyboard::Event::ModifiersChanged(m) => Some(Message::Modifiers(*m)),
+                    keyboard::Event::KeyPressed { key: Key::Named(Named::Escape), .. } => Some(Message::Escape),
+                    _ => None,
+                };
+                ignored.then_some(Message::Key(e)).into_iter().chain(more).collect()
+            }
+            _ => Vec::new(),
+        };
+        Task::batch(means.into_iter().map(|m| self.update(m)))
+    }
+
+    /// The name of a widget in this window: iced looks for names in all of them.
+    fn widget_id(&self, name: &str) -> Id {
+        Id::from(format!("{name}-{}", self.serial))
+    }
+
+    /// Ends this window; without others the program too.
+    fn leave(&mut self) -> Task<Message> {
+        if windows::in_process() {
+            self.asks.push(windows::Ask::Close);
+            return Task::none();
+        }
+        iced::exit()
+    }
+
+    /// What is to be remembered.
+    fn before_leaving(&mut self) {
+        self.remember_place();
+        self.state.save();
     }
 
     fn current_path(&self) -> Option<&Path> {
@@ -1140,6 +1189,7 @@ impl App {
                 Task::none()
             }
             Message::Pref(msg) => self.prefs_update(msg),
+            Message::Raw(id, event, status) => self.raw(id, event, status),
             Message::WindowEvent(id, event) => self.window_event(id, event),
             Message::ScaleFactor(f) => {
                 self.scale_factor = f.max(0.5);
@@ -1217,6 +1267,10 @@ impl App {
             Message::FlushDrops => {
                 let paths = std::mem::take(&mut self.pending_drops);
                 let opened = std::mem::take(&mut self.pending_opens);
+                if opened && windows::in_process() && !self.is_blank() {
+                    self.asks.push(windows::Ask::Open(paths));
+                    return Task::none();
+                }
                 let append = !opened && !self.files.is_empty();
                 if paths.is_empty() { Task::none() } else { expand(paths, append) }
             }
@@ -1582,7 +1636,10 @@ impl App {
                 if self.search.is_none() {
                     self.search = Some(Search::default());
                 }
-                Task::batch([operation::focus(search_input_id()), operation::select_all(search_input_id())])
+                Task::batch([
+                    operation::focus(self.widget_id("search")),
+                    operation::select_all(self.widget_id("search")),
+                ])
             }
             Message::SearchClose => {
                 self.search = None;
@@ -1941,10 +1998,14 @@ impl App {
                     self.confirm_quit = true;
                     return done;
                 }
-                self.remember_place();
-                self.state.save();
-                iced::exit()
+                self.before_leaving();
+                self.leave()
             }
+            Message::QuitAll if windows::in_process() => {
+                self.asks.push(windows::Ask::QuitAll);
+                Task::none()
+            }
+            Message::QuitAll => self.update(Message::Quit),
             Message::PasswordInput(text) => {
                 self.password_input = text;
                 Task::none()
@@ -2269,10 +2330,14 @@ impl App {
     }
 
     fn wants_window(&self) -> bool {
-        self.modifiers.command() && crate::platform::caps().new_windows
+        self.modifiers.command()
     }
 
     fn open_window(&mut self, path: PathBuf) -> Task<Message> {
+        if windows::in_process() {
+            self.asks.push(windows::Ask::Open(vec![path]));
+            return Task::none();
+        }
         if cfg!(test) {
             return self.notice(path.display().to_string());
         }
@@ -2492,7 +2557,7 @@ impl App {
                 self.log_opened(&path, "locked");
                 self.set_doc(Doc::Locked { path, wrong });
                 self.password_input.clear();
-                operation::focus(password_input_id())
+                operation::focus(self.widget_id("password"))
             }
             pdf::OpenError::Failed(error) => {
                 self.state.forget(&path);
@@ -2531,8 +2596,8 @@ impl App {
             _ => Task::none(),
         };
         Task::batch([
-            operation::scroll_to(contents_id(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 }),
-            operation::scroll_to(pagelist::list_id(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 }),
+            operation::scroll_to(self.widget_id("contents"), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 }),
+            operation::scroll_to(self.widget_id("page-thumbs"), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 }),
             restored,
             self.request_page_thumbs(),
             self.request_pages(),
@@ -2716,7 +2781,7 @@ impl App {
             return Task::none();
         }
         let y = (top - height / 3.0).max(0.0);
-        operation::scroll_to(contents_id(), scrollable::AbsoluteOffset { x: None, y: Some(y) })
+        operation::scroll_to(self.widget_id("contents"), scrollable::AbsoluteOffset { x: None, y: Some(y) })
     }
 
     fn has_contents(&self) -> bool {
@@ -2767,7 +2832,7 @@ impl App {
         } else {
             return Task::none();
         };
-        operation::scroll_to(sidebar_id(), scrollable::AbsoluteOffset { x: None, y: Some(y.max(0.0)) })
+        operation::scroll_to(self.widget_id("sidebar"), scrollable::AbsoluteOffset { x: None, y: Some(y.max(0.0)) })
     }
 
     // ------------------------------------------------------------ zoom
@@ -2939,6 +3004,15 @@ impl App {
     ) -> Task<Message> {
         if self.window.is_none() {
             return self.update(then(None));
+        }
+        if windows::in_process() {
+            let done = self.uploads.ask(handle);
+            return Task::perform(done, |r| r.ok().and_then(Result::ok).map(Gpu))
+                .map({
+                    let mut then = Some(then);
+                    move |gpu| then.take().map(|then| then(gpu))
+                })
+                .and_then(Task::done);
         }
         let mut then = Some(then);
         iced_runtime::image::allocate(handle)
@@ -3403,7 +3477,7 @@ impl App {
         layout = layout.push(under);
 
         let window = self.with_context(layout.width(Length::Fill).height(Length::Fill).into());
-        let mut layers = stack![window];
+        let mut layers = stack![window, self.uploads.widget()];
         if self.drop_hover {
             layers = layers.push(self.drop_overlay());
         }
@@ -4070,7 +4144,7 @@ impl App {
         }
         list = list.push(space().height((rows.len() - last) as f32 * TOC_ROW_H));
         ui::thin_scroll(list.width(Length::Fill))
-            .id(contents_id())
+            .id(self.widget_id("contents"))
             .on_scroll(|vp| Message::ContentsScrolled(vp.absolute_offset().y, vp.bounds().height))
             .height(Length::Fill)
             .into()
@@ -4095,7 +4169,7 @@ impl App {
         row![
             svg(icons::search()).width(16).height(16).style(style::icon_muted),
             ui::bare_input(&find_hint, &search.query)
-                .id(search_input_id())
+                .id(self.widget_id("search"))
                 .on_input(Message::SearchInput)
                 .on_submit(Message::SearchSubmit)
                 .width(170),
@@ -4164,7 +4238,7 @@ impl App {
         }
         list = list.push(space().height((self.files.len() - last) as f32 * self.row_h()));
         ui::thin_scroll(list.width(Length::Fill))
-            .id(sidebar_id())
+            .id(self.widget_id("sidebar"))
             .on_scroll(|vp| Message::SidebarScrolled(vp.absolute_offset().y, vp.bounds().height))
             .height(Length::Fill)
             .into()
@@ -4259,7 +4333,7 @@ impl App {
     fn locked_view<'a>(&'a self, path: &'a Path, wrong: bool) -> Element<'a, Message> {
         let password_hint = tr("Password");
         let input = ui::input(&password_hint, &self.password_input)
-            .id(password_input_id())
+            .id(self.widget_id("password"))
             .secure(true)
             .on_input(Message::PasswordInput)
             .on_submit(Message::Unlock)

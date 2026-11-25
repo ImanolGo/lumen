@@ -82,6 +82,12 @@ impl App {
                 None => return (Err(format!("there is no “{what}” to show")), Task::none()),
             },
             Command::Quit => iced::exit(),
+            Command::OpenWindow(path) => {
+                if !path.exists() {
+                    return (Err(format!("{} does not exist", path.display())), Task::none());
+                }
+                self.open_window(path.clone())
+            }
             Command::GetForm => return (Ok(self.control_form().to_string()), Task::none()),
             Command::GetAnnotations => return (Ok(self.control_annotations().to_string()), Task::none()),
             Command::SetField { name, value } => {

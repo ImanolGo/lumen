@@ -24,10 +24,6 @@ use crate::{icons, style};
 /// How many matches are listed at once.
 const SHOWN: usize = 8;
 
-fn input_id() -> iced::widget::Id {
-    iced::widget::Id::new("command-palette")
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Group {
     File,
@@ -278,10 +274,8 @@ impl App {
         );
         let combine = pdf(Message::Export(ExportMsg::Combine)).filter(|_| free);
         add("combine", msgid("Combine Files…"), File, Some(Place::Export), &[], combine);
-        if crate::platform::caps().new_windows {
-            let window = file(Message::NewWindow);
-            add("new-window", msgid("Open in New Window"), File, Some(Place::File), &[], window);
-        }
+        let window = file(Message::NewWindow);
+        add("new-window", msgid("Open in New Window"), File, Some(Place::File), &[], window);
         add("show", msgid("Show in Folder"), File, Some(Place::File), &[], file(Message::ShowInFolder));
         if crate::platform::caps().open_with {
             add("open-with", msgid("Open With…"), File, Some(Place::File), &[], file(Message::OpenWith));
@@ -289,7 +283,8 @@ impl App {
         add("trash", msgid("Move to Trash"), File, Some(Place::File), &[], file(Message::Trash));
         add("properties", msgid("Properties…"), File, Some(Place::File), &["Alt+Enter"], file(Message::ShowProperties));
         add("preferences", preferences_name(), File, main(2), &["Ctrl+,"], dialog(Dialog::Preferences));
-        add("quit", msgid("Quit"), File, None, &["Ctrl+Q", "Ctrl+W"], Some(Message::Quit));
+        add("quit", msgid("Quit"), File, None, &["Ctrl+Q"], Some(Message::QuitAll));
+        add("close", msgid("Close Window"), File, None, &["Ctrl+W"], Some(Message::Quit));
 
         let undo = organising(PagesMsg::Undo).or_else(|| edit(EditMsg::Undo)).or_else(|| mark(MarkupMsg::Undo));
         let discard = (has_doc && free && self.has_unsaved_changes()).then_some(Message::Discard);
@@ -428,7 +423,7 @@ impl App {
                 }
                 self.palette = Some(Palette::default());
                 self.menu = None;
-                iced::widget::operation::focus(input_id())
+                iced::widget::operation::focus(self.widget_id("command-palette"))
             }
             PaletteMsg::Close => {
                 self.palette = None;
@@ -484,7 +479,7 @@ impl App {
         let found = self.palette_matches();
         let hint = tr("Type a command");
         let input = crate::ui::bare_input(&hint, &palette.query)
-            .id(input_id())
+            .id(self.widget_id("command-palette"))
             .on_input(|q| Message::Palette(PaletteMsg::Input(q)))
             .on_submit(Message::Palette(PaletteMsg::Run))
             .size(style::TITLE);

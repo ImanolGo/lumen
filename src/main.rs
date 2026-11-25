@@ -80,6 +80,26 @@ fn window_icon() -> Option<iced::window::Icon> {
     iced::window::icon::from_rgba(icon.into_raw(), w, h).ok()
 }
 
+/// How a window is made; `size` is for the picture it opens on.
+fn window_settings(size: Option<iced::Size>) -> iced::window::Settings {
+    iced::window::Settings {
+        size: size
+            .unwrap_or_else(|| state::State::load().window_size().map_or(iced::Size::from(WINDOW), iced::Size::from)),
+        min_size: Some(firstsize::SMALLEST),
+        icon: window_icon(),
+        // Closing asks first while there is unsaved markup.
+        exit_on_close_request: false,
+        position: if platform::caps().frameless {
+            iced::window::Position::Default
+        } else {
+            iced::window::Position::Centered
+        },
+        decorations: !platform::caps().frameless,
+        platform_specific: platform::startup::window(),
+        ..Default::default()
+    }
+}
+
 fn main() -> iced::Result {
     STARTED.get_or_init(Instant::now);
     // The sandboxed decoder: a separate, tiny job that must not start the app.
@@ -114,34 +134,35 @@ fn main() -> iced::Result {
         }
     }
 
-    let first = firstsize::picture(&paths).map(firstsize::guess);
-    let result = iced::application(move || app::App::new(paths.clone()), app::App::update, app::App::view)
-        .title(app::App::title)
-        .theme(app::App::theme)
-        .subscription(app::App::subscription)
-        .window(iced::window::Settings {
-            size: first.unwrap_or_else(|| {
-                state::State::load().window_size().map_or(iced::Size::from(WINDOW), iced::Size::from)
-            }),
-            min_size: Some(firstsize::SMALLEST),
-            icon: window_icon(),
-            // Closing asks first while there is unsaved markup.
-            exit_on_close_request: false,
-            position: if platform::caps().frameless {
-                iced::window::Position::Default
-            } else {
-                iced::window::Position::Centered
-            },
-            decorations: !platform::caps().frameless,
-            platform_specific: platform::startup::window(),
-            ..Default::default()
-        })
-        .font(include_bytes!("../assets/fonts/Inter-Regular.ttf").as_slice())
-        .font(include_bytes!("../assets/fonts/Inter-Medium.ttf").as_slice())
-        .font(include_bytes!("../assets/fonts/Inter-SemiBold.ttf").as_slice())
-        .default_font(style::FONT)
-        .antialiasing(true)
-        .run();
+    let fonts = [
+        include_bytes!("../assets/fonts/Inter-Regular.ttf").as_slice(),
+        include_bytes!("../assets/fonts/Inter-Medium.ttf").as_slice(),
+        include_bytes!("../assets/fonts/Inter-SemiBold.ttf").as_slice(),
+    ];
+    let settings = iced::Settings {
+        fonts: fonts.into_iter().map(Into::into).collect(),
+        default_font: style::FONT,
+        antialiasing: true,
+        ..Default::default()
+    };
+    let result = if app::windows::in_process() {
+        use app::windows::Windows;
+        iced::daemon(move || Windows::new(paths.clone()), Windows::update, Windows::view)
+            .settings(settings)
+            .title(Windows::title)
+            .theme(Windows::theme)
+            .subscription(Windows::subscription)
+            .run()
+    } else {
+        let first = firstsize::picture(&paths).map(firstsize::guess);
+        iced::application(move || app::App::new(paths.clone()), app::App::update, app::App::view)
+            .settings(settings)
+            .title(app::App::title)
+            .theme(app::App::theme)
+            .subscription(app::App::subscription)
+            .window(window_settings(first))
+            .run()
+    };
     print::delete_copies();
     result
 }

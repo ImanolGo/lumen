@@ -4,6 +4,11 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Added
+- macOS: several windows. A file opened from Finder has a window of its own; one that is open already is brought forward. Open in New Window and ⌘-click work as on the other systems. Nobody has tried this on a Mac yet.
+- Close Window (Ctrl+W); Ctrl+Q quits, on macOS all windows, after asking about what is not saved in any of them.
+- The control interface has `OpenWindow`.
+
 ## [0.7.0] - 2026-11-25
 
 ### Added

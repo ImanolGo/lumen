@@ -106,6 +106,8 @@ dependencies (touchpad pinch); see `vendor/README.md`.
 | File | What it does |
 |---|---|
 | `src/app/menu.rs` | The header's menus, the context menu, a Mac's menu bar, the dialogs the menu opens |
+| `src/app/windows.rs` | Several windows in one process (macOS; `LUMEN_ONE_PROCESS=1` elsewhere, to try it) |
+| `src/app/uploads.rs` | Puts pictures on the GPU of the window they are for |
 | `src/app/hint.rs` | The words shown while the pointer rests on something |
 | `src/app/popup.rs` | A panel that opens under a button or at the pointer, inside the window |
 | `src/app/scroller.rs` | The scrolled view of a picture or PDF, at the position the app says |

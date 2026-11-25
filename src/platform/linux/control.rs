@@ -68,6 +68,10 @@ impl Control {
         self.ask(Command::Quit).await
     }
 
+    async fn open_window(&self, path: String) -> zbus::fdo::Result<String> {
+        self.ask(Command::OpenWindow(PathBuf::from(path))).await
+    }
+
     /// The form's fields as JSON: name, kind, value, whether read-only, page, options.
     async fn get_form(&self) -> zbus::fdo::Result<String> {
         self.ask(Command::GetForm).await

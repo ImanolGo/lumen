@@ -110,6 +110,7 @@ on the bus could otherwise open files in your viewer.
 | `SaveCopy(path)` | Saves a copy at `path` without asking |
 | `Export(kind, path, dpi)` | `png` (72, 150 or 300 dpi; a folder for several pages), `pdf` (the page in view, or the organiser's selection) or `picture-pdf`, without asking where to |
 | `Quit()` | Exits |
+| `OpenWindow(path)` | Opens a file in a window of its own |
 
 Every method answers with the state afterwards, or an error that says why (except the two that
 read something). The calls that start work return at once: poll `GetState` until `busy` is false,

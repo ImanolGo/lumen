@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use iced::widget::{Id, button, column, container, image, operation, row, scrollable, space, text};
+use iced::widget::{button, column, container, image, operation, row, scrollable, space, text};
 use iced::{Alignment, ContentFit, Element, Length, Task, Theme};
 
 use super::{App, Doc, Message};
@@ -22,14 +22,6 @@ const THUMB_PX: f32 = 260.0;
 const MARGIN_ROWS: usize = 5;
 /// Thumbnails kept in memory; the ones far from the view are dropped past this.
 const KEEP: usize = 80;
-
-pub fn list_id() -> Id {
-    Id::new("page-thumbs")
-}
-
-fn goto_input_id() -> Id {
-    Id::new("goto-page")
-}
 
 /// The page number typed into the go-to-page box: digits only, as many as any page count needs.
 pub fn clean_page_input(typed: &str) -> String {
@@ -156,7 +148,7 @@ impl App {
         } else {
             return Task::none();
         };
-        operation::scroll_to(list_id(), scrollable::AbsoluteOffset { x: None, y: Some(y.max(0.0)) })
+        operation::scroll_to(self.widget_id("page-thumbs"), scrollable::AbsoluteOffset { x: None, y: Some(y.max(0.0)) })
     }
 
     pub(super) fn goto_open(&mut self) -> Task<Message> {
@@ -164,7 +156,7 @@ impl App {
             return Task::none();
         }
         self.goto = Some(String::new());
-        Task::batch([operation::focus(goto_input_id()), operation::select_all(goto_input_id())])
+        Task::batch([operation::focus(self.widget_id("goto-page")), operation::select_all(self.widget_id("goto-page"))])
     }
 
     pub(super) fn goto_submit(&mut self) -> Task<Message> {
@@ -182,7 +174,7 @@ impl App {
         container(
             row![
                 ui::input(&trf!("Page (1–{})", pages), typed)
-                    .id(goto_input_id())
+                    .id(self.widget_id("goto-page"))
                     .on_input(|t| Message::GoToInput(clean_page_input(&t)))
                     .on_submit(Message::GoToSubmit)
                     .width(130),
@@ -251,7 +243,7 @@ impl App {
         }
         list = list.push(space().height((pages - last) as f32 * row_h));
         ui::thin_scroll(list.width(Length::Fill))
-            .id(list_id())
+            .id(self.widget_id("page-thumbs"))
             .on_scroll(|vp| Message::PageThumbsScrolled(vp.absolute_offset().y, vp.bounds().height))
             .height(Length::Fill)
             .into()

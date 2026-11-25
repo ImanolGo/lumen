@@ -1273,9 +1273,9 @@ fn a_file_can_be_opened_in_a_window_of_its_own() {
     let shown = |app: &App| app.toast.as_ref().map(|t| t.1.clone()).unwrap_or_default();
     let _ = app.update(Message::Modifiers(iced::keyboard::Modifiers::COMMAND));
     let _ = app.update(Message::Select(2));
-    let there = crate::platform::caps().new_windows;
-    assert_eq!(app.current, if there { 0 } else { 2 });
-    assert_eq!(shown(&app).ends_with("g.png"), there);
+    assert_eq!(app.current, 0);
+    let asked = app.asks == [windows::Ask::Open(vec![mixed()[2].clone()])];
+    assert!(asked == windows::in_process() && shown(&app).ends_with("g.png") != asked);
     let _ = app.update(Message::Modifiers(iced::keyboard::Modifiers::default()));
     let _ = app.update(Message::Select(1));
     assert_eq!(app.current, 1);

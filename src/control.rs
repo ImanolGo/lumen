@@ -12,7 +12,8 @@
 //! saving, exporting, an edit being drawn) is not waited for: poll `GetState` until `busy` is
 //! false; `notice` in the state is the last message the window showed. Pages are counted from 1.
 //!
-//! - Browsing: `Open`, `Next`, `Previous`, `First`, `Last`, `GotoPage`, `Zoom`, `Search`, `Quit`.
+//! - Browsing: `Open`, `Next`, `Previous`, `First`, `Last`, `GotoPage`, `Zoom`, `Search`, `Quit`,
+//!   `OpenWindow(path)` (in a window of its own).
 //! - Forms: `GetForm` lists the fields; `SetField(name, value)` fills one (text as it is, a
 //!   check box with on/off, a radio group with the name of the state to turn on, a list with the
 //!   option's text).
@@ -64,6 +65,7 @@ pub enum Command {
     Zoom(String),
     Search(String),
     Quit,
+    OpenWindow(PathBuf),
     /// Shows a part of the interface (a menu, a dialog, a tool), for looking at it.
     Show(String),
     GetForm,
@@ -194,6 +196,7 @@ fn parse(line: &str) -> Result<Command, String> {
         "Search" => Command::Search(take::<(String,)>(m, args)?.0),
         "Show" => Command::Show(take::<(String,)>(m, args)?.0),
         "Quit" => Command::Quit,
+        "OpenWindow" => Command::OpenWindow(take::<(PathBuf,)>(m, args)?.0),
         "GetForm" => Command::GetForm,
         "SetField" => {
             let (name, value) = take(m, args)?;

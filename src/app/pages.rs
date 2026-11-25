@@ -6,7 +6,7 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 
-use iced::widget::{Id, button, center, column, container, image, mouse_area, row, scrollable, space, text};
+use iced::widget::{button, center, column, container, image, mouse_area, row, scrollable, space, text};
 use iced::{Alignment, Element, Font, Length, Radians, Rotation, Task};
 
 use super::{App, Doc, Message, blocking, err_string, file_name, icon_button, muted, separator, tip};
@@ -21,10 +21,6 @@ const CELL_H: f32 = 232.0;
 /// Longest side of a thumbnail, in logical pixels.
 const THUMB: f32 = 150.0;
 const GAP: f32 = 6.0;
-
-fn grid_id() -> Id {
-    Id::new("pages-grid")
-}
 
 pub struct Organizer {
     plan: Vec<Entry>,
@@ -128,7 +124,10 @@ impl App {
                 let y = (row as f32 * CELL_H - 80.0).max(0.0);
                 Task::batch([
                     done,
-                    iced::widget::operation::scroll_to(grid_id(), scrollable::AbsoluteOffset { x: 0.0, y }),
+                    iced::widget::operation::scroll_to(
+                        self.widget_id("pages-grid"),
+                        scrollable::AbsoluteOffset { x: 0.0, y },
+                    ),
                     self.request_thumbs_grid(),
                 ])
             }
@@ -613,7 +612,7 @@ impl App {
         let below = total_rows.saturating_sub(rows.end) as f32 * CELL_H;
         grid = grid.push(space().height(below.max(0.0) + 24.0));
         ui::thin_scroll(grid.width(Length::Fill))
-            .id(grid_id())
+            .id(self.widget_id("pages-grid"))
             .on_scroll(|vp| Message::Pages(PagesMsg::Scrolled(vp.absolute_offset().y, vp.bounds().height)))
             .width(Length::Fill)
             .height(Length::Fill)

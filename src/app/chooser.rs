@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime};
 
-use iced::widget::{Id, button, center, column, container, operation, row, scrollable, space, svg, text};
+use iced::widget::{button, center, column, container, operation, row, scrollable, space, svg, text};
 use iced::{Alignment, Element, Length, Task};
 
 use super::export::ExportMsg;
@@ -30,13 +30,6 @@ const LEAST: f32 = 96.0;
 /// Letters typed this close together are one name.
 const TYPING_MS: u128 = 1000;
 const DOUBLE_CLICK_MS: u128 = 450;
-
-fn list_id() -> Id {
-    Id::new("chooser-list")
-}
-fn name_id() -> Id {
-    Id::new("chooser-name")
-}
 
 /// What the chooser is for, and where its answer goes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -255,7 +248,7 @@ impl App {
             Task::perform(blocking(move || list(&dir, purpose, hidden)), move |r| {
                 Message::Chooser(ChooserMsg::Listed(seq, r.and_then(|r| r)))
             }),
-            operation::scroll_to(list_id(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 }),
+            operation::scroll_to(self.widget_id("chooser-list"), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 }),
         ])
     }
 
@@ -285,7 +278,7 @@ impl App {
                 seq: 0,
                 typed: (String::new(), None),
             });
-            let focus = if purpose.saves() { operation::focus(name_id()) } else { Task::none() };
+            let focus = if purpose.saves() { operation::focus(self.widget_id("chooser-name")) } else { Task::none() };
             return Task::batch([self.list_dir(), focus]);
         }
         let shift = self.modifiers.shift();
@@ -447,7 +440,8 @@ impl App {
         }
         c.replace = false;
         c.scroll = revealed(c.scroll, to as f32 * ROW, height);
-        Some(operation::scroll_to(list_id(), scrollable::AbsoluteOffset { x: 0.0, y: c.scroll }))
+        let y = c.scroll;
+        Some(operation::scroll_to(self.widget_id("chooser-list"), scrollable::AbsoluteOffset { x: 0.0, y }))
     }
 
     fn chooser_list_h(&self) -> f32 {
@@ -535,7 +529,7 @@ impl App {
             .into()
         } else {
             ui::scroll(rows.width(Length::Fill))
-                .id(list_id())
+                .id(self.widget_id("chooser-list"))
                 .on_scroll(|vp| Message::Chooser(ChooserMsg::Scrolled(vp.absolute_offset().y)))
                 .height(Length::Fill)
                 .into()
@@ -560,7 +554,7 @@ impl App {
         if c.purpose.saves() {
             body = body.push(
                 ui::input(&tr("File name"), &c.name)
-                    .id(name_id())
+                    .id(self.widget_id("chooser-name"))
                     .on_input(move |t| m(ChooserMsg::Name(t)))
                     .on_submit(m(ChooserMsg::Confirm)),
             );

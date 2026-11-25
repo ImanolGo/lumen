@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use iced::widget::{Id, canvas, operation, row, text, text_editor};
+use iced::widget::{canvas, operation, row, text, text_editor};
 use iced::{Alignment, Element, Task};
 
 use super::overlay::{Capture, Overlay};
@@ -36,10 +36,6 @@ pub const SWATCHES: [(&str, Color); 8] = [
 ];
 /// Pointer reach for picking annotations, in screen pixels.
 const REACH: f32 = 6.0;
-
-fn text_box_id() -> Id {
-    Id::new("markup-text")
-}
 
 /// The markup of one file.
 pub struct DocMarkup {
@@ -501,7 +497,7 @@ impl App {
                     _ => return Task::none(),
                 };
                 self.editing = Some(TextEdit { page, id, content: text_editor::Content::with_text(&text) });
-                operation::focus(text_box_id())
+                operation::focus(self.widget_id("markup-text"))
             }
             None => Task::none(),
         }
@@ -937,7 +933,7 @@ impl App {
                 }
                 saved
             }
-            MarkupMsg::QuitAnyway => iced::exit(),
+            MarkupMsg::QuitAnyway => self.leave(),
             MarkupMsg::SaveAndQuit => {
                 self.confirm_quit = false;
                 if !self.can_save_and_quit() {
@@ -1245,7 +1241,7 @@ impl App {
             let c = a.style.stroke;
             let size = (a.style.font_size * zoom as f64) as f32;
             let editor = text_editor(&edit.content)
-                .id(text_box_id())
+                .id(self.widget_id("markup-text"))
                 .placeholder(tr("Type here"))
                 .on_action(|action| Message::Markup(MarkupMsg::TextAction(action)))
                 .size(size)

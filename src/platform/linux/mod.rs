@@ -35,7 +35,6 @@ pub const CAPS: super::Caps = super::Caps {
     frameless: true,
     title_in_header: true,
     leading_inset: 0.0,
-    new_windows: true,
     confirm_first: false,
 };
 
