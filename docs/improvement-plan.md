@@ -11,6 +11,8 @@ The plan has four parts, to be done in this order:
 3. **Interface** (packages 12–17): one look that fits all three systems.
 4. **Features** (package 18): what a viewer and editor like this still lacks, and what macOS Preview has.
 
+Part 3b (packages 20 to 23, agreed on 25 November 2026) rethinks what opens and where the tools are; it comes **after package 17 and before package 18**, whatever the numbers say.
+
 A fifth part (package 19) confines the decoder on macOS and Windows, after the first builds there exist.
 
 Part 2 comes before part 3 because the interface work depends on how each system draws its
@@ -639,6 +641,56 @@ after package 16.
 
 ---
 
+# Part 3b: what opens, and where the tools are
+
+Agreed with the user on 25 November 2026, after they compared Lumen with macOS Preview. Done before
+package 18, whose tools need the new toolbar.
+
+## 20. What opening a file shows
+
+1. The folder of an opened file is still loaded, but the sidebar does not show it by itself:
+
+   | Opened | Sidebar | ← → |
+   |---|---|---|
+   | One picture | hidden | previous/next **picture** of the folder |
+   | One PDF | Contents, or Pages, if it has more than one page; else hidden | never another file |
+   | Several files | those files | between those files |
+   | A folder | the folder | all of it |
+
+2. "Show Folder" (T, and the sidebar button) brings the list. "3 of 15" in the header is for pictures and for lists that were asked for, not for a PDF opened alone.
+3. The preference "Show the sidebar when Lumen starts" is replaced by what the table says; a sidebar the person opened or closed by hand stays so while browsing.
+4. Slideshow, wrap around and the arrows over the picture follow the same list. Files added by dropping make it a list that was asked for.
+
+**Done when:** a test covers every row of the table, and dropping, reloading and Undo of the trash keep the list.
+
+## 21. A toolbar joined to the header
+
+1. The header always has, for what is open: zoom out, percentage (its menu), zoom in; rotate and crop (pictures); Markup; Edit (pictures) or Organise (PDFs); Find (PDFs); ☰. Undo and Save show there when something has changed.
+2. Right below it, one centred second row, joined to the header, only while a tool is on. Markup, Edit, Crop, Find, Organise and a selected part swap its **contents**; it keeps its place, so the page moves once. It wraps in a narrow window.
+3. Colours, width and other details open directly under the button they belong to.
+4. Pencil and sliders no longer look alike: tools have their names beside the icons where there is room.
+5. The floating islands go. The zoom control and arrows that fade in over the picture stay (a thing the user asked to keep); the header's zoom is what is always there.
+6. At 520 px the less used buttons move into ☰; nothing is cut off.
+
+**Done when:** the screenshot set was looked at, and the pictures in `data/screenshots/` (left as they are by package 17) are taken again.
+
+## 22. The window's first size
+
+1. A window that opens on a picture is sized for it once: the picture at 100 % or less with the header, at least 720 × 480, at most 80 % of the screen. It does not change while browsing, nor after the person resized it.
+2. PDFs, folders and the empty window keep the remembered size; the size made for a picture is not remembered.
+3. Nothing is done in a tiling window manager, when maximised, or in fullscreen.
+
+## 23. A window for each opening
+
+1. Opening from the file manager opens a new window; several files chosen together share one. A file that is already open has its window brought forward (where the system lets a program do so; Wayland needs an activation token).
+2. Arrows, the sidebar, dropping and Ctrl+O stay in the window. "Open in New Window" in a file's right-click menu and in Open Recent, and Ctrl+click in the sidebar.
+3. On macOS it is one program with several windows (iced's `daemon`): `App` becomes the state of a window, with preferences, recent files, passwords and caches shared. Linux and Windows keep a process for each opening unless sharing one proves simple. Closing the last window quits except on macOS.
+4. Quitting asks about the unsaved changes of every window.
+
+**Done when:** two windows can be edited and closed independently; the same file never opens twice; a person tried it on macOS.
+
+---
+
 # Part 4: features
 
 ## 18. What is missing, in order of worth
@@ -771,6 +823,10 @@ say exactly which systems those are.
 | 14 | One table of commands; a menu that fits; context menu | Done. The submenus take the menu's place (with a way back) rather than fly out, so that they fit a small window. The right-click menu of a page was tried with a pointer on an X display; the Mac's menu bar was not tried by hand. |
 | 15 | Dialogs | Done. Enter does not run a button that discards something. Quitting offers Save only when all that is unsaved is in the file on screen. The page range and orientation were not tried on a printer, and Windows' order of buttons was not seen. |
 | 16 | The main view | Done. iced cannot fade a whole panel, so menus, dialogs and messages slide 8 px into place and only the dimming behind a dialog fades. The zoom menu, folding, dragging the sidebar's edge and the delayed hints were tried with a pointer on an X display; motion was not watched by a person. |
-| 17 | A screenshot set that is kept | |
+| 17 | A screenshot set that is kept | Done: `tools/screenshots/review.py` (on an invisible X display, so the focus of the desktop does not matter). A full run was looked at; the sidebar's first position in a small window was wrong, and is fixed. `data/screenshots/` is taken again after package 21, which changes every one of them. |
+| 20 | What opening a file shows | |
+| 21 | A toolbar joined to the header | |
+| 22 | The window's first size | |
+| 23 | A window for each opening | |
 | 18 | Features: the ones from macOS Preview (all of them, see the list), then those the user picks | |
 | 19 | Confine the decoder on macOS and Windows | |

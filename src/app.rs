@@ -297,6 +297,8 @@ pub struct App {
     slow: Option<(u64, Instant)>,
     /// The height of the tools floating over the top of the view.
     inset: f32,
+    /// The size of the view has been heard of.
+    area_known: bool,
     sidebar_w: f32,
     sidebar_drag: bool,
     /// Entries of the contents that are folded.
@@ -915,6 +917,7 @@ impl App {
             previous: None,
             slow: None,
             inset: 0.0,
+            area_known: false,
             sidebar_w: SIDEBAR_W,
             sidebar_drag: false,
             folded: HashSet::new(),
@@ -1146,7 +1149,10 @@ impl App {
             Message::AreaResized(size) => {
                 self.area = size;
                 self.viewport.height = size.height;
-                self.refit()
+                // The file on screen was brought into view in the sidebar before its height was known.
+                let first = !std::mem::replace(&mut self.area_known, true);
+                let reveal = if first { self.reveal_in_sidebar() } else { Task::none() };
+                Task::batch([reveal, self.refit()])
             }
             Message::SidebarGrip => {
                 self.sidebar_drag = true;

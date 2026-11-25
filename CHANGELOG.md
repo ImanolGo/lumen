@@ -19,6 +19,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - The markup button is only there when there is something to mark up, and the empty window's shortcut is the system's own.
 
 ### Fixed
+- In a small window the sidebar starts at the file on screen.
 - In the smallest window the Find bar, the crop bar and the edit panels are no longer cut off, and messages do not cover the zoom control.
 
 ## [0.4.0] - 2026-11-25
