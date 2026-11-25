@@ -4,6 +4,12 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Changed
+- On Linux the header is the window's title bar: drag it to move the window, double-click to maximise, right-click for the system's menu, and drag the edges to resize. GNOME and KDE no longer draw a second title bar above it. Minimise and maximise buttons are a preference, off by default. On macOS the header is inside the title bar; on Windows it is a toolbar under the system's.
+
+### Fixed
+- With the software renderer (`ICED_BACKEND=tiny-skia`) pages no longer turn grey and menus black, and everything is much faster: shadows are left out there.
+
 ## [0.2.0] - 2026-11-25
 
 ### Added

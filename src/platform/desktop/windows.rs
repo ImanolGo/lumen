@@ -12,6 +12,10 @@ pub const CAPS: crate::platform::Caps = crate::platform::Caps {
     primary_selection: false,
     menu_bar: false,
     own_title_bar: false,
+    frameless: false,
+    title_in_header: false,
+    title_centered: true,
+    leading_inset: 0.0,
 };
 
 /// No console window for the programs Lumen starts.

@@ -23,6 +23,7 @@
 //! - Pictures: `Edit(op, arg)` with `rotate-right`, `rotate-left`, `flip-h`, `flip-v`, `undo`,
 //!   `redo`, `reset`, `crop` ("x,y,w,h" in pixels), `resize` ("WxH" or "50%") and `adjust`
 //!   ("exposure=0.5,contrast=-0.2,saturation=0.1").
+//! - `Show(what)` shows a part of the interface, for pictures of it (see `App::control_show`).
 //! - Saving and export: `Save`, `SaveCopy(path)`, `Export(kind, path, dpi)` with kind `png`
 //!   (a file, or a folder for several pages), `pdf` (the page or the organiser's selection) or
 //!   `picture-pdf`.
@@ -63,6 +64,8 @@ pub enum Command {
     Zoom(String),
     Search(String),
     Quit,
+    /// Shows a part of the interface (a menu, a dialog, a tool), for looking at it.
+    Show(String),
     GetForm,
     SetField {
         name: String,
@@ -189,6 +192,7 @@ fn parse(line: &str) -> Result<Command, String> {
         "GotoPage" => Command::GotoPage(take::<(u32,)>(m, args)?.0),
         "Zoom" => Command::Zoom(take::<(String,)>(m, args)?.0),
         "Search" => Command::Search(take::<(String,)>(m, args)?.0),
+        "Show" => Command::Show(take::<(String,)>(m, args)?.0),
         "Quit" => Command::Quit,
         "GetForm" => Command::GetForm,
         "SetField" => {

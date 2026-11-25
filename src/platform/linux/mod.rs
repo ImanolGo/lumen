@@ -31,7 +31,11 @@ pub const CAPS: super::Caps = super::Caps {
     desktop_dialogs_optional: true,
     primary_selection: true,
     menu_bar: false,
-    own_title_bar: false,
+    own_title_bar: true,
+    frameless: true,
+    title_in_header: true,
+    title_centered: true,
+    leading_inset: 0.0,
 };
 
 pub mod menu_bar {

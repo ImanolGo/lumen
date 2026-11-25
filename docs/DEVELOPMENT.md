@@ -162,3 +162,12 @@ cargo build --release --locked --target x86_64-pc-windows-gnu
 cargo install cargo-xwin
 cargo xwin build --release --locked --target x86_64-pc-windows-msvc
 ```
+
+## Looking at the whole interface
+
+`tools/screenshots/review.py OUT [SCENE …]` (after `cargo build --release`) takes a picture of every
+menu, dialog and tool in light and dark, at 1200×800 and at the smallest window, and a contact
+sheet of each. It runs the app with the real GPU renderer on an invisible X display (`xvfb-run`,
+ImageMagick), driven over `LUMEN_CONTROL=stdio` with the `Show` call (`App::control_show`; add a
+scene there and in the script), so nothing on your desktop is touched. `REVIEW_LANG=es_ES.UTF-8`
+takes them in Spanish. Run it after a change to the interface and look at every picture.

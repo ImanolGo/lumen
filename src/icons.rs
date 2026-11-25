@@ -30,6 +30,8 @@ icon!(export, r#"<path d="M12 15V3"/><path d="m8 7 4-4 4 4"/><path d="M5 12v7a2 
 icon!(folder, r#"<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>"#);
 icon!(zoom_in, r#"<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/><path d="M11 8v6M8 11h6"/>"#);
 icon!(zoom_out, r#"<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/><path d="M8 11h6"/>"#);
+icon!(minimise, r#"<path d="M6 17h12"/>"#);
+icon!(maximise, r#"<rect x="6" y="6" width="12" height="12" rx="2"/>"#);
 icon!(prev, r#"<path d="m15 18-6-6 6-6"/>"#);
 icon!(next, r#"<path d="m9 18 6-6-6-6"/>"#);
 icon!(up, r#"<path d="m18 15-6-6-6 6"/>"#);

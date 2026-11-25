@@ -78,7 +78,18 @@ fn hairline(theme: &Theme) -> Color {
     wash(theme, if is_dark(theme) { 0.09 } else { 0.08 })
 }
 
+/// The software renderer draws a shadow outside the part of the window it is drawing afresh, so
+/// shadows pile up until what is under them is black; and they cost it most of its time.
+fn shadows() -> bool {
+    static SOFTWARE: std::sync::LazyLock<bool> =
+        std::sync::LazyLock::new(|| std::env::var("ICED_BACKEND").is_ok_and(|v| v.contains("tiny-skia")));
+    !*SOFTWARE
+}
+
 fn float_shadow(theme: &Theme) -> Shadow {
+    if !shadows() {
+        return Shadow::default();
+    }
     Shadow {
         color: Color::from_rgba(0.0, 0.0, 0.0, if is_dark(theme) { 0.45 } else { 0.10 }),
         offset: Vector::new(0.0, 6.0),
@@ -110,10 +121,14 @@ pub fn page(theme: &Theme) -> container::Style {
     container::Style {
         background: Some(Color::WHITE.into()),
         border: Border { radius: 2.0.into(), ..Default::default() },
-        shadow: Shadow {
-            color: Color::from_rgba(0.0, 0.0, 0.0, if is_dark(theme) { 0.5 } else { 0.12 }),
-            offset: Vector::new(0.0, 2.0),
-            blur_radius: 12.0,
+        shadow: if shadows() {
+            Shadow {
+                color: Color::from_rgba(0.0, 0.0, 0.0, if is_dark(theme) { 0.5 } else { 0.12 }),
+                offset: Vector::new(0.0, 2.0),
+                blur_radius: 12.0,
+            }
+        } else {
+            Shadow::default()
         },
         ..Default::default()
     }

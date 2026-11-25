@@ -19,6 +19,7 @@ pub enum PrefMsg {
     Portals(bool),
     Sandbox(bool),
     WrapAround(bool),
+    WindowButtons(bool),
     ThumbnailCache(bool),
     NightMode(bool),
     CacheMb(u32),
@@ -64,6 +65,7 @@ impl App {
                 crate::sandbox::set_enabled(on);
             }
             PrefMsg::WrapAround(on) => self.prefs.wrap_around = on,
+            PrefMsg::WindowButtons(on) => self.prefs.window_buttons = on,
             PrefMsg::ThumbnailCache(on) => self.prefs.thumbnail_cache = on,
             PrefMsg::NightMode(on) => {
                 if on != self.night {
@@ -176,6 +178,8 @@ impl App {
             line(tr("Theme"), theme.into()),
             toggle(tr("Show the sidebar when Lumen starts"), p.sidebar_open, PrefMsg::SidebarOpen),
             toggle(tr("Zoom control and arrows over the picture"), p.floating_controls, PrefMsg::FloatingControls),
+            caps.frameless
+                .then(|| { toggle(tr("Minimise and maximise buttons"), p.window_buttons, PrefMsg::WindowButtons) }),
             heading(tr("PDFS")),
             line(tr("When a PDF opens"), fit.into()),
             toggle(tr("Night mode"), self.night, PrefMsg::NightMode),

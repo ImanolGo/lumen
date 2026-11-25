@@ -22,7 +22,7 @@ pub use system::{
 };
 
 /// What this system can do, for the interface to show only that.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[allow(dead_code, reason = "some are for the interface packages of docs/improvement-plan.md")]
 pub struct Caps {
     /// Pictures are decoded in a process that is shut in.
@@ -43,6 +43,14 @@ pub struct Caps {
     pub menu_bar: bool,
     /// Lumen's header is the window's title bar.
     pub own_title_bar: bool,
+    /// The window has no frame of the system's: its edges resize it, and the header closes it.
+    pub frameless: bool,
+    /// The header shows the file's name (elsewhere the system's title bar does), in the middle or
+    /// after the first buttons.
+    pub title_in_header: bool,
+    pub title_centered: bool,
+    /// What the header leaves free at its start, for the system's own buttons.
+    pub leading_inset: f32,
 }
 
 pub fn caps() -> Caps {

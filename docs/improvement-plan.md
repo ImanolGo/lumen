@@ -746,7 +746,7 @@ say exactly which systems those are.
 | 9 | End-to-end tests on every system | The ten scenarios pass over stdio and D-Bus on Linux; CI runs them on macOS and Windows too. |
 | 10 | Packages and releases | The workflow builds all packages. Not done: an installer for Windows, the two ways to build a Windows binary from Linux (they need system packages). |
 | 11 | Checked by hand on macOS and Windows | **Open:** needs a person with each machine. The checklist is in `STATUS.md`. |
-| 12 | Window frame per system | |
+| 12 | Window frame per system | Done. Looked at on an X display without a window manager; GNOME, KDE, macOS and Windows not seen (package 11). Moving and resizing with the pointer were not tried. |
 | 13 | A complete set of controls; tokens for size and space | |
 | 14 | One table of commands; a menu that fits; context menu | |
 | 15 | Dialogs | |

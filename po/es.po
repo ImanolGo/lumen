@@ -939,3 +939,12 @@ msgstr "Ayuda"
 
 msgid "Command Palette"
 msgstr "Paleta de órdenes"
+
+msgid "Minimise and maximise buttons"
+msgstr "Botones de minimizar y maximizar"
+
+msgid "Minimise"
+msgstr "Minimizar"
+
+msgid "Maximise"
+msgstr "Maximizar"

@@ -216,6 +216,17 @@ pub mod watch {
 pub mod startup {
     pub fn before_window() {}
 
+    #[cfg(target_os = "macos")]
+    pub fn window() -> iced::window::settings::PlatformSpecific {
+        // Lumen's header is drawn inside the title bar, beside the traffic lights.
+        iced::window::settings::PlatformSpecific {
+            title_hidden: true,
+            titlebar_transparent: true,
+            fullsize_content_view: true,
+        }
+    }
+
+    #[cfg(windows)]
     pub fn window() -> iced::window::settings::PlatformSpecific {
         Default::default()
     }

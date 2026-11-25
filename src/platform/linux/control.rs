@@ -60,6 +60,10 @@ impl Control {
         self.ask(Command::Search(query)).await
     }
 
+    async fn show(&self, what: String) -> zbus::fdo::Result<String> {
+        self.ask(Command::Show(what)).await
+    }
+
     async fn quit(&self) -> zbus::fdo::Result<String> {
         self.ask(Command::Quit).await
     }

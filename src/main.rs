@@ -107,6 +107,7 @@ fn main() -> iced::Result {
             min_size: Some(iced::Size::new(520.0, 360.0)),
             // Closing asks first while there is unsaved markup.
             exit_on_close_request: false,
+            decorations: !platform::caps().frameless,
             platform_specific: platform::startup::window(),
             ..Default::default()
         })

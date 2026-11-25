@@ -656,6 +656,11 @@ pub enum Message {
     SlideshowTick(Instant),
     AnimTick(Instant),
     OpenWith,
+    DragWindow,
+    ToggleMaximise,
+    Minimise,
+    SystemMenu,
+    ResizeWindow(window::Direction),
     /// The question on screen was answered: no.
     ConfirmNo,
     Trash,
@@ -1584,6 +1589,13 @@ impl App {
             }
             Message::FileActionDone(Ok(())) => Task::none(),
             Message::FileActionDone(Err(e)) => self.toast(e),
+            Message::DragWindow => self.window.map_or_else(Task::none, window::drag),
+            Message::ToggleMaximise => self.window.map_or_else(Task::none, window::toggle_maximize),
+            Message::Minimise => self.window.map_or_else(Task::none, |id| window::minimize(id, true)),
+            Message::SystemMenu => self.window.map_or_else(Task::none, window::show_system_menu),
+            Message::ResizeWindow(direction) => {
+                self.window.map_or_else(Task::none, |id| window::drag_resize(id, direction))
+            }
             Message::ConfirmNo => {
                 self.confirm = None;
                 Task::none()
@@ -2989,6 +3001,9 @@ impl App {
         if let Some(confirm) = self.confirm {
             layers = layers.push(self.confirm_dialog(confirm));
         }
+        if crate::platform::caps().frameless && !self.fullscreen {
+            layers = layers.push(Self::resize_edges());
+        }
         if let Some((id, msg, error)) = &self.toast {
             let look = if *error { style::toast_error } else { style::panel };
             let mut line = row![text(msg.as_str()).size(13)].spacing(12).align_y(Alignment::Center);
@@ -3060,19 +3075,23 @@ impl App {
             (false, true) => subtitle,
             (false, false) => format!("{subtitle}  ·  {position}"),
         };
-        let mut titles = column![
-            text(title)
-                .size(15)
-                .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
-                .wrapping(text::Wrapping::None),
-        ]
-        .align_x(Alignment::Center)
-        .spacing(1);
+        let caps = crate::platform::caps();
+        let side = if caps.title_centered { Alignment::Center } else { Alignment::Start };
+        let mut titles = column![].align_x(side).spacing(1);
+        if caps.title_in_header {
+            titles = titles.push(
+                text(title)
+                    .size(15)
+                    .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
+                    .wrapping(text::Wrapping::None),
+            );
+        }
         if !subtitle.is_empty() {
-            let label = text(subtitle).size(12).style(muted);
+            let label = text(subtitle).size(12).style(muted).wrapping(text::Wrapping::None);
             titles = titles.push(if is_pdf {
+                let padding = if caps.title_centered { [0, 6] } else { [0, 0] };
                 tip(
-                    button(label).padding([0, 6]).style(style::tool).on_press(Message::GoToOpen).into(),
+                    button(label).padding(padding).style(style::tool).on_press(Message::GoToOpen).into(),
                     tr("Go to page (Ctrl+G)"),
                 )
             } else {
@@ -3118,14 +3137,20 @@ impl App {
                 self.organizer.is_some(),
             ));
         }
-        right = right
-            .push(icon_button(
-                icons::menu(),
-                tr("Menu"),
-                Some(Message::Menu(Some(Menu::Main))),
-                self.menu == Some(Menu::Main),
-            ))
-            .push(icon_button(icons::close(), tr("Close (Ctrl+Q)"), Some(Message::Quit), false));
+        right = right.push(icon_button(
+            icons::menu(),
+            tr("Menu"),
+            Some(Message::Menu(Some(Menu::Main))),
+            self.menu == Some(Menu::Main),
+        ));
+        if caps.frameless {
+            if self.prefs.window_buttons {
+                right = right
+                    .push(icon_button(icons::minimise(), tr("Minimise"), Some(Message::Minimise), false))
+                    .push(icon_button(icons::maximise(), tr("Maximise"), Some(Message::ToggleMaximise), false));
+            }
+            right = right.push(icon_button(icons::close(), tr("Close (Ctrl+Q)"), Some(Message::Quit), false));
+        }
 
         // A picture's size shows when pointing at its name.
         let titles: Element<'_, Message> = match &self.doc {
@@ -3135,16 +3160,55 @@ impl App {
             }
             _ => titles.into(),
         };
-        container(
-            row![left, container(titles).width(Length::Fill).align_x(Alignment::Center).clip(true), right]
+        let bar = container(
+            row![left, container(titles).width(Length::Fill).align_x(side).clip(true), right]
                 .spacing(8)
                 .align_y(Alignment::Center),
         )
+        .width(Length::Fill)
         .height(TOOLBAR_H)
-        .padding([0, 8])
+        .padding(Padding { left: 8.0 + caps.leading_inset, right: 8.0, ..Padding::ZERO })
         .align_y(Alignment::Center)
-        .style(style::bar)
-        .into()
+        .style(style::bar);
+        if !caps.own_title_bar {
+            return bar.into();
+        }
+        // The empty parts of a title bar move the window.
+        let mut bar = mouse_area(bar).on_press(Message::DragWindow).on_double_click(Message::ToggleMaximise);
+        if caps.frameless {
+            bar = bar.on_right_press(Message::SystemMenu);
+        }
+        bar.into()
+    }
+
+    /// The edges of a window without a frame, which resize it.
+    fn resize_edges<'a>() -> Element<'a, Message> {
+        use window::Direction;
+        const EDGE: f32 = 4.0;
+        const CORNER: f32 = 10.0;
+        let grip = |w: Length, h: Length, direction: Direction, interaction: mouse::Interaction| {
+            mouse_area(space().width(w).height(h)).on_press(Message::ResizeWindow(direction)).interaction(interaction)
+        };
+        use mouse::Interaction::{
+            ResizingDiagonallyDown, ResizingDiagonallyUp, ResizingHorizontally, ResizingVertically,
+        };
+        let (edge, corner, fill) = (Length::Fixed(EDGE), Length::Fixed(CORNER), Length::Fill);
+        let top = row![
+            grip(corner, edge, Direction::NorthWest, ResizingDiagonallyDown),
+            grip(fill, edge, Direction::North, ResizingVertically),
+            grip(corner, edge, Direction::NorthEast, ResizingDiagonallyUp),
+        ];
+        let middle = row![
+            grip(edge, fill, Direction::West, ResizingHorizontally),
+            space().width(fill).height(fill),
+            grip(edge, fill, Direction::East, ResizingHorizontally),
+        ];
+        let bottom = row![
+            grip(corner, edge, Direction::SouthWest, ResizingDiagonallyUp),
+            grip(fill, edge, Direction::South, ResizingVertically),
+            grip(corner, edge, Direction::SouthEast, ResizingDiagonallyDown),
+        ];
+        column![top, middle, bottom].into()
     }
 
     fn content(&self) -> Element<'_, Message> {

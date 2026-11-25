@@ -7,6 +7,10 @@ use super::markup::MarkupMsg;
 use super::{App, Doc, Message};
 use crate::control::{Command, Shared};
 
+/// What `Show` says in a toast.
+const SAMPLE_NOTICE: &str = "Saved “report.pdf”";
+const SAMPLE_PROBLEM: &str = "Could not save: the disk is full";
+
 impl App {
     pub(super) fn control_update(&mut self, shared: Shared) -> Task<Message> {
         let Some(request) = shared.take() else { return Task::none() };
@@ -73,6 +77,10 @@ impl App {
                 let submit = press(self, Message::SearchSubmit);
                 Task::batch([open, input, submit])
             }
+            Command::Show(what) => match self.control_show(what) {
+                Some(task) => task,
+                None => return (Err(format!("there is no “{what}” to show")), Task::none()),
+            },
             Command::Quit => iced::exit(),
             Command::GetForm => return (Ok(self.control_form().to_string()), Task::none()),
             Command::GetAnnotations => return (Ok(self.control_annotations().to_string()), Task::none()),
@@ -128,6 +136,63 @@ impl App {
             },
         };
         (Ok(self.control_state().to_string()), task)
+    }
+
+    /// Shows a part of the interface, the way a click would.
+    fn control_show(&mut self, what: &str) -> Option<Task<Message>> {
+        use super::commands::PaletteMsg;
+        use super::edit::EditMsg;
+        use super::menu::{Dialog, Menu};
+        use super::pages::PagesMsg;
+        use super::signature::SignMsg;
+        use super::{Confirm, ExportMsg, SidebarTab, chooser::Purpose};
+        let message = match what {
+            "menu" => Message::Menu(Some(Menu::Main)),
+            "open-menu" => Message::Menu(Some(Menu::Open)),
+            "prefs" => Message::Dialog(Some(Dialog::Preferences)),
+            "keys" => Message::Dialog(Some(Dialog::Shortcuts)),
+            "about" => Message::Dialog(Some(Dialog::About)),
+            "props" => Message::ShowProperties,
+            "search" => {
+                let open = self.update(Message::SearchOpen);
+                return Some(Task::batch([open, self.update(Message::SearchInput("page".into()))]));
+            }
+            "goto" => Message::GoToOpen,
+            "palette" => Message::Palette(PaletteMsg::Open),
+            "export" => Message::Export(ExportMsg::Open),
+            "markup" => Message::Markup(MarkupMsg::Toggle),
+            "colour" => Message::Markup(MarkupMsg::StyleMenu),
+            "sign" => Message::Sign(SignMsg::Menu),
+            "pad" => Message::Sign(SignMsg::Draw),
+            "edit" => Message::Edit(EditMsg::Toggle),
+            "crop" => Message::Edit(EditMsg::CropStart),
+            "resize" => Message::Edit(EditMsg::ResizeOpen),
+            "adjust" => Message::Edit(EditMsg::AdjustOpen),
+            "organise" => Message::Pages(PagesMsg::Open),
+            "pages-tab" => Message::SidebarTab(SidebarTab::Pages),
+            "chooser" => return Some(App::ask_for_files(Purpose::OpenFiles, None)),
+            "print" => {
+                let path = self.current_path()?.to_path_buf();
+                return Some(self.open_print_dialog(crate::print::Job::file(path)));
+            }
+            "quit" => {
+                self.confirm_quit = true;
+                return Some(Task::none());
+            }
+            "overwrite" => {
+                self.confirm = Some(Confirm::Overwrite);
+                return Some(Task::none());
+            }
+            "trash" => {
+                self.confirm = Some(Confirm::Trash);
+                return Some(Task::none());
+            }
+            "toast" => return Some(self.notice(SAMPLE_NOTICE)),
+            "error" => return Some(self.toast(SAMPLE_PROBLEM)),
+            "slideshow" => Message::Slideshow,
+            _ => return None,
+        };
+        Some(self.update(message))
     }
 
     /// What a script can see: what is open, where, and whether anything is still going on.
