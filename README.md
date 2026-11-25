@@ -18,7 +18,7 @@
   <img src="data/screenshots/image-markup.png" alt="Marking up a picture in Lumen" width="720">
 </p>
 
-> **Status: first release (0.1.0).** This is a ground-up rewrite of [Lumen](https://github.com/ImanolGo/lumen), which is built on GTK 4 and poppler. It has had little use so far; see [docs/STATUS.md](docs/STATUS.md) for what works, what is missing and what has not been checked.
+> **Status: early (0.1.1).** This is a ground-up rewrite of [Lumen](https://github.com/ImanolGo/lumen), which is built on GTK 4 and poppler. It has had little use so far; see [docs/STATUS.md](docs/STATUS.md) for what works, what is missing and what has not been checked.
 
 ## Features
 
@@ -45,7 +45,7 @@ The full list, with the details, is in [docs/FEATURES.md](docs/FEATURES.md).
 
 ## Installing
 
-The [0.1.0 release](https://github.com/ImanolGo/lumen-rs/releases/tag/v0.1.0) has a tarball and a `.deb` for x86_64 Linux. The AUR packages and the Flatpak are not published yet; the files to build them are in the repository:
+The [0.1.1 release](https://github.com/ImanolGo/lumen-rs/releases/tag/v0.1.1) has a tarball and a `.deb` for x86_64 Linux. The AUR packages and the Flatpak are not published yet; the files to build them are in the repository:
 
 | How | Where | State |
 |---|---|---|

@@ -4,6 +4,8 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-25
+
 ### Security
 - A decoder that panics, or whose answer is cut short, is an error for that picture; it is no longer decoded again outside the sandbox. A worker says when it has shut itself in, so one that was taken over cannot claim there is no sandbox.
 - Animation frames are decoded in the sandbox too, under the same limits as still pictures. Animations with very large frames (over about 5 megapixels) show their first frame only.
@@ -78,5 +80,6 @@ First release. Lumen (Rust/iced) is a rewrite of the GTK Lumen without GTK, popp
 - A comparison of PDF rendering with poppler (`tools/fidelity.py`, `docs/FIDELITY.md`).
 - CI: format, lint, tests, minimum Rust version, release build, packaging checks, AUR checks, dependency audit and a headless GUI job.
 
-[Unreleased]: https://github.com/ImanolGo/lumen-rs/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ImanolGo/lumen-rs/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/ImanolGo/lumen-rs/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/ImanolGo/lumen-rs/releases/tag/v0.1.0

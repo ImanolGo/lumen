@@ -1,6 +1,6 @@
 # Releasing
 
-Version 0.1.0 was tagged on 24 November 2026. The AUR packages and the Flatpak are not published
+Version 0.1.0 was tagged on 24 November 2026 and 0.1.1 on 25 November. The AUR packages and the Flatpak are not published
 yet. This file is the checklist for a release.
 
 ## Before tagging

@@ -29,6 +29,9 @@ window and names its keys.
   crates must build with the Rust version in `Cargo.toml` (`rust-version`, the `msrv` job).
 - Line numbers are from `f9edcd8`; search for the function name if they have moved.
 
+- **A release before each part** (asked for on 25 November 2026): once a part is done and CI is green,
+  release it as in [RELEASING.md](RELEASING.md) before starting the next one.
+
 ## Where things stand
 
 - Linux only. `make test` passes (182 unit tests, 3 sandbox tests; the 10 control tests are
