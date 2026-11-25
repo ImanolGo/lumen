@@ -1,10 +1,10 @@
 //! The preferences dialog (☰ → Preferences…). Every change takes effect at once and is saved.
 
 use iced::theme::Mode;
-use iced::widget::{button, column, row, space, text};
-use iced::{Alignment, Element, Font, Length, Task};
+use iced::widget::{column, container, row, text};
+use iced::{Alignment, Element, Length, Task};
 
-use super::{App, Message, muted};
+use super::{App, Message, TOOLBAR_H, muted};
 use crate::i18n::tr;
 use crate::settings::{self, PdfFit, Settings, Theme};
 use crate::style;
@@ -102,32 +102,16 @@ impl App {
         follow_up
     }
 
-    pub(super) fn prefs_dialog<'a>(
-        &'a self,
-        title: Element<'a, Message>,
-        close: Element<'a, Message>,
-    ) -> Element<'a, Message> {
+    pub(super) fn prefs_dialog(&self) -> Element<'_, Message> {
         let p = &self.prefs;
-        let label = |t: String| text(t).size(style::BODY).width(170);
-        let heading = |t: String| {
-            text(t)
-                .size(style::SMALL)
-                .style(muted)
-                .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
-        };
-        // A row of choices, the current one lit.
+        // The name gives way rather than the choices.
+        let label = |t: String| text(t).size(style::BODY).width(Length::FillPortion(2));
+        let heading = |t: String| text(t).size(style::BODY).font(style::font(iced::font::Weight::Semibold));
         let choices = |items: Vec<(String, bool, PrefMsg)>| {
-            row(items.into_iter().map(|(name, on, msg)| {
-                button(text(name).size(style::SMALL).align_x(Alignment::Center))
-                    .padding([4, 10])
-                    .style(style::segment(on))
-                    .on_press(Message::Pref(msg))
-                    .into()
-            }))
-            .spacing(2)
+            ui::choices(items.into_iter().map(|(name, on, msg)| (name, on, Message::Pref(msg))).collect())
         };
-        let line = |name: String, control: Element<'a, Message>| {
-            row![label(name), control].spacing(10).align_y(Alignment::Center)
+        let line = |name: String, control: Element<'static, Message>| {
+            row![label(name), container(control).width(Length::FillPortion(3))].spacing(10).align_y(Alignment::Center)
         };
         let toggle = |name: String, on: bool, msg: fn(bool) -> PrefMsg| {
             ui::check(on).label(name).on_toggle(move |v| Message::Pref(msg(v)))
@@ -180,7 +164,7 @@ impl App {
             (
                 tr("Decode pictures in a sandbox"),
                 tr(
-                    "Each picture is opened by a separate process that can do nothing but decode it. Costs a few milliseconds a picture. LUMEN_NO_SANDBOX=1 turns it off.",
+                    "Each picture is opened by a separate process that can do nothing but decode it. Costs a few milliseconds a picture.",
                 ),
             )
         } else {
@@ -193,11 +177,9 @@ impl App {
         };
         let desktop = caps.desktop_dialogs_optional.then(|| {
             column![
-            heading(tr("DESKTOP")),
-            toggle(tr("Use the desktop's file and print dialogs"), p.portals, PrefMsg::Portals),
-            text(tr("Without them (or without a portal) Lumen shows its own. LUMEN_THEME and LUMEN_NO_PORTAL in the environment win over these."))
-                .size(style::CAPTION)
-                .style(muted)
+                heading(tr("System")),
+                toggle(tr("Use the desktop's file and print dialogs"), p.portals, PrefMsg::Portals),
+                text(tr("Without them Lumen shows its own.")).size(style::SMALL).style(muted)
             ]
             .spacing(8)
         });
@@ -206,48 +188,46 @@ impl App {
         } else {
             tr("Keep thumbnails for the next time")
         };
+        let section = |part: iced::widget::Column<'static, Message>| part.spacing(8);
         let body = column![
-            heading(tr("APPEARANCE")),
-            line(tr("Theme"), theme.into()),
-            line(tr("Language"), language.into()),
-            toggle(tr("Show the sidebar when Lumen starts"), p.sidebar_open, PrefMsg::SidebarOpen),
-            toggle(tr("Zoom control and arrows over the picture"), p.floating_controls, PrefMsg::FloatingControls),
-            caps.frameless
-                .then(|| { toggle(tr("Minimise and maximise buttons"), p.window_buttons, PrefMsg::WindowButtons) }),
-            heading(tr("PICTURES")),
-            line(tr("Dragging over a picture"), drag.into()),
-            heading(tr("PDFS")),
-            line(tr("When a PDF opens"), fit.into()),
-            toggle(tr("Night mode"), self.night, PrefMsg::NightMode),
-            heading(tr("SLIDESHOW")),
-            line(tr("Time for each picture"), seconds.into()),
-            heading(tr("SECURITY")),
-            toggle(sandbox, p.sandbox, PrefMsg::Sandbox),
-            toggle(tr("Wrap around at the first and last file"), p.wrap_around, PrefMsg::WrapAround),
-            toggle(thumbnails, p.thumbnail_cache, PrefMsg::ThumbnailCache),
-            text(sandbox_note).size(style::CAPTION).style(muted),
-            heading(tr("MEMORY AND SPEED")),
-            line(tr("Pictures kept decoded"), cache.into()),
-            line(tr("Decode neighbours up to"), preload.into()),
+            section(column![
+                heading(tr("General")),
+                line(tr("Theme"), theme),
+                line(tr("Language"), language),
+                line(tr("Dragging over a picture"), drag),
+                toggle(tr("Show the sidebar when Lumen starts"), p.sidebar_open, PrefMsg::SidebarOpen),
+                toggle(tr("Zoom control and arrows over the picture"), p.floating_controls, PrefMsg::FloatingControls),
+                toggle(tr("Wrap around at the first and last file"), p.wrap_around, PrefMsg::WrapAround),
+                caps.frameless.then(|| toggle(
+                    tr("Minimise and maximise buttons"),
+                    p.window_buttons,
+                    PrefMsg::WindowButtons
+                )),
+            ]),
+            section(column![
+                heading(tr("PDF")),
+                line(tr("When a PDF opens"), fit),
+                toggle(tr("Night mode"), self.night, PrefMsg::NightMode),
+            ]),
+            section(column![heading(tr("Slideshow")), line(tr("Time for each picture"), seconds)]),
+            section(column![
+                heading(tr("Performance")),
+                line(tr("Pictures kept decoded"), cache),
+                line(tr("Decode neighbours up to"), preload),
+            ]),
+            section(column![
+                heading(tr("Privacy and safety")),
+                toggle(sandbox, p.sandbox, PrefMsg::Sandbox),
+                text(sandbox_note).size(style::SMALL).style(muted),
+                toggle(thumbnails, p.thumbnail_cache, PrefMsg::ThumbnailCache),
+            ]),
             desktop,
         ]
-        .spacing(8);
-        column![
-            title,
-            ui::scroll(body).height(Length::Shrink),
-            row![
-                button(text(tr("Reset to defaults")).size(style::BODY))
-                    .padding([8, 14])
-                    .style(style::secondary)
-                    .on_press(Message::Pref(PrefMsg::Reset)),
-                space().width(Length::Fill),
-                close
-            ]
-            .align_y(Alignment::Center),
-        ]
-        .spacing(14)
-        .width(520)
-        .into()
+        .spacing(18);
+        ui::dialog(tr(super::commands::preferences_title()), ui::FORM, body)
+            .aside(ui::action(ui::Kind::Other, tr("Reset to defaults"), Some(Message::Pref(PrefMsg::Reset))))
+            .cancel(tr("Close"), Message::Dialog(None))
+            .view(TOOLBAR_H)
     }
 }
 

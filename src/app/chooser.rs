@@ -9,15 +9,13 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime};
 
-use iced::widget::{
-    Id, button, center, column, container, mouse_area, opaque, operation, row, scrollable, space, stack, svg, text,
-};
-use iced::{Alignment, Element, Font, Length, Task};
+use iced::widget::{Id, button, center, column, container, operation, row, scrollable, space, svg, text};
+use iced::{Alignment, Element, Length, Task};
 
 use super::export::ExportMsg;
 use super::markup::MarkupMsg;
 use super::pages::PagesMsg;
-use super::{App, Message, blocking, err_string, file_name, muted};
+use super::{App, Message, TOOLBAR_H, blocking, err_string, file_name, muted};
 use crate::i18n::tr;
 use crate::library::Kind;
 use crate::platform::{NoDialog, dialogs, dirs};
@@ -26,6 +24,11 @@ use crate::{icons, style};
 
 const ROW: f32 = 32.0;
 const LIST_H: f32 = 340.0;
+/// What the dialog needs beside its list, and the least of the list there is.
+const AROUND: f32 = 200.0;
+const LEAST: f32 = 96.0;
+/// Letters typed this close together are one name.
+const TYPING_MS: u128 = 1000;
 const DOUBLE_CLICK_MS: u128 = 450;
 
 fn list_id() -> Id {
@@ -139,6 +142,8 @@ pub struct Chooser {
     replace: bool,
     error: Option<String>,
     seq: u64,
+    /// What was typed to jump to a name, and when.
+    typed: (String, Option<Instant>),
 }
 
 #[derive(Debug, Clone)]
@@ -179,6 +184,16 @@ fn list(dir: &Path, purpose: Purpose, hidden: bool) -> Result<Vec<Entry>, String
         .collect();
     entries.sort_by(|a, b| b.dir.cmp(&a.dir).then_with(|| natord::compare_ignore_case(&a.name, &b.name)));
     Ok(entries)
+}
+
+/// The first entry whose name starts with `typed` (in lower case).
+fn starting_with(entries: &[Entry], typed: &str) -> Option<usize> {
+    entries.iter().position(|e| e.name.to_lowercase().starts_with(typed))
+}
+
+/// How far a list `height` high is scrolled so that the row at `y` is in view.
+fn revealed(scroll: f32, y: f32, height: f32) -> f32 {
+    scroll.min(y).max(y + ROW - height)
 }
 
 fn human_size(bytes: u64) -> String {
@@ -268,6 +283,7 @@ impl App {
                 replace: false,
                 error: None,
                 seq: 0,
+                typed: (String::new(), None),
             });
             let focus = if purpose.saves() { operation::focus(name_id()) } else { Task::none() };
             return Task::batch([self.list_dir(), focus]);
@@ -393,18 +409,54 @@ impl App {
     }
 
     /// Keys while the chooser is open; it takes them all.
-    pub(super) fn chooser_key(&mut self, key: &iced::keyboard::Key) -> Option<Task<Message>> {
+    pub(super) fn chooser_key(
+        &mut self,
+        key: &iced::keyboard::Key,
+        modifiers: iced::keyboard::Modifiers,
+    ) -> Option<Task<Message>> {
         use iced::keyboard::{Key, key::Named};
-        self.chooser.as_ref()?;
-        Some(match key.as_ref() {
-            Key::Named(Named::Enter) => self.chooser_update(ChooserMsg::Confirm),
-            Key::Named(Named::Backspace) => self.chooser_update(ChooserMsg::Up),
-            _ => Task::none(),
-        })
+        let height = self.chooser_list_h();
+        let c = self.chooser.as_mut()?;
+        let last = c.entries.len().saturating_sub(1);
+        let now = c.anchor;
+        let to = match key.as_ref() {
+            Key::Named(Named::Enter) => return Some(self.chooser_update(ChooserMsg::Confirm)),
+            Key::Named(Named::Backspace) => return Some(self.chooser_update(ChooserMsg::Up)),
+            Key::Named(Named::ArrowDown) => now.map_or(0, |i| (i + 1).min(last)),
+            Key::Named(Named::ArrowUp) => now.map_or(0, |i| i.saturating_sub(1)),
+            Key::Character(letter) if !modifiers.command() && !modifiers.alt() => {
+                if c.typed.1.is_none_or(|t| t.elapsed().as_millis() > TYPING_MS) {
+                    c.typed.0.clear();
+                }
+                c.typed.0.push_str(&letter.to_lowercase());
+                c.typed.1 = Some(Instant::now());
+                match starting_with(&c.entries, &c.typed.0) {
+                    Some(i) => i,
+                    None => return Some(Task::none()),
+                }
+            }
+            _ => return Some(Task::none()),
+        };
+        if c.entries.is_empty() {
+            return Some(Task::none());
+        }
+        c.selected = BTreeSet::from([to]);
+        c.anchor = Some(to);
+        if c.purpose.saves() && !c.entries[to].dir {
+            c.name = c.entries[to].name.clone();
+        }
+        c.replace = false;
+        c.scroll = revealed(c.scroll, to as f32 * ROW, height);
+        Some(operation::scroll_to(list_id(), scrollable::AbsoluteOffset { x: 0.0, y: c.scroll }))
+    }
+
+    fn chooser_list_h(&self) -> f32 {
+        (self.area.height - AROUND).clamp(LEAST, LIST_H)
     }
 
     pub(super) fn chooser_view(&self) -> Option<Element<'_, Message>> {
         let c = self.chooser.as_ref()?;
+        let height = self.chooser_list_h();
         let m = |x: ChooserMsg| Message::Chooser(x);
 
         // The path, as buttons to each folder on the way.
@@ -430,21 +482,21 @@ impl App {
         .spacing(6)
         .align_y(Alignment::Center);
 
-        let mut side = column![].spacing(2).width(150);
+        let mut side = column![].spacing(2).width(if self.area.width < 480.0 { 110 } else { 150 });
         for (name, path) in dirs::places() {
             let here = path == c.dir;
             side = side.push(
                 button(text(name).size(style::BODY).wrapping(text::Wrapping::None))
                     .padding([6, 10])
                     .width(Length::Fill)
-                    .style(style::segment(here))
+                    .style(style::file_row(here))
                     .on_press(m(ChooserMsg::Go(path))),
             );
         }
 
         // Only the rows in view become widgets, so big folders stay quick.
         let first = ((c.scroll / ROW).floor().max(0.0) as usize).saturating_sub(4).min(c.entries.len());
-        let last = (((c.scroll + LIST_H) / ROW).ceil() as usize + 4).min(c.entries.len());
+        let last = (((c.scroll + height) / ROW).ceil() as usize + 4).min(c.entries.len());
         let mut rows = column![space().height(first as f32 * ROW)];
         for (i, e) in c.entries.iter().enumerate().take(last).skip(first) {
             let icon = if e.dir { icons::folder() } else { icons::open() };
@@ -465,7 +517,7 @@ impl App {
                     .padding([0, 10])
                     .height(ROW)
                     .width(Length::Fill)
-                    .style(style::segment(c.selected.contains(&i)))
+                    .style(style::file_row(c.selected.contains(&i)))
                     .on_press(m(ChooserMsg::Click(i))),
             );
         }
@@ -488,7 +540,7 @@ impl App {
                 .height(Length::Fill)
                 .into()
         };
-        let listing = container(listing).height(LIST_H).width(Length::Fill).padding([6, 4]).style(style::well);
+        let listing = container(listing).height(height).width(Length::Fill).padding([6, 4]).style(style::well);
 
         let confirm = match c.purpose {
             Purpose::OpenFiles | Purpose::OpenFolder => tr("Open"),
@@ -502,50 +554,44 @@ impl App {
             p if p.saves() => !c.name.trim().is_empty(),
             _ => !c.selected.is_empty(),
         };
-        let mut bottom =
-            row![ui::check(c.hidden).label(tr("Hidden files")).on_toggle(move |on| m(ChooserMsg::Hidden(on)))]
-                .spacing(10)
-                .align_y(Alignment::Center);
-        let file_name_hint = tr("File name");
+        let hidden = ui::check(c.hidden).label(tr("Hidden files")).on_toggle(move |on| m(ChooserMsg::Hidden(on)));
+        let side = ui::thin_scroll(side).height(height);
+        let mut body = column![bar, row![side, listing].spacing(12)].spacing(10);
         if c.purpose.saves() {
-            bottom = bottom.push(
-                ui::input(&file_name_hint, &c.name)
+            body = body.push(
+                ui::input(&tr("File name"), &c.name)
                     .id(name_id())
                     .on_input(move |t| m(ChooserMsg::Name(t)))
-                    .on_submit(m(ChooserMsg::Confirm))
-                    .width(Length::Fill),
+                    .on_submit(m(ChooserMsg::Confirm)),
             );
-        } else {
-            bottom = bottom.push(space().width(Length::Fill));
         }
-        bottom = bottom
-            .push(
-                button(text(tr("Cancel")).size(style::BODY))
-                    .padding([8, 16])
-                    .style(style::secondary)
-                    .on_press(m(ChooserMsg::Cancel)),
-            )
-            .push(
-                button(text(confirm).size(style::BODY))
-                    .padding([8, 16])
-                    .style(if c.replace { style::danger } else { style::primary })
-                    .on_press_maybe(can.then_some(m(ChooserMsg::Confirm))),
-            );
-        let mut card = column![
-            text(c.purpose.title())
-                .size(style::HEADING)
-                .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT }),
-            bar,
-            row![side, listing].spacing(12),
-        ]
-        .spacing(12);
         if c.replace {
-            card = card.push(text(trf!("“{}” already exists. Saving will replace it.", c.name)).size(style::BODY));
+            body = body.push(text(trf!("“{}” already exists. Saving will replace it.", c.name)).size(style::BODY));
         }
-        let card = container(card.push(bottom).width(Length::Fixed(760.0_f32.min(self.area.width.max(560.0)))))
-            .padding(20)
-            .style(style::panel);
-        let backdrop = mouse_area(space().width(Length::Fill).height(Length::Fill)).on_press(m(ChooserMsg::Cancel));
-        Some(stack![container(backdrop).style(style::scrim), center(opaque(card))].into())
+        let kind = if c.replace { ui::Kind::Danger } else { ui::Kind::Main };
+        Some(
+            ui::dialog(c.purpose.title(), ui::WIDE, body)
+                .aside(hidden)
+                .cancel(tr("Cancel"), m(ChooserMsg::Cancel))
+                .button(kind, confirm, can.then_some(m(ChooserMsg::Confirm)))
+                .view(TOOLBAR_H),
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn typing_jumps_to_a_name_and_brings_it_into_view() {
+        let entry = |name: &str| Entry { name: name.into(), path: name.into(), dir: false, size: 0, modified: None };
+        let all = [entry("Beach.png"), entry("boat.png"), entry("Cat.png")];
+        assert_eq!(starting_with(&all, "b"), Some(0));
+        assert_eq!(starting_with(&all, "bo"), Some(1));
+        assert_eq!(starting_with(&all, "x"), None);
+        assert_eq!(revealed(0.0, 64.0, 320.0), 0.0, "already in view");
+        assert_eq!(revealed(0.0, 640.0, 320.0), 352.0);
+        assert_eq!(revealed(600.0, 64.0, 320.0), 64.0);
     }
 }

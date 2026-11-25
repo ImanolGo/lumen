@@ -5,10 +5,15 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 ## [Unreleased]
 
 ### Added
+- Quitting with changes offers to save them, when they are all in the file on screen.
+- Lumen's print dialog takes a range of pages and the orientation.
+- Properties: the values can be selected and the path copied; dates are in local time.
+- Lumen's file chooser: type to jump to a name, arrow keys to move.
 - A right-click menu on the picture or page, on selected text, on an annotation (delete, bring to front) and on a file in the sidebar.
 - Open Recent in the ☰ menu; Ctrl+, opens the preferences; a Mac's menu bar has every command.
 
 ### Changed
+- Dialogs share one layout: the buttons are always in view however small the window, never over the header, and in the order each system has them. Enter does what the dialog is for, except throw something away; keys no longer reach what is behind a dialog. Export is one form; Preferences are regrouped; shortcuts are drawn as keys.
 - The ☰ menu is short: eleven rows, with View, Export and File leading to more. It hangs from its button, stays inside the window and scrolls when it must. On Windows and macOS the preferences are called Settings.
 - The command palette names each command's group.
 - The keys, the menus, the palette, the list of shortcuts and its documentation come from one table of commands. A plain letter no longer answers while Alt is held.

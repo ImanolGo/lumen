@@ -36,6 +36,7 @@ pub const CAPS: super::Caps = super::Caps {
     title_in_header: true,
     title_centered: true,
     leading_inset: 0.0,
+    confirm_first: false,
 };
 
 pub mod menu_bar {

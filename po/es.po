@@ -16,9 +16,6 @@ msgstr "Un visor y editor de imágenes y PDF rápido y seguro, en Rust puro con 
 msgid "A slideshow needs more than one picture or page, and no unsaved changes"
 msgstr "Una presentación necesita más de una imagen o página, y ningún cambio sin guardar"
 
-msgid "APPEARANCE"
-msgstr "APARIENCIA"
-
 msgid "About Lumen"
 msgstr "Acerca de Lumen"
 
@@ -36,12 +33,6 @@ msgstr "Cualquier color…"
 
 msgid "Arrow"
 msgstr "Flecha"
-
-msgid "As PNG images"
-msgstr "Como imágenes PNG"
-
-msgid "As a PDF"
-msgstr "Como PDF"
 
 msgid "Back to the original"
 msgstr "Volver al original"
@@ -190,9 +181,6 @@ msgstr "Dibuja tu firma"
 msgid "Drop to open"
 msgstr "Suelta para abrir"
 
-msgid "Each picture is opened by a separate process that can do nothing but decode it. Costs a few milliseconds a picture. LUMEN_NO_SANDBOX=1 turns it off."
-msgstr "Cada imagen la abre un proceso aparte que solo puede decodificarla. Cuesta unos milisegundos por imagen. LUMEN_NO_SANDBOX=1 lo desactiva."
-
 msgid "Edit Picture"
 msgstr "Editar imagen"
 
@@ -304,9 +292,6 @@ msgstr "Cargando…"
 msgid "Looking for printers…"
 msgstr "Buscando impresoras…"
 
-msgid "MEMORY AND SPEED"
-msgstr "MEMORIA Y VELOCIDAD"
-
 msgid "Markup"
 msgstr "Anotaciones"
 
@@ -397,17 +382,11 @@ msgstr "Organizar páginas"
 msgid "Organise pages (G)"
 msgstr "Organizar páginas (G)"
 
-msgid "PDFS"
-msgstr "PDF"
-
 msgid "Page (1–{})"
 msgstr "Página (1–{})"
 
 msgid "Page {} of {}"
 msgstr "Página {} de {}"
-
-msgid "Pages are drawn at that resolution; several pages go into a folder you choose."
-msgstr "Las páginas se dibujan con esa resolución; varias páginas van a una carpeta que elijas."
 
 msgid "Paper"
 msgstr "Papel"
@@ -447,9 +426,6 @@ msgstr "Imprimir «{}»"
 
 msgid "Printer"
 msgstr "Impresora"
-
-msgid "Printing directly, without the desktop's print dialog."
-msgstr "Imprimiendo directamente, sin el diálogo de impresión del escritorio."
 
 msgid "Printing is not available: {}"
 msgstr "La impresión no está disponible: {}"
@@ -508,12 +484,6 @@ msgstr "Girar a la izquierda (Mayús+R)"
 msgid "Rotate right (R)"
 msgstr "Girar a la derecha (R)"
 
-msgid "SECURITY"
-msgstr "SEGURIDAD"
-
-msgid "SLIDESHOW"
-msgstr "PRESENTACIÓN"
-
 msgid "Saturation"
 msgstr "Saturación"
 
@@ -543,9 +513,6 @@ msgstr "Guardar la imagen editada sobre el archivo (Ctrl+S)"
 
 msgid "Save the new page order into the PDF (Ctrl+S)"
 msgstr "Guardar el nuevo orden de páginas en el PDF (Ctrl+S)"
-
-msgid "Save the pages as a new PDF…"
-msgstr "Guardar las páginas como PDF nuevo…"
 
 msgid "Save the picture with its markup as a new file (Ctrl+S)"
 msgstr "Guardar la imagen con sus anotaciones como archivo nuevo (Ctrl+S)"
@@ -666,9 +633,6 @@ msgstr "Cuando se abre un PDF"
 
 msgid "Whole page"
 msgstr "Página completa"
-
-msgid "Without them (or without a portal) Lumen shows its own. LUMEN_THEME and LUMEN_NO_PORTAL in the environment win over these."
-msgstr "Sin ellos (o sin portal) Lumen muestra los suyos. LUMEN_THEME y LUMEN_NO_PORTAL en el entorno tienen prioridad."
 
 msgid "Working…"
 msgstr "Trabajando…"
@@ -1008,3 +972,69 @@ msgstr "Abrir reciente"
 
 msgid "Bring to Front"
 msgstr "Traer al frente"
+
+msgid "The selected page"
+msgstr "La página seleccionada"
+
+msgid "The {} selected pages"
+msgstr "Las {} páginas seleccionadas"
+
+msgid "Page {}"
+msgstr "Página {}"
+
+msgid "Format"
+msgstr "Formato"
+
+msgid "Resolution"
+msgstr "Resolución"
+
+msgid "Export…"
+msgstr "Exportar…"
+
+msgid "Each picture is opened by a separate process that can do nothing but decode it. Costs a few milliseconds a picture."
+msgstr "Cada imagen la abre un proceso aparte que no puede hacer más que decodificarla. Cuesta unos milisegundos por imagen."
+
+msgid "Without them Lumen shows its own."
+msgstr "Sin ellos, Lumen muestra los suyos."
+
+msgid "General"
+msgstr "General"
+
+msgid "PDF"
+msgstr "PDF"
+
+msgid "Performance"
+msgstr "Rendimiento"
+
+msgid "Privacy and safety"
+msgstr "Privacidad y seguridad"
+
+msgid "All (or 1-3, 5)"
+msgstr "Todas (o 1-3, 5)"
+
+msgid "Write pages as 1-3, 5"
+msgstr "Escribe las páginas como 1-3, 5"
+
+msgid "Automatic"
+msgstr "Automática"
+
+msgid "Portrait"
+msgstr "Vertical"
+
+msgid "Landscape"
+msgstr "Horizontal"
+
+msgid "Orientation"
+msgstr "Orientación"
+
+msgid "Preferences…"
+msgstr "Preferencias…"
+
+msgid "Settings…"
+msgstr "Ajustes…"
+
+msgid "Copy Path"
+msgstr "Copiar ruta"
+
+msgid "Copied the path"
+msgstr "Ruta copiada"

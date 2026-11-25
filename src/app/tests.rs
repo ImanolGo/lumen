@@ -922,6 +922,45 @@ fn the_right_button_opens_the_menu_of_what_is_under_it() {
 }
 
 #[test]
+fn quitting_can_save_first_and_enter_never_throws_anything_away() {
+    use iced::keyboard::{Key, Modifiers, key::Named};
+    let _inside = runtime().enter();
+    let mut app = pdf_app();
+    app.marks = Some(DocMarkup::new(Default::default(), vec![Vec::new(); 5], 1.0));
+    let layers = &mut app.marks.as_mut().unwrap().store.pages.layers;
+    let shape = annotate::Shape::Rect(annotate::Rect::new(1.0, 1.0, 9.0, 9.0));
+    layers.entry(0).or_default().add(shape, Default::default());
+    let _ = app.update(Message::Quit);
+    assert!(app.confirm_quit && app.can_save_and_quit());
+    // Enter is Save, which comes to nothing more than a question when the file changed on disk.
+    app.disk_conflict = true;
+    key(&mut app, Key::Named(Named::Enter), Modifiers::empty());
+    assert!(!app.confirm_quit && app.quit_when_saved && app.confirm == Some(Confirm::Overwrite));
+    assert!(app.dialog_enter().is_none(), "overwriting takes a click");
+    let _ = app.update(Message::ConfirmNo);
+    assert!(!app.quit_when_saved, "no is no to leaving too");
+    // With something put aside as well there is nothing to save it with.
+    let mut elsewhere = DocMarkup::new(Default::default(), vec![Vec::new(); 5], 1.0);
+    let shape = annotate::Shape::Rect(annotate::Rect::new(1.0, 1.0, 9.0, 9.0));
+    elsewhere.store.pages.layers.entry(0).or_default().add(shape, Default::default());
+    app.stash.insert("/elsewhere.pdf".into(), elsewhere);
+    let _ = app.update(Message::Quit);
+    assert!(app.confirm_quit && !app.can_save_and_quit() && app.dialog_enter().is_none());
+}
+
+#[test]
+fn what_is_behind_a_dialog_does_not_answer_to_keys() {
+    use iced::keyboard::{Key, Modifiers, key::Named};
+    let _inside = runtime().enter();
+    let mut app = pdf_app();
+    let _ = app.update(Message::Dialog(Some(Dialog::About)));
+    key(&mut app, Key::Character("m".into()), Modifiers::empty());
+    assert!(!app.markup_open && app.dialog.is_some());
+    key(&mut app, Key::Named(Named::Enter), Modifiers::empty());
+    assert!(app.dialog.is_none());
+}
+
+#[test]
 fn the_menu_is_short() {
     use menu::{Line, Menu};
     let _inside = runtime().enter();

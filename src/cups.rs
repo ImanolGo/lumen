@@ -31,8 +31,8 @@ const PRINTER: u8 = 0x04;
 const INTEGER: u8 = 0x21;
 #[cfg(test)]
 const BOOLEAN: u8 = 0x22;
-#[cfg(test)]
 const ENUM: u8 = 0x23;
+const RANGE: u8 = 0x33;
 #[cfg(test)]
 const TEXT: u8 = 0x41;
 const NAME: u8 = 0x42;
@@ -74,6 +74,36 @@ pub struct Job {
     pub copies: u32,
     pub media: Option<String>,
     pub two_sided: bool,
+    /// First and last of each run of pages, in order; none for all.
+    pub pages: Vec<(u32, u32)>,
+    /// The way round the paper is; the printer's choice if not said.
+    pub landscape: Option<bool>,
+}
+
+/// "1-3, 5" as runs of pages, in order and not overlapping (IPP wants them so); nothing is all of
+/// them, and `None` means it is not a list of pages.
+pub fn page_ranges(text: &str) -> Option<Vec<(u32, u32)>> {
+    let mut runs = Vec::new();
+    for part in text.split([',', ';']).map(str::trim).filter(|p| !p.is_empty()) {
+        let page = |t: &str| t.trim().parse::<u32>().ok().filter(|n| (1..=1_000_000).contains(n));
+        let run = match part.split_once(['-', '–']) {
+            Some((a, b)) => (page(a)?, page(b)?),
+            None => (page(part)?, page(part)?),
+        };
+        if run.0 > run.1 {
+            return None;
+        }
+        runs.push(run);
+    }
+    runs.sort_unstable();
+    let mut merged: Vec<(u32, u32)> = Vec::new();
+    for (a, b) in runs {
+        match merged.last_mut() {
+            Some(last) if a <= last.1 + 1 => last.1 = last.1.max(b),
+            _ => merged.push((a, b)),
+        }
+    }
+    Some(merged)
 }
 
 // ---------------------------------------------------------------- encoding
@@ -135,6 +165,15 @@ fn job_request(operation: u16, printer: &str, title: &str, job: &Job) -> Vec<u8>
     }
     let sides: &[u8] = if job.two_sided { b"two-sided-long-edge" } else { b"one-sided" };
     r.attr(KEYWORD, "sides", sides);
+    for (i, (first, last)) in job.pages.iter().enumerate() {
+        let mut range = first.to_be_bytes().to_vec();
+        range.extend(last.to_be_bytes());
+        r.attr(RANGE, if i == 0 { "page-ranges" } else { "" }, &range);
+    }
+    if let Some(landscape) = job.landscape {
+        let way: i32 = if landscape { 4 } else { 3 };
+        r.attr(ENUM, "orientation-requested", &way.to_be_bytes());
+    }
     // Pages are fitted to the paper, as a PDF viewer's print dialog does.
     r.attr(KEYWORD, "print-scaling", b"fit");
     r.finish()
@@ -431,8 +470,24 @@ mod tests {
     }
 
     #[test]
+    fn reads_lists_of_pages() {
+        assert_eq!(page_ranges(""), Some(vec![]));
+        assert_eq!(page_ranges(" 5, 1-3 ,"), Some(vec![(1, 3), (5, 5)]));
+        assert_eq!(page_ranges("1-4,3-6,7"), Some(vec![(1, 7)]));
+        for bad in ["0", "3-1", "a", "1-", "-2", "1.5"] {
+            assert_eq!(page_ranges(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
     fn encodes_a_print_job() {
-        let job = Job { copies: 2, media: Some("iso_a4_210x297mm".into()), two_sided: true };
+        let job = Job {
+            copies: 2,
+            media: Some("iso_a4_210x297mm".into()),
+            two_sided: true,
+            pages: vec![(1, 3), (5, 5)],
+            landscape: Some(true),
+        };
         let r = job_request(PRINT_JOB, "Office", "Report", &job);
         assert_eq!(&r[..4], &[2, 0, 0, 2], "IPP 2.0, Print-Job");
         let parsed = parse(&r).unwrap();
@@ -448,6 +503,11 @@ mod tests {
         assert!(attrs.contains(&("sides", KEYWORD, "two-sided-long-edge".into())));
         let copies = parsed.groups[1].1.iter().find(|(n, ..)| n == "copies").unwrap();
         assert_eq!(copies.2[0], 2i32.to_be_bytes());
+        let of = |name: &str| parsed.groups[1].1.iter().find(|(n, ..)| n == name).unwrap();
+        let pages = of("page-ranges");
+        assert_eq!((pages.1, pages.2.len()), (RANGE, 2));
+        assert_eq!(pages.2[0], [0, 0, 0, 1, 0, 0, 0, 3]);
+        assert_eq!(of("orientation-requested").2[0], 4i32.to_be_bytes());
         assert_eq!(parsed.groups.iter().map(|g| g.0).collect::<Vec<_>>(), [OPERATION, JOB]);
     }
 
@@ -481,7 +541,12 @@ mod tests {
 
     #[test]
     fn cut_off_answers_are_errors() {
-        let full = job_request(PRINT_JOB, "P", "T", &Job { copies: 1, media: None, two_sided: false });
+        let full = job_request(
+            PRINT_JOB,
+            "P",
+            "T",
+            &Job { copies: 1, media: None, two_sided: false, pages: Vec::new(), landscape: None },
+        );
         for n in [0, 3, 9, full.len() / 2] {
             assert!(parse(&full[..n]).is_err(), "{n}");
         }
@@ -515,7 +580,8 @@ mod tests {
             );
         }
         let first = printers.first().expect("a printer");
-        let job = Job { copies: 1, media: first.media_default.clone(), two_sided: false };
+        let job =
+            Job { copies: 1, media: first.media_default.clone(), two_sided: false, pages: Vec::new(), landscape: None };
         validate(&first.name, "Lumen test", &job).unwrap();
         println!("validate-job: ok");
     }

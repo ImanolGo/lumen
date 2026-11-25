@@ -15,6 +15,7 @@ mod cups;
 mod edit;
 mod export;
 mod forms;
+mod frame;
 mod fsio;
 #[cfg(feature = "heif")]
 mod heif;

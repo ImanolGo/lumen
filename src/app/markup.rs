@@ -9,16 +9,16 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use iced::widget::{Id, button, canvas, center, column, container, operation, row, space, text, text_editor};
-use iced::{Alignment, Element, Font, Length, Task};
+use iced::widget::{Id, button, canvas, column, container, operation, row, text, text_editor};
+use iced::{Alignment, Element, Task};
 
 use super::overlay::{Capture, Overlay};
-use super::{App, Doc, Message, blocking, err_string, file_name, icon_button, muted, placed, separator};
+use super::{App, Doc, Message, TOOLBAR_H, blocking, err_string, file_name, icon_button, muted, placed, separator};
 use crate::annotate::model::Style;
 use crate::annotate::pdf::ObjRef;
 use crate::annotate::{AnnotationLayer, Color, GeometryChange, History, Outcome, Point, Rect, Shape, Store, Tool};
 use crate::i18n::tr;
-use crate::{icons, pdf, style};
+use crate::{icons, pdf, style, ui};
 
 pub type Layers = BTreeMap<usize, AnnotationLayer>;
 
@@ -197,6 +197,7 @@ pub enum MarkupMsg {
     PictureSaved(u64, PathBuf, Layers, Result<(), String>),
     TextAction(text_editor::Action),
     QuitAnyway,
+    SaveAndQuit,
     StayOpen,
 }
 
@@ -821,6 +822,7 @@ impl App {
             }
             MarkupMsg::SaveAs => {
                 self.confirm = None;
+                self.quit_when_saved = false;
                 let done = self.finish_text();
                 let suggested = match &self.doc {
                     Doc::Pdf(view) => {
@@ -874,15 +876,22 @@ impl App {
                             marks.saved = layers;
                             marks.place(&opened.placed);
                         }
+                        if std::mem::take(&mut self.quit_when_saved) {
+                            return self.update(Message::Quit);
+                        }
                         Task::batch([shown, self.notice(trf!("Saved “{}”", file_name(&target)))])
                     }
                     Ok(_) => self.notice(trf!("Saved “{}”", file_name(&target))),
-                    Err(e) => self.toast(trf!("Could not save: {}", e)),
+                    Err(e) => {
+                        self.quit_when_saved = false;
+                        self.toast(trf!("Could not save: {}", e))
+                    }
                 }
             }
             MarkupMsg::PictureSaved(generation, target, layers, result) => {
                 self.markup_busy = None;
                 if let Err(e) = result {
+                    self.quit_when_saved = false;
                     return self.toast(trf!("Could not save: {}", e));
                 }
                 let in_place = self.current_path() == Some(target.as_path());
@@ -906,6 +915,9 @@ impl App {
                     self.marks = None;
                     self.pictures.retain(|(p, _)| *p != target);
                     self.thumbs.remove(&target);
+                    if std::mem::take(&mut self.quit_when_saved) {
+                        return self.update(Message::Quit);
+                    }
                     let index = self.current;
                     self.current = usize::MAX;
                     return Task::batch([saved, self.show(index)]);
@@ -919,6 +931,15 @@ impl App {
                 saved
             }
             MarkupMsg::QuitAnyway => iced::exit(),
+            MarkupMsg::SaveAndQuit => {
+                self.confirm_quit = false;
+                if !self.can_save_and_quit() {
+                    return Task::none();
+                }
+                // Once it is saved: see `PdfSaved` and `PictureSaved`.
+                self.quit_when_saved = true;
+                self.markup_update(MarkupMsg::Save)
+            }
             MarkupMsg::StayOpen => {
                 self.confirm_quit = false;
                 Task::none()
@@ -1371,34 +1392,23 @@ impl App {
                 Some(Message::Pages(super::pages::PagesMsg::SaveAs)),
             ),
         };
-        let mut actions = row![
-            space().width(Length::Fill),
-            button(text(tr("Cancel")).size(style::BODY))
-                .padding([8, 16])
-                .style(style::secondary)
-                .on_press(Message::ConfirmNo),
-        ]
-        .spacing(10);
-        if let Some(copy) = copy {
-            let label = text(tr("Save a Copy…")).size(style::BODY);
-            actions = actions.push(button(label).padding([8, 16]).style(style::secondary).on_press(copy));
+        let mut dialog = ui::dialog(title, ui::ASK, text(body).size(style::BODY).style(muted))
+            .cancel(tr("Cancel"), Message::ConfirmNo);
+        if copy.is_some() {
+            dialog = dialog.button(ui::Kind::Other, tr("Save a Copy…"), copy);
         }
-        actions = actions.push(button(text(yes).size(style::BODY)).padding([8, 16]).style(style::danger).on_press(go));
-        let card = container(
-            column![
-                text(title)
-                    .size(style::HEADING)
-                    .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT }),
-                text(body).size(style::BODY).style(muted),
-                space().height(6),
-                actions,
-            ]
-            .spacing(8)
-            .width(420),
-        )
-        .padding(22)
-        .style(style::panel);
-        iced::widget::opaque(center(card).style(style::scrim))
+        dialog.button(ui::Kind::Danger, yes, Some(go)).view(TOOLBAR_H)
+    }
+
+    /// Whether what is not saved is only on screen, and can be saved without asking where.
+    pub(super) fn can_save_and_quit(&self) -> bool {
+        let rearranged = self.organizer.as_ref().is_some_and(super::pages::Organizer::is_changed);
+        self.unsaved_files() == 1
+            && self.has_unsaved_changes()
+            && !rearranged
+            && self.markup_busy.is_none()
+            && !self.stash_pages.contains_key(self.current_path().unwrap_or(Path::new("")))
+            && (matches!(self.doc, Doc::Pdf(_)) || self.picture_in_place().is_some())
     }
 
     pub(super) fn quit_dialog(&self) -> Element<'_, Message> {
@@ -1408,32 +1418,17 @@ impl App {
         } else {
             trf!("{} files have changes that are not saved. They will be lost.", n)
         };
-        let card = container(
-            column![
-                text(tr("Quit without saving?"))
-                    .size(style::HEADING)
-                    .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT }),
-                text(body).size(style::BODY).style(muted),
-                space().height(6),
-                row![
-                    space().width(Length::Fill),
-                    button(text(tr("Cancel")).size(style::BODY))
-                        .padding([8, 16])
-                        .style(style::secondary)
-                        .on_press(Message::Markup(MarkupMsg::StayOpen)),
-                    button(text(tr("Quit Without Saving")).size(style::BODY))
-                        .padding([8, 16])
-                        .style(style::danger)
-                        .on_press(Message::Markup(MarkupMsg::QuitAnyway)),
-                ]
-                .spacing(10),
-            ]
-            .spacing(8)
-            .width(400),
-        )
-        .padding(22)
-        .style(style::panel);
-        iced::widget::opaque(center(card).style(style::scrim))
+        let m = |m: MarkupMsg| Some(Message::Markup(m));
+        let dialog = ui::dialog(tr("Quit without saving?"), ui::ASK, text(body).size(style::BODY).style(muted))
+            .cancel(tr("Cancel"), Message::Markup(MarkupMsg::StayOpen));
+        if self.can_save_and_quit() {
+            dialog
+                .button(ui::Kind::Danger, tr("Discard"), m(MarkupMsg::QuitAnyway))
+                .button(ui::Kind::Main, tr("Save"), m(MarkupMsg::SaveAndQuit))
+                .view(TOOLBAR_H)
+        } else {
+            dialog.button(ui::Kind::Danger, tr("Quit Without Saving"), m(MarkupMsg::QuitAnyway)).view(TOOLBAR_H)
+        }
     }
 }
 

@@ -68,7 +68,7 @@ Single letters of the tools work while the markup bar is open. On a Mac, ⌘ sta
 |  | Ctrl+Shift+S | Save a Copy… |
 |  | Ctrl+P | Print… |
 |  | Alt+Enter | Properties… |
-|  | Ctrl+, | Preferences |
+|  | Ctrl+, | Preferences… |
 |  | Ctrl+Q, Ctrl+W | Quit |
 | Edit | Ctrl+Z | Undo |
 |  | Ctrl+Shift+Z, Ctrl+Y | Redo |

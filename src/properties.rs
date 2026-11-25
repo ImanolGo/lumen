@@ -238,21 +238,16 @@ pub fn file_size(bytes: u64) -> String {
     if unit == 0 { format!("{bytes} bytes") } else { format!("{value:.1} {} ({grouped} bytes)", units[unit]) }
 }
 
-/// "2026-11-23 15:09 UTC" (the standard library has no time zones).
+/// "2026-11-23 15:09", where this computer is.
 pub fn format_time(t: SystemTime) -> String {
-    let secs = t.duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
-    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
-    // Days since 1970-01-01 to a civil date (Howard Hinnant's algorithm).
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + i64::from(month <= 2);
-    format!("{year:04}-{month:02}-{day:02} {:02}:{:02} UTC", rem / 3600, rem % 3600 / 60)
+    time_in(t, &jiff::tz::TimeZone::system())
+}
+
+fn time_in(t: SystemTime, zone: &jiff::tz::TimeZone) -> String {
+    match jiff::Timestamp::try_from(t) {
+        Ok(t) => t.to_zoned_datetime(zone.clone()).strftime("%Y-%m-%d %H:%M").to_string(),
+        Err(_) => String::new(),
+    }
 }
 
 #[cfg(test)]
@@ -291,11 +286,14 @@ mod tests {
     fn formats_sizes_and_dates() {
         assert_eq!(file_size(512), "512 bytes");
         assert_eq!(file_size(1_234_567), "1.2 MB (1,234,567 bytes)");
-        assert_eq!(format_time(SystemTime::UNIX_EPOCH), "1970-01-01 00:00 UTC");
+        let utc = jiff::tz::TimeZone::UTC;
+        let east = jiff::tz::TimeZone::posix("EET-2").unwrap();
+        assert_eq!(time_in(SystemTime::UNIX_EPOCH, &utc), "1970-01-01 00:00");
+        assert_eq!(time_in(SystemTime::UNIX_EPOCH, &east), "1970-01-01 02:00");
         // 2026-11-23 15:09:00 UTC
-        assert_eq!(format_time(SystemTime::UNIX_EPOCH + Duration::from_secs(1_795_446_540)), "2026-11-23 15:09 UTC");
+        assert_eq!(time_in(SystemTime::UNIX_EPOCH + Duration::from_secs(1_795_446_540), &utc), "2026-11-23 15:09");
         // A leap day.
-        assert_eq!(format_time(SystemTime::UNIX_EPOCH + Duration::from_secs(1_709_164_800)), "2024-02-29 00:00 UTC");
+        assert_eq!(time_in(SystemTime::UNIX_EPOCH + Duration::from_secs(1_709_164_800), &utc), "2024-02-29 00:00");
     }
 
     #[test]

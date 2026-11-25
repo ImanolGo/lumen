@@ -4,15 +4,15 @@
 
 use std::path::{Path, PathBuf};
 
-use iced::widget::{button, column, row, space, text};
-use iced::{Alignment, Element, Font, Length, Task};
+use iced::widget::{column, row, text};
+use iced::{Alignment, Element, Task};
 
 use super::pages::PagesMsg;
-use super::{App, Doc, Message, blocking, err_string, file_name, muted};
+use super::{App, Doc, Message, TOOLBAR_H, blocking, err_string, file_name};
 use crate::export;
 use crate::i18n::tr;
 use crate::pages::{self, Entry};
-use crate::{pdf, style};
+use crate::{pdf, style, ui};
 
 /// What the chooser's answer will be used for.
 pub enum ExportJob {
@@ -28,6 +28,10 @@ pub enum ExportJob {
 pub enum ExportMsg {
     /// Open the Export dialog for the selected pages (or the page in view).
     Open,
+    /// In the dialog: PNG rather than PDF, the resolution, and do it.
+    AsPng(bool),
+    Dpi(u32),
+    Go,
     /// Export as PNG at this resolution.
     Png(u32),
     /// Export as a PDF.
@@ -52,6 +56,18 @@ impl App {
                 self.dialog = Some(super::menu::Dialog::Export);
                 Task::none()
             }
+            ExportMsg::AsPng(png) => {
+                self.export_choice.0 = png;
+                Task::none()
+            }
+            ExportMsg::Dpi(dpi) => {
+                self.export_choice.1 = dpi;
+                Task::none()
+            }
+            ExportMsg::Go => match self.export_choice {
+                (true, dpi) => self.export_update(ExportMsg::Png(dpi)),
+                (false, _) => self.export_update(ExportMsg::Pdf),
+            },
             ExportMsg::Png(dpi) => {
                 let Some((pages, docs, stem)) = self.export_selection() else { return Task::none() };
                 self.dialog = None;
@@ -155,41 +171,35 @@ impl App {
         path.parent().map(Path::to_path_buf).unwrap_or_default()
     }
 
-    pub(super) fn export_dialog<'a>(
-        &'a self,
-        title: Element<'a, Message>,
-        close: Element<'a, Message>,
-    ) -> Element<'a, Message> {
-        let count = self.export_selection().map_or(0, |(pages, ..)| pages.len());
-        let what = if count == 1 { "1 page".to_string() } else { format!("{count} pages") };
-        let dpi = |d: u32| {
-            button(text(format!("{d} dpi")).size(style::BODY).width(Length::Fill).align_x(Alignment::Center))
-                .padding([6, 10])
-                .width(Length::Fill)
-                .style(style::secondary)
-                .on_press(Message::Export(ExportMsg::Png(d)))
+    pub(super) fn export_dialog(&self) -> Element<'_, Message> {
+        let e = |m: ExportMsg| Message::Export(m);
+        let (png, dpi) = self.export_choice;
+        let what = match self.export_selection() {
+            Some((pages, ..)) if self.organizer.is_some() => match pages.len() {
+                1 => tr("The selected page"),
+                n => trf!("The {} selected pages", n),
+            },
+            Some((pages, ..)) => trf!("Page {}", pages[0].index + 1),
+            None => String::new(),
         };
-        let label = |t: String| {
-            text(t).size(style::BODY).font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
+        let line = |name: String, control: Element<'static, Message>| {
+            row![text(name).size(style::BODY).width(110), control].spacing(10).align_y(Alignment::Center)
         };
-        column![
-            title,
-            text(what).size(style::BODY).style(muted),
-            label(tr("As PNG images")),
-            row(export::DPIS.iter().map(|&d| dpi(d).into())).spacing(6),
-            text(tr("Pages are drawn at that resolution; several pages go into a folder you choose."))
-                .size(style::SMALL)
-                .style(muted),
-            label(tr("As a PDF")),
-            button(text(tr("Save the pages as a new PDF…")).size(style::BODY))
-                .padding([6, 12])
-                .style(style::secondary)
-                .on_press(Message::Export(ExportMsg::Pdf)),
-            row![space().width(Length::Fill), close],
+        let format = ui::choices(vec![
+            ("PNG".to_string(), png, e(ExportMsg::AsPng(true))),
+            ("PDF".to_string(), !png, e(ExportMsg::AsPng(false))),
+        ]);
+        let dpis = export::DPIS.iter().map(|&d| (format!("{d} dpi"), d == dpi, e(ExportMsg::Dpi(d)))).collect();
+        let body = column![
+            line(tr("Pages"), text(what).size(style::BODY).into()),
+            line(tr("Format"), format),
+            png.then(|| line(tr("Resolution"), ui::choices(dpis))),
         ]
-        .spacing(10)
-        .width(380)
-        .into()
+        .spacing(12);
+        ui::dialog(tr("Export"), ui::FORM, body)
+            .cancel(tr("Cancel"), Message::Dialog(None))
+            .button(ui::Kind::Main, tr("Export…"), Some(e(ExportMsg::Go)))
+            .view(TOOLBAR_H)
     }
 }
 

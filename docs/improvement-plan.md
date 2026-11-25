@@ -769,7 +769,7 @@ say exactly which systems those are.
 | 12 | Window frame per system | Done. Looked at on an X display without a window manager; GNOME, KDE, macOS and Windows not seen (package 11). Moving and resizing with the pointer were not tried. |
 | 13 | A complete set of controls; tokens for size and space | Done: type sizes, controls, button kinds and the contrast test (3:1 for disabled text; the edge of an input at rest is not checked, it has none). Paddings are not all tokens yet. At 520×360 the Find bar, Unlock, crop chips and the edit panels are still cut or overlap: packages 15 and 16. |
 | 14 | One table of commands; a menu that fits; context menu | Done. The submenus take the menu's place (with a way back) rather than fly out, so that they fit a small window. The right-click menu of a page was tried with a pointer on an X display; the Mac's menu bar was not tried by hand. |
-| 15 | Dialogs | |
+| 15 | Dialogs | Done. Enter does not run a button that discards something. Quitting offers Save only when all that is unsaved is in the file on screen. The page range and orientation were not tried on a printer, and Windows' order of buttons was not seen. |
 | 16 | The main view | |
 | 17 | A screenshot set that is kept | |
 | 18 | Features: the ones from macOS Preview (all of them, see the list), then those the user picks | |

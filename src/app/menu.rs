@@ -2,13 +2,14 @@
 //! menu behind ☰ with everything that does not need a button of its own. Also the
 //! keyboard shortcuts and about dialogs they open.
 
-use iced::widget::{button, center, column, container, mouse_area, opaque, row, rule, space, stack, svg, text};
-use iced::{Alignment, Element, Font, Length, Point, Task, Theme};
+use iced::widget::{button, column, container, row, rule, svg, text};
+use iced::{Alignment, Element, Length, Point, Task, Theme};
 
 use super::commands::{Command, Group, Place, gestures};
+use super::export::ExportMsg;
 use super::markup::MarkupMsg;
 use super::popup::{Anchor, popup};
-use super::{App, Doc, Message, muted};
+use super::{App, Doc, Message, TOOLBAR_H, muted};
 use crate::annotate::Tool;
 use crate::i18n::{msgid, tr};
 use crate::platform::keys;
@@ -325,44 +326,38 @@ impl App {
     }
 
     pub(super) fn dialog_view(&self) -> Option<Element<'_, Message>> {
-        let dialog = self.dialog?;
-        let title = |t: String| {
-            text(t).size(style::HEADING).font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
-        };
-        let close = button(text(tr("Close")).size(style::BODY))
-            .padding([8, 16])
-            .style(style::secondary)
-            .on_press(Message::Dialog(None));
-        let body: Element<'_, Message> = match dialog {
+        fn close<'a>(d: ui::Dialog<'a, Message>) -> Element<'a, Message> {
+            d.cancel(tr("Close"), Message::Dialog(None)).view(TOOLBAR_H)
+        }
+        let strong = |t: String| text(t).size(style::BODY).font(style::font(iced::font::Weight::Semibold));
+        Some(match self.dialog? {
             Dialog::Shortcuts => {
-                let mut groups = column![].spacing(16);
+                let mut groups: Vec<Element<'_, Message>> = Vec::new();
                 for (group, entries) in self.shortcuts() {
-                    let mut list = column![
-                        text(tr(group.name())).size(style::BODY).font(style::font(iced::font::Weight::Semibold))
-                    ]
-                    .spacing(6);
+                    let mut list = column![strong(tr(group.name()))].spacing(6);
                     for (key, what) in entries {
                         list = list.push(
-                            row![
-                                text(what).size(style::BODY).width(Length::Fill),
-                                text(key).size(style::SMALL).style(muted)
-                            ]
-                            .spacing(12),
+                            row![text(what).size(style::BODY).width(Length::Fill), ui::keys(&key)]
+                                .spacing(12)
+                                .align_y(Alignment::Center),
                         );
                     }
-                    groups = groups.push(list);
+                    groups.push(list.into());
                 }
-                column![
-                    title(tr("Keyboard Shortcuts")),
-                    ui::scroll(groups).height(Length::Shrink),
-                    row![space().width(Length::Fill), close]
-                ]
-                .spacing(14)
-                .width(420)
-                .into()
+                let wide = self.area.width > 640.0;
+                let body: Element<'_, Message> = if wide {
+                    // About as much in each column.
+                    let right = groups.split_off(groups.len() / 2);
+                    let part = |groups| column(groups).spacing(16).width(Length::Fill);
+                    row![part(groups), part(right)].spacing(28).into()
+                } else {
+                    column(groups).spacing(16).into()
+                };
+                let width = if wide { ui::WIDE } else { ui::FORM };
+                close(ui::dialog(tr("Keyboard Shortcuts"), width, body))
             }
-            Dialog::Preferences => self.prefs_dialog(title(tr("Preferences")).into(), close.into()),
-            Dialog::Export => self.export_dialog(title(tr("Export")).into(), close.into()),
+            Dialog::Preferences => self.prefs_dialog(),
+            Dialog::Export => self.export_dialog(),
             Dialog::Properties => {
                 let mut sections = column![].spacing(16);
                 match &self.properties {
@@ -370,55 +365,52 @@ impl App {
                     Some(Err(e)) => sections = sections.push(text(e.as_str()).size(style::BODY)),
                     Some(Ok(sheet)) => {
                         for (name, rows) in &sheet.sections {
-                            let mut group = column![
-                                text(name.as_str())
-                                    .size(style::BODY)
-                                    .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT })
-                            ]
-                            .spacing(6);
+                            let mut group = column![strong(name.clone())].spacing(2);
                             for (key, value) in rows {
+                                // A box to type into that cannot be changed: its text can be selected.
+                                let value = ui::bare_input("", value).padding([3, 0]).on_input(|_| Message::Nothing);
                                 group = group.push(
-                                    row![
-                                        text(key.as_str()).size(style::SMALL).style(muted).width(104),
-                                        text(value.as_str()).size(style::BODY).width(Length::Fill),
-                                    ]
-                                    .spacing(10),
+                                    row![text(key.as_str()).size(style::SMALL).style(muted).width(104), value]
+                                        .spacing(10)
+                                        .align_y(Alignment::Center),
                                 );
                             }
                             sections = sections.push(group);
                         }
                     }
                 }
-                column![
-                    title(tr("Properties")),
-                    ui::scroll(sections).height(Length::Shrink),
-                    row![space().width(Length::Fill), close]
-                ]
-                .spacing(14)
-                .width(460)
-                .into()
+                let copy = ui::action(ui::Kind::Other, tr("Copy Path"), Some(Message::CopyPath));
+                close(ui::dialog(tr("Properties"), ui::FORM, sections).aside(copy))
             }
-            Dialog::About => column![
-                center(iced::widget::svg(crate::icons::app()).width(80).height(80)).height(90),
-                container(title(tr("Lumen"))).center_x(Length::Fill),
-                container(text(trf!("Version {}", env!("CARGO_PKG_VERSION"))).size(style::BODY).style(muted))
-                    .center_x(Length::Fill),
-                container(
-                    text(tr("A fast, safe viewer and editor for pictures and PDFs, in pure Rust with iced."))
-                        .size(style::BODY)
-                        .align_x(Alignment::Center)
-                )
-                .center_x(Length::Fill),
-                container(text(tr("GPL-3.0-or-later · github.com/ImanolGo/lumen-rs")).size(style::SMALL).style(muted))
-                    .center_x(Length::Fill),
-                row![space().width(Length::Fill), close],
-            ]
-            .spacing(10)
-            .width(360)
-            .into(),
-        };
-        let card = container(body).padding(22).style(style::panel).max_height(self.area.height.max(300.0));
-        let backdrop = mouse_area(space().width(Length::Fill).height(Length::Fill)).on_press(Message::Dialog(None));
-        Some(stack![container(backdrop).style(style::scrim), center(opaque(card))].into())
+            Dialog::About => {
+                let line = |t: String, size| text(t).size(size).align_x(Alignment::Center).width(Length::Fill);
+                let body = column![
+                    container(svg(icons::app()).width(72).height(72)).center_x(Length::Fill),
+                    line(trf!("Version {}", env!("CARGO_PKG_VERSION")), style::BODY).style(muted),
+                    line(
+                        tr("A fast, safe viewer and editor for pictures and PDFs, in pure Rust with iced."),
+                        style::BODY
+                    ),
+                    line(tr("GPL-3.0-or-later · github.com/ImanolGo/lumen-rs"), style::SMALL).style(muted),
+                ]
+                .spacing(10);
+                close(ui::dialog(tr("About Lumen"), ui::ASK, body))
+            }
+        })
+    }
+
+    /// What Enter does in the dialog on screen, if it has a button it could mean. Not one that
+    /// throws something away: that takes a click.
+    pub(super) fn dialog_enter(&self) -> Option<Message> {
+        if self.confirm_quit {
+            return self.can_save_and_quit().then_some(Message::Markup(MarkupMsg::SaveAndQuit));
+        }
+        if self.confirm.is_some() || self.pad.is_some() || self.print_dialog.is_some() {
+            return None;
+        }
+        match self.dialog? {
+            Dialog::Export => Some(Message::Export(ExportMsg::Go)),
+            _ => Some(Message::Dialog(None)),
+        }
     }
 }

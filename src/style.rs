@@ -28,6 +28,9 @@ pub const TITLE: f32 = 15.0;
 pub const HEADING: f32 = 18.0;
 pub const DISPLAY: f32 = 24.0;
 
+/// Between buttons and other things in a row.
+pub const GAP: f32 = 8.0;
+
 /// Corner radii: controls, panels.
 pub const RADIUS: f32 = 8.0;
 pub const PANEL_RADIUS: f32 = 12.0;
@@ -501,6 +504,11 @@ pub fn segment(selected: bool) -> impl Fn(&Theme, button::Status) -> button::Sty
             ..Default::default()
         }
     }
+}
+
+/// A row of a list of files: every name is as readable, the chosen ones lit.
+pub fn file_row(selected: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |theme, status| button::Style { text_color: text_color(theme), ..segment(selected)(theme, status) }
 }
 
 /// Selected text on a PDF page.

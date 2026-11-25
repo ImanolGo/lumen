@@ -18,6 +18,7 @@ pub const CAPS: crate::platform::Caps = crate::platform::Caps {
     title_in_header: true,
     title_centered: false,
     leading_inset: 78.0,
+    confirm_first: false,
 };
 
 pub fn roots() -> Vec<(String, PathBuf)> {

@@ -51,6 +51,8 @@ pub struct Caps {
     pub title_centered: bool,
     /// What the header leaves free at its start, for the system's own buttons.
     pub leading_inset: f32,
+    /// Dialogs have their main button before Cancel.
+    pub confirm_first: bool,
 }
 
 pub fn caps() -> Caps {

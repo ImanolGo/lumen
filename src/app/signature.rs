@@ -5,7 +5,7 @@
 
 use iced::mouse::{self, Cursor};
 use iced::widget::canvas::{self, Frame, Geometry, LineCap, LineJoin, Path, Stroke};
-use iced::widget::{button, canvas as canvas_widget, center, column, container, mouse_area, row, space, text};
+use iced::widget::{button, canvas as canvas_widget, column, container, mouse_area, row, space, text};
 use iced::{Alignment, Color, Element, Font, Length, Padding, Point, Rectangle, Renderer, Size, Task, Theme, Vector};
 
 use super::markup::MarkupMsg;
@@ -14,7 +14,7 @@ use crate::annotate::model::Style;
 use crate::annotate::{Color as InkColor, Rect, Tool};
 use crate::i18n::tr;
 use crate::signatures::Signature;
-use crate::{icons, style};
+use crate::{icons, style, ui};
 
 /// Blue-black, like a fountain pen.
 const INK: InkColor = InkColor::rgba(0.10, 0.14, 0.42, 1.0);
@@ -236,36 +236,13 @@ impl App {
         let Some(pad) = &self.pad else { return space().into() };
         let drawing = canvas_widget(PadCanvas { pad }).width(PAD.width).height(PAD.height);
         let has_ink = pad.strokes.iter().any(|s| s.len() > 1);
-        let card = container(
-            column![
-                text(tr("Draw your signature"))
-                    .size(style::HEADING)
-                    .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT }),
-                text(tr("It is kept for next time, on this computer only.")).size(style::BODY).style(muted),
-                drawing,
-                row![
-                    button(text(tr("Clear")).size(style::BODY))
-                        .padding([8, 16])
-                        .style(style::secondary)
-                        .on_press(Message::Sign(SignMsg::PadClear)),
-                    space().width(Length::Fill),
-                    button(text(tr("Cancel")).size(style::BODY))
-                        .padding([8, 16])
-                        .style(style::secondary)
-                        .on_press(Message::Sign(SignMsg::PadCancel)),
-                    button(text(tr("Use Signature")).size(style::BODY))
-                        .padding([8, 16])
-                        .style(style::primary)
-                        .on_press_maybe(has_ink.then_some(Message::Sign(SignMsg::PadDone))),
-                ]
-                .spacing(10),
-            ]
-            .spacing(10)
-            .width(PAD.width),
-        )
-        .padding(22)
-        .style(style::panel);
-        center(card).style(style::scrim).into()
+        let note = text(tr("It is kept for next time, on this computer only.")).size(style::BODY).style(muted);
+        let sign = |m: SignMsg| Message::Sign(m);
+        ui::dialog(tr("Draw your signature"), PAD.width + 48.0, column![note, drawing].spacing(10))
+            .aside(ui::action(ui::Kind::Other, tr("Clear"), Some(sign(SignMsg::PadClear))))
+            .cancel_button(tr("Cancel"), sign(SignMsg::PadCancel))
+            .button(ui::Kind::Main, tr("Use Signature"), has_ink.then_some(sign(SignMsg::PadDone)))
+            .view(TOOLBAR_H)
     }
 }
 

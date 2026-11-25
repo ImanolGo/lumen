@@ -3,11 +3,12 @@
 //! and keep the styles of their own.)
 
 use iced::widget::{
-    Checkbox, PickList, Scrollable, Slider, TextInput, checkbox, container, pick_list, scrollable, slider, stack, svg,
-    text_input,
+    Checkbox, PickList, Scrollable, Slider, TextInput, button, checkbox, container, mouse_area, opaque, pick_list, row,
+    scrollable, slider, space, stack, svg, text, text_input,
 };
 use iced::{Alignment, Element, Length, Padding};
 
+use crate::frame::frame;
 use crate::{icons, style};
 
 /// A box to type into.
@@ -71,4 +72,140 @@ pub fn thin_scroll<'a, M: 'a>(content: impl Into<Element<'a, M>>) -> Scrollable<
 pub fn side_scroll<'a, M: 'a>(content: impl Into<Element<'a, M>>) -> Scrollable<'a, M> {
     let bar = scrollable::Scrollbar::new().width(0).scroller_width(0);
     scrollable(content).direction(scrollable::Direction::Horizontal(bar))
+}
+
+/// How wide dialogs are: questions; forms and lists; those with two columns.
+pub const ASK: f32 = 360.0;
+pub const FORM: f32 = 480.0;
+pub const WIDE: f32 = 760.0;
+
+/// What a button of a dialog is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// What the dialog is for.
+    Main,
+    /// The same, throwing something away.
+    Danger,
+    Other,
+}
+
+pub struct Dialog<'a, M> {
+    title: String,
+    body: Element<'a, M>,
+    width: f32,
+    /// At the start of the row of buttons.
+    aside: Option<Element<'a, M>>,
+    buttons: Vec<(Kind, String, Option<M>)>,
+    /// What a press beside the dialog does, if anything.
+    cancel: Option<M>,
+}
+
+pub fn dialog<'a, M: Clone + 'a>(title: String, width: f32, body: impl Into<Element<'a, M>>) -> Dialog<'a, M> {
+    Dialog { title, body: body.into(), width, aside: None, buttons: Vec::new(), cancel: None }
+}
+
+/// A button as dialogs have them.
+pub fn action<'a, M: Clone + 'a>(kind: Kind, label: String, message: Option<M>) -> Element<'a, M> {
+    let look = match kind {
+        Kind::Main => style::primary,
+        Kind::Danger => style::danger,
+        Kind::Other => style::secondary,
+    };
+    button(text(label).size(style::BODY)).padding([8, 16]).style(look).on_press_maybe(message).into()
+}
+
+/// The order of a dialog's buttons, given with Cancel first and what it is for last: that way round
+/// on Linux and macOS, the other on Windows.
+fn ordered<T>(mut buttons: Vec<T>, confirm_first: bool) -> Vec<T> {
+    if confirm_first {
+        buttons.reverse();
+    }
+    buttons
+}
+
+impl<'a, M: Clone + 'a> Dialog<'a, M> {
+    pub fn aside(mut self, aside: impl Into<Element<'a, M>>) -> Self {
+        self.aside = Some(aside.into());
+        self
+    }
+
+    /// The button that leaves things as they are, which a press beside the dialog does too.
+    pub fn cancel(mut self, label: String, message: M) -> Self {
+        self.cancel = Some(message.clone());
+        self.buttons.push((Kind::Other, label, Some(message)));
+        self
+    }
+
+    /// The same, but a press beside the dialog does nothing (it may have been a stroke gone astray).
+    pub fn cancel_button(self, label: String, message: M) -> Self {
+        self.button(Kind::Other, label, Some(message))
+    }
+
+    /// A button; give what the dialog is for last.
+    pub fn button(mut self, kind: Kind, label: String, message: Option<M>) -> Self {
+        self.buttons.push((kind, label, message));
+        self
+    }
+
+    /// The dialog over a dimmed window, below the header, its buttons always in view.
+    pub fn view(self, header: f32) -> Element<'a, M> {
+        let buttons = ordered(self.buttons, crate::platform::caps().confirm_first);
+        let buttons = row(buttons.into_iter().map(|(kind, label, message)| action(kind, label, message)))
+            .spacing(style::GAP)
+            .wrap()
+            .align_x(Alignment::End);
+        let aside = self.aside.unwrap_or_else(|| space().into());
+        let foot = row![aside, container(buttons).width(Length::Fill).align_x(Alignment::End)]
+            .spacing(style::GAP)
+            .align_y(Alignment::Center);
+        let title = text(self.title).size(style::HEADING).font(style::font(iced::font::Weight::Semibold));
+        let card = container(frame(title.into(), scroll(self.body).width(Length::Fill).into(), foot.into(), 14.0))
+            .max_width(self.width)
+            .padding(20)
+            .style(style::panel);
+        let backdrop = mouse_area(space().width(Length::Fill).height(Length::Fill));
+        let backdrop = match self.cancel {
+            Some(message) => backdrop.on_press(message),
+            None => backdrop,
+        };
+        let placed = container(opaque(card)).center(Length::Fill).padding(Padding {
+            top: header + 4.0,
+            bottom: 8.0,
+            left: 16.0,
+            right: 16.0,
+        });
+        opaque(stack![container(backdrop).style(style::scrim), placed])
+    }
+}
+
+/// A shortcut ("Ctrl+F, F3") as keys.
+pub fn keys<'a, M: 'a>(shortcut: &str) -> Element<'a, M> {
+    let caps = shortcut.split(", ").map(|key| {
+        container(text(key.to_owned()).size(style::CAPTION).font(style::font(iced::font::Weight::Medium)))
+            .padding([2, 6])
+            .style(style::key_cap)
+            .into()
+    });
+    row(caps).spacing(4).into()
+}
+
+/// A row of choices, the current one lit.
+pub fn choices<'a, M: Clone + 'a>(items: Vec<(String, bool, M)>) -> Element<'a, M> {
+    row(items.into_iter().map(|(name, on, message)| {
+        button(text(name).size(style::SMALL)).padding([4, 10]).style(style::segment(on)).on_press(message).into()
+    }))
+    .spacing(2)
+    .wrap()
+    .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_main_button_is_where_the_system_has_it() {
+        assert_eq!(ordered(vec!["Cancel", "Copy", "Save"], false), ["Cancel", "Copy", "Save"]);
+        assert_eq!(ordered(vec!["Cancel", "Copy", "Save"], true), ["Save", "Copy", "Cancel"]);
+    }
 }

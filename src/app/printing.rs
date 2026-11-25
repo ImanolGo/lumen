@@ -1,10 +1,10 @@
 //! Lumen's own print dialog, for desktops without a print portal: pick a printer,
 //! copies, paper and two-sided printing, and the job goes straight to CUPS.
 
-use iced::widget::{button, center, column, container, mouse_area, opaque, row, space, stack, text};
-use iced::{Alignment, Element, Font, Length, Task};
+use iced::widget::{column, row, text};
+use iced::{Alignment, Element, Task};
 
-use super::{App, Message, blocking, err_string, muted};
+use super::{App, Message, TOOLBAR_H, blocking, err_string, muted};
 use crate::cups::{self, Job, Printer};
 use crate::i18n::tr;
 use crate::style;
@@ -31,11 +31,24 @@ pub struct PrintDialog {
     copies: String,
     media: Option<Media>,
     two_sided: bool,
+    /// Pages, as "1-3, 5"; empty for all.
+    pages: String,
+    turned: Turned,
     sending: bool,
+}
+
+/// Which way round the paper is; automatic leaves it to the printer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Turned {
+    Auto,
+    Portrait,
+    Landscape,
 }
 
 #[derive(Debug, Clone)]
 pub enum PrintMsg {
+    Pages(String),
+    Turned(Turned),
     Loaded(Result<Vec<Printer>, String>),
     Printer(Printer),
     Copies(String),
@@ -75,6 +88,8 @@ impl App {
             copies: "1".into(),
             media: None,
             two_sided: false,
+            pages: String::new(),
+            turned: Turned::Auto,
             sending: false,
         });
         Task::perform(blocking(|| cups::printers().map_err(err_string)), |r| {
@@ -110,14 +125,25 @@ impl App {
             PrintMsg::Copies(t) => dialog.copies = t.chars().filter(char::is_ascii_digit).take(3).collect(),
             PrintMsg::Media(m) => dialog.media = Some(m),
             PrintMsg::TwoSided(on) => dialog.two_sided = on,
+            PrintMsg::Pages(t) => dialog.pages = t,
+            PrintMsg::Turned(way) => dialog.turned = way,
             PrintMsg::Cancel => self.print_dialog = None,
             PrintMsg::Print => {
                 let Some(printer) = dialog.printer.clone() else { return Task::none() };
+                let Some(pages) = cups::page_ranges(&dialog.pages) else { return Task::none() };
+                if dialog.sending {
+                    return Task::none();
+                }
                 dialog.sending = true;
                 let job = Job {
                     copies: dialog.copies.parse().unwrap_or(1).max(1),
                     media: dialog.media.as_ref().map(|m| m.keyword.clone()),
                     two_sided: dialog.two_sided,
+                    pages,
+                    landscape: match dialog.turned {
+                        Turned::Auto => None,
+                        way => Some(way == Turned::Landscape),
+                    },
                 };
                 let what = dialog.job.clone();
                 return Task::perform(
@@ -133,9 +159,7 @@ impl App {
     pub(super) fn print_dialog_view(&self) -> Option<Element<'_, Message>> {
         let dialog = self.print_dialog.as_ref()?;
         let p = |m: PrintMsg| Message::Printing(m);
-        let title = text(trf!("Print “{}”", super::file_name(&dialog.job.path)))
-            .size(style::HEADING)
-            .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT });
+        let title = trf!("Print “{}”", super::file_name(&dialog.job.path));
         let label = |t: String| text(t).size(style::BODY).width(110);
         let body: Element<'_, Message> = match &dialog.printers {
             None => text(tr("Looking for printers…")).size(style::BODY).style(muted).into(),
@@ -162,6 +186,30 @@ impl App {
                     .align_y(Alignment::Center),
                 ]
                 .spacing(12);
+                let is_pdf = crate::library::Kind::of(&dialog.job.path) == Some(crate::library::Kind::Pdf);
+                if is_pdf {
+                    let wrong = cups::page_ranges(&dialog.pages).is_none();
+                    form = form.push(
+                        row![
+                            label(tr("Pages")),
+                            ui::input(&tr("All (or 1-3, 5)"), &dialog.pages)
+                                .on_input(move |t| p(PrintMsg::Pages(t)))
+                                .on_submit(p(PrintMsg::Print))
+                        ]
+                        .align_y(Alignment::Center),
+                    );
+                    if wrong {
+                        let say = tr("Write pages as 1-3, 5");
+                        form = form.push(text(say).size(style::SMALL).style(super::problem));
+                    }
+                }
+                let way = |name: String, way: Turned| (name, dialog.turned == way, p(PrintMsg::Turned(way)));
+                let ways = vec![
+                    way(tr("Automatic"), Turned::Auto),
+                    way(tr("Portrait"), Turned::Portrait),
+                    way(tr("Landscape"), Turned::Landscape),
+                ];
+                form = form.push(row![label(tr("Orientation")), ui::choices(ways)].align_y(Alignment::Center));
                 if !media.is_empty() {
                     form = form.push(
                         row![
@@ -185,33 +233,13 @@ impl App {
                 form.into()
             }
         };
-        let ready = dialog.printer.is_some() && !dialog.sending;
-        let card = container(
-            column![
-                title,
-                text(tr("Printing directly, without the desktop's print dialog.")).size(style::SMALL).style(muted),
-                space().height(4),
-                body,
-                space().height(4),
-                row![
-                    space().width(Length::Fill),
-                    button(text(tr("Cancel")).size(style::BODY))
-                        .padding([8, 16])
-                        .style(style::secondary)
-                        .on_press(p(PrintMsg::Cancel)),
-                    button(text(if dialog.sending { tr("Sending…") } else { tr("Print") }).size(style::BODY))
-                        .padding([8, 16])
-                        .style(style::primary)
-                        .on_press_maybe(ready.then_some(p(PrintMsg::Print))),
-                ]
-                .spacing(10),
-            ]
-            .spacing(8)
-            .width(440),
+        let ready = dialog.printer.is_some() && !dialog.sending && cups::page_ranges(&dialog.pages).is_some();
+        let go = if dialog.sending { tr("Sending…") } else { tr("Print") };
+        Some(
+            ui::dialog(title, ui::FORM, body)
+                .cancel(tr("Cancel"), p(PrintMsg::Cancel))
+                .button(ui::Kind::Main, go, ready.then_some(p(PrintMsg::Print)))
+                .view(TOOLBAR_H),
         )
-        .padding(22)
-        .style(style::panel);
-        let backdrop = mouse_area(space().width(Length::Fill).height(Length::Fill)).on_press(p(PrintMsg::Cancel));
-        Some(stack![container(backdrop).style(style::scrim), center(opaque(card))].into())
     }
 }

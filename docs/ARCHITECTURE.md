@@ -49,7 +49,8 @@ dependencies (touchpad pinch); see `vendor/README.md`.
 | `src/main.rs` | Entry point; the decoder worker mode (`--decode-worker`) starts here before anything else |
 | `src/app.rs` | State, messages, update and view |
 | `src/style.rs`, `src/icons.rs` | Design tokens, widget styles, symbolic icons |
-| `src/ui.rs` | Controls that come styled; views use these, never iced's bare ones |
+| `src/ui.rs` | Controls that come styled, and dialogs; views use these, never iced's bare ones |
+| `src/frame.rs` | A title, a body and buttons, where only the body gives way |
 | `src/settings.rs`, `src/app/prefs.rs` | Preferences: the settings file, and the dialog |
 | `src/app/commands.rs` | The table of commands (names, shortcuts, where they are, what they do now), and the palette |
 | `src/clipboard.rs` | Pictures as PNGs for the clipboard |

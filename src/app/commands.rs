@@ -104,8 +104,12 @@ pub fn gestures() -> [(Group, &'static str, &'static str); 9] {
     ]
 }
 
-/// What the preferences are called on this system.
+/// What the preferences are called on this system, in menus and on the dialog.
 pub fn preferences_name() -> &'static str {
+    if cfg!(target_os = "linux") { msgid("Preferences…") } else { msgid("Settings…") }
+}
+
+pub fn preferences_title() -> &'static str {
     if cfg!(target_os = "linux") { msgid("Preferences") } else { msgid("Settings") }
 }
 

@@ -290,6 +290,8 @@ pub struct App {
     pointer_at: Option<Point>,
     /// The scale of the touchpad pinch in progress, since it began.
     pinch_scale: f32,
+    /// Leave as soon as what is being saved is saved.
+    quit_when_saved: bool,
     menu: Option<Menu>,
     /// The context menu and where it is, where the right button last went down, and whether the
     /// press was on an annotation (so that the page under it does not answer too).
@@ -299,6 +301,8 @@ pub struct App {
     dialog: Option<Dialog>,
     /// What the Properties dialog shows; none while it is being read.
     properties: Option<Result<crate::properties::Sheet, String>>,
+    /// What the Export dialog is set to: PNG rather than PDF, and the resolution.
+    export_choice: (bool, u32),
     /// What the file chooser's answer will export.
     export_job: Option<ExportJob>,
     /// Exports started through the control interface that have not finished.
@@ -714,6 +718,8 @@ pub enum Message {
     /// Open a header menu (or close it with `None`), or pick one of its items.
     Menu(Option<Menu>),
     MenuPick(Box<Message>),
+    Nothing,
+    CopyPath,
     /// The right button went down somewhere, and on something that has a menu.
     RightPress(Point),
     Context(menu::Context),
@@ -880,6 +886,8 @@ impl App {
             zoom_ease: None,
             pointer_at: None,
             pinch_scale: 1.0,
+            quit_when_saved: false,
+            export_choice: (true, 150),
             menu: None,
             context: None,
             right_press: Point::ORIGIN,
@@ -1443,6 +1451,7 @@ impl App {
                 Task::none()
             }
             Message::Escape => {
+                self.quit_when_saved &= self.confirm.is_none();
                 if self.confirm.take().is_some()
                     || std::mem::take(&mut self.confirm_quit)
                     || self.chooser.take().is_some()
@@ -1675,6 +1684,7 @@ impl App {
             }
             Message::ConfirmNo => {
                 self.confirm = None;
+                self.quit_when_saved = false;
                 Task::none()
             }
             Message::Trash => {
@@ -1840,6 +1850,11 @@ impl App {
                 None => Task::none(),
             },
             Message::MenuPick(msg) => self.menu_pick(*msg),
+            Message::Nothing => Task::none(),
+            Message::CopyPath => {
+                let Some(path) = self.current_path().map(|p| p.display().to_string()) else { return Task::none() };
+                Task::batch([iced::clipboard::write(path), self.notice(tr("Copied the path"))])
+            }
             Message::RightPress(at) => {
                 self.right_press = at;
                 self.context_taken = false;
@@ -1964,10 +1979,18 @@ impl App {
             _ => return Task::none(),
         };
         self.modifiers = modifiers;
-        if let Some(task) = self.chooser_key(&key) {
+        if let Some(task) = self.chooser_key(&key, modifiers) {
             return task;
         }
-        if self.confirm_quit || self.confirm.is_some() || self.pad.is_some() || self.print_dialog.is_some() {
+        if key == Key::Named(Named::Enter)
+            && modifiers.is_empty()
+            && let Some(message) = self.dialog_enter()
+        {
+            return self.update(message);
+        }
+        // What is behind a dialog does not answer to keys.
+        let dialog = self.dialog.is_some() && !commands::pressed("Ctrl+Q", &key, modifiers);
+        if dialog || self.confirm_quit || self.confirm.is_some() || self.pad.is_some() || self.print_dialog.is_some() {
             return Task::none();
         }
         if let Some(task) = self.palette_key(&key) {
@@ -3771,9 +3794,9 @@ impl App {
             .secure(true)
             .on_input(Message::PasswordInput)
             .on_submit(Message::Unlock)
-            .width(280);
-        let unlock = button(text(tr("Unlock")).size(style::TITLE))
-            .padding([8, 18])
+            .width(Length::Fill);
+        let unlock = button(text(tr("Unlock")).size(style::BODY))
+            .padding([8, 16])
             .style(style::primary)
             .on_press_maybe((!self.password_input.is_empty()).then_some(Message::Unlock));
         let hint: Element<'_, Message> = if wrong {
@@ -3787,11 +3810,15 @@ impl App {
         center(
             column![
                 svg(icons::lock()).width(56).height(56).style(style::icon_muted),
-                text(trf!("“{}” is password-protected", file_name(path))).size(style::HEADING),
+                text(trf!("“{}” is password-protected", file_name(path)))
+                    .size(style::HEADING)
+                    .align_x(Alignment::Center),
                 hint,
                 space().height(4),
-                row![input, unlock].spacing(8).align_y(Alignment::Center),
+                row![input, unlock].spacing(style::GAP).align_y(Alignment::Center),
             ]
+            .max_width(360)
+            .padding(16)
             .spacing(10)
             .align_x(Alignment::Center),
         )
@@ -3919,6 +3946,11 @@ fn placed<'a>(rect: &Rect, zoom: f32, inner: Element<'a, Message>) -> Element<'a
 
 fn on_scroll(offset: iced::Vector, view: iced::Size) -> Message {
     Message::Scrolled(Viewport { x: offset.x, y: offset.y, height: view.height })
+}
+
+/// What is wrong.
+fn problem(theme: &Theme) -> text::Style {
+    text::Style { color: Some(theme.palette().danger) }
 }
 
 fn muted(theme: &Theme) -> text::Style {
