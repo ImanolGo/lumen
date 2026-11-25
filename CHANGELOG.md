@@ -4,6 +4,8 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-25
+
 ### Added
 - Quitting with changes offers to save them, when they are all in the file on screen.
 - Lumen's print dialog takes a range of pages and the orientation.
@@ -123,7 +125,8 @@ First release. Lumen (Rust/iced) is a rewrite of the GTK Lumen without GTK, popp
 - A comparison of PDF rendering with poppler (`tools/fidelity.py`, `docs/FIDELITY.md`).
 - CI: format, lint, tests, minimum Rust version, release build, packaging checks, AUR checks, dependency audit and a headless GUI job.
 
-[Unreleased]: https://github.com/ImanolGo/lumen-rs/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/ImanolGo/lumen-rs/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/ImanolGo/lumen-rs/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ImanolGo/lumen-rs/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ImanolGo/lumen-rs/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/ImanolGo/lumen-rs/compare/v0.1.0...v0.1.1

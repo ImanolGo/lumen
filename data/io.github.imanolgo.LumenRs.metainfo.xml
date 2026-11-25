@@ -38,6 +38,11 @@
     <control>touch</control>
   </supports>
   <releases>
+    <release version="0.4.0" date="2026-11-25">
+      <description>
+        <p>Dialogs whose buttons are always in view, right-click menus, a shorter main menu, one set of controls, page ranges when printing, and hints that go away.</p>
+      </description>
+    </release>
     <release version="0.3.0" date="2026-11-25">
       <description>
         <p>Select a part of a picture, discard changes, choose the language; steady zoom and a smooth pen.</p>
