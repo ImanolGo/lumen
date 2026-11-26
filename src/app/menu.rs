@@ -164,7 +164,7 @@ impl App {
                 if !lines.is_empty() {
                     lines.push(Line::Rule);
                 }
-                lines.extend(self.lines(&["fit", "fit-width", "actual"]));
+                lines.extend(self.lines(&["select-area", "", "fit", "fit-width", "actual"]));
                 if picture {
                     lines.extend(self.lines(&["rotate-right", "rotate-left"]));
                 }

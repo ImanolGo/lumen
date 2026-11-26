@@ -1092,3 +1092,12 @@ msgstr "Un JPEG no tiene transparencia: al guardarlo, la parte borrada queda bla
 
 msgid "Delete"
 msgstr "Borrar"
+
+msgid "Select an Area"
+msgstr "Seleccionar un área"
+
+msgid "{} × {} pt"
+msgstr "{} × {} pt"
+
+msgid "Stop Selecting Areas"
+msgstr "Dejar de seleccionar áreas"

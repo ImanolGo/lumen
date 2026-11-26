@@ -1350,3 +1350,35 @@ fn clearing_a_part_can_be_undone_and_discarded() {
     assert_eq!(alpha(&app, 10, 10), 255);
     assert!(!app.has_unsaved_changes());
 }
+
+#[test]
+fn an_area_of_a_page_is_drawn_instead_of_moving_the_view() {
+    let _inside = runtime().enter();
+    let mut app = pdf_app();
+    let hover = |app: &mut App, x: f32, y: f32| {
+        let zoom = match &app.doc {
+            Doc::Pdf(v) => v.zoom,
+            _ => 1.0,
+        };
+        let _ = app.update(Message::PageHover(0, iced::Point::new(x * zoom, y * zoom)));
+    };
+    // Off: a drag where there is no text moves the view.
+    hover(&mut app, 300.0, 700.0);
+    let _ = app.update(Message::PagePress(0));
+    assert!(app.pan.is_some() && app.page_area.is_none());
+    let _ = app.update(Message::MouseUp);
+    let _ = app.update(Message::Area(area::AreaMsg::Toggle));
+    hover(&mut app, 300.0, 700.0);
+    let _ = app.update(Message::PagePress(0));
+    hover(&mut app, 100.0, 600.0);
+    let _ = app.update(Message::MouseUp);
+    let a = app.page_area.expect("an area");
+    assert_eq!((a.rect().x0, a.rect().y0, a.rect().x1, a.rect().y1), (100.0, 600.0, 300.0, 700.0));
+    assert!(app.area_bar().is_some());
+    // A click is not an area, and Esc clears one.
+    let _ = app.update(Message::Escape);
+    assert!(app.page_area.is_none());
+    let _ = app.update(Message::PagePress(0));
+    let _ = app.update(Message::MouseUp);
+    assert!(app.page_area.is_none());
+}

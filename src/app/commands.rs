@@ -298,6 +298,8 @@ impl App {
             .or_else(|| image(Message::Region(RegionMsg::All)));
         add("select-all", msgid("Select All"), Edit, None, &["Ctrl+A"], everything);
         let crop = self.region.is_some().then_some(Message::Region(RegionMsg::Crop));
+        let area = pdf(Message::Area(super::area::AreaMsg::Toggle));
+        add("select-area", msgid("Select an Area"), Edit, None, &[], area);
         let invert = self.region.is_some().then_some(Message::Region(RegionMsg::Invert));
         add("invert", msgid("Invert Selection"), Edit, None, &["Ctrl+Shift+I"], invert);
         add("crop", msgid("Crop to Selection"), Edit, None, &["Ctrl+K"], crop);
@@ -386,6 +388,7 @@ impl App {
                 "fullscreen" if self.fullscreen => msgid("Leave Fullscreen"),
                 "slideshow" if self.slideshow.is_some() => msgid("Stop Slideshow"),
                 "sidebar" if self.show_sidebar => msgid("Hide Sidebar"),
+                "select-area" if self.area_mode => msgid("Stop Selecting Areas"),
                 "sidebar" if self.sidebar_tabs() == [super::SidebarTab::Files] => msgid("Show Folder"),
                 "sidebar" => msgid("Show Sidebar"),
                 "night" if self.night => msgid("Leave Night Mode"),

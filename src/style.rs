@@ -512,6 +512,15 @@ pub fn file_row(selected: bool) -> impl Fn(&Theme, button::Status) -> button::St
 }
 
 /// Selected text on a PDF page.
+/// An area selected on a page.
+pub fn area(theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Color::from_rgba(0.26, 0.52, 0.96, if is_dark(theme) { 0.16 } else { 0.12 }).into()),
+        border: Border { width: 1.5, color: Color::from_rgb(0.26, 0.52, 0.96), radius: 0.0.into() },
+        ..Default::default()
+    }
+}
+
 pub fn selection(theme: &Theme) -> container::Style {
     container::Style {
         background: Some(Color::from_rgba(0.26, 0.52, 0.96, if is_dark(theme) { 0.38 } else { 0.30 }).into()),

@@ -18,6 +18,7 @@ use iced::{
 };
 
 mod anim;
+mod area;
 mod chooser;
 mod commands;
 mod control;
@@ -288,6 +289,9 @@ pub struct App {
     region: Option<region::Region>,
     /// How dragging over a picture selects.
     select_mode: region::Mode,
+    /// Dragging over a PDF page selects an area of it; and that area.
+    area_mode: bool,
+    page_area: Option<area::Area>,
     /// The tolerance of the last selection by colour.
     colour_tolerance: u8,
     /// The floating zoom and previous/next controls fade in while the pointer moves over the view.
@@ -747,6 +751,7 @@ pub enum Message {
     Sign(SignMsg),
     Edit(EditMsg),
     Region(region::RegionMsg),
+    Area(area::AreaMsg),
     /// Throw the unsaved changes of the file on screen away (asks first).
     Discard,
     Pages(PagesMsg),
@@ -952,6 +957,8 @@ impl App {
             organizer: None,
             region: None,
             select_mode: region::Mode::default(),
+            area_mode: false,
+            page_area: None,
             colour_tolerance: 0,
             controls: iced::Animation::new(false).duration(Duration::from_millis(180)),
             now: Instant::now(),
@@ -1548,6 +1555,7 @@ impl App {
                 let point = PagePoint::new((position.x / view.zoom) as f64, (position.y / view.zoom) as f64);
                 let text = view.slots.get(page).and_then(|s| s.text.clone());
                 self.hover = Some((page, point));
+                self.area_drag(page, (point.x, point.y));
                 self.hover_text = text.as_ref().is_some_and(|t| t.is_over_text(point));
                 if self.selecting
                     && let (Some(sel), Some(text)) = (&mut self.selection, text)
@@ -1558,6 +1566,14 @@ impl App {
             }
             Message::PagePress(page) => {
                 let done = self.markup_page_press();
+                if let Some((p, at)) = self.hover
+                    && p == page
+                    && !self.markup_open
+                    && self.area_press(page, (at.x, at.y))
+                {
+                    self.selection = None;
+                    return done;
+                }
                 let text = match (&self.doc, self.hover) {
                     (Doc::Pdf(view), Some((p, _))) if p == page => view.slots[page].text.clone(),
                     _ => None,
@@ -1601,6 +1617,9 @@ impl App {
                     self.state.sidebar = Some(self.sidebar_w as u32);
                     let saved = self.state_changed();
                     return Task::batch([saved, self.page_thumbs_resized()]);
+                }
+                if self.area_release() {
+                    return Task::none();
                 }
                 if self.pages_mouse_up() {
                     return Task::none();
@@ -1664,6 +1683,7 @@ impl App {
                     || self.pages_escape()
                     || self.edit_escape()
                     || self.region.take().is_some()
+                    || self.page_area.take().is_some()
                 {
                     Task::none()
                 } else if let Some(task) = self.markup_escape() {
@@ -2033,6 +2053,7 @@ impl App {
             Message::Form(msg) => self.form_update(msg),
             Message::Sign(msg) => self.sign_update(msg),
             Message::Region(msg) => self.region_update(msg),
+            Message::Area(msg) => self.area_update(msg),
             Message::Discard => {
                 if self.confirm.take() == Some(Confirm::Discard) {
                     return self.discard_changes();
@@ -2429,6 +2450,7 @@ impl App {
         self.generation += 1;
         self.load_started = Some(Instant::now());
         self.selection = None;
+        self.page_area = None;
         self.selecting = false;
         self.hover = None;
         self.hover_text = false;
@@ -3436,7 +3458,7 @@ impl App {
             view_area = view_area.push(controls);
         }
         // What is said of a selection does not move the picture selected on.
-        if let Some(region) = self.region_bar().filter(|_| !self.fullscreen) {
+        if let Some(region) = self.region_bar().or_else(|| self.area_bar()).filter(|_| !self.fullscreen) {
             view_area = view_area.push(
                 container(region)
                     .width(Length::Fill)
@@ -4023,6 +4045,9 @@ impl App {
                 };
                 layers = layers.push(placed(&link.rect, view.zoom, area));
             }
+            if let Some(area) = self.area_layer(i, view.zoom) {
+                layers = layers.push(area);
+            }
             for layer in self.form_layers(i, view.zoom) {
                 layers = layers.push(layer);
             }
@@ -4032,6 +4057,8 @@ impl App {
             let hovered = self.hover.is_some_and(|(p, _)| p == i);
             let interaction = if self.pan.is_some() {
                 mouse::Interaction::Grabbing
+            } else if self.area_mode && !self.markup_open {
+                mouse::Interaction::Crosshair
             } else if self.selecting || (hovered && self.hover_text) {
                 mouse::Interaction::Text
             } else {
