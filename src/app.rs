@@ -288,6 +288,8 @@ pub struct App {
     organizer: Option<Organizer>,
     /// The part of the picture that is selected.
     region: Option<region::Region>,
+    /// The angle being tried while straightening a picture.
+    straighten: Option<f32>,
     /// How dragging over a picture selects.
     select_mode: region::Mode,
     /// Dragging over a PDF page selects an area of it; and that area.
@@ -966,6 +968,7 @@ impl App {
             organizer: None,
             region: None,
             select_mode: region::Mode::default(),
+            straighten: None,
             area_mode: false,
             page_area: None,
             renaming: None,
@@ -1695,6 +1698,7 @@ impl App {
                     || self.region.take().is_some()
                     || self.page_area.take().is_some()
                     || self.renaming.take().is_some()
+                    || self.straighten.take().is_some()
                 {
                     Task::none()
                 } else if let Some(task) = self.markup_escape() {
@@ -4046,6 +4050,16 @@ impl App {
             if zoom * self.scale_factor >= 3.0 { image::FilterMethod::Nearest } else { image::FilterMethod::Linear };
         let handle = self.anim_frame().unwrap_or(&view.shown.handle).clone();
         let picture = image(handle).filter_method(filter).content_fit(ContentFit::Fill).width(w).height(h);
+        // While straightening, the picture turns, enlarged so that no corner is empty.
+        let picture: Element<'_, Message> = match self.straighten.filter(|a| *a != 0.0) {
+            Some(angle) => {
+                let k = crate::edit::straighten::inner_scale(view.shown.width, view.shown.height, angle);
+                let turned =
+                    picture.rotation(iced::Rotation::Floating(iced::Radians(angle.to_radians()))).scale(1.0 / k);
+                container(turned).width(w).height(h).clip(true).into()
+            }
+            None => picture.into(),
+        };
         let mut layers = stack![picture].width(w).height(h);
         if let Some(crop) = self.crop_layer(zoom, w, h) {
             layers = layers.push(crop);

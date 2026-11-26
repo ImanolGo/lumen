@@ -119,6 +119,11 @@ pub enum EditMsg {
     CropApply,
     CropCancel,
     AdjustOpen,
+    /// Straightening: open or close it, the angle as it is dragged, and apply it.
+    StraightenOpen,
+    StraightenAngle(f32),
+    StraightenApply,
+    Straightened(u64, Result<Picture, String>),
     ResizeOpen,
     ResizeWidth(String),
     ResizeHeight(String),
@@ -423,7 +428,43 @@ impl App {
                 let Some(state) = self.crop.take() else { return Task::none() };
                 self.crop_to(state.rect)
             }
+            EditMsg::StraightenOpen => {
+                self.straighten = if self.straighten.is_some() { None } else { Some(0.0) };
+                self.adjust_open = false;
+                self.resize_form = None;
+                self.crop = None;
+                Task::none()
+            }
+            EditMsg::StraightenAngle(angle) => {
+                self.straighten = Some(angle.clamp(-45.0, 45.0));
+                Task::none()
+            }
+            EditMsg::StraightenApply => {
+                let Some(angle) = self.straighten.take().filter(|a| a.abs() >= 0.05) else { return Task::none() };
+                let Doc::Image(view) = &self.doc else { return Task::none() };
+                let picture = view.shown.picture.clone();
+                let generation = self.generation;
+                Task::perform(
+                    blocking(move || {
+                        let (w, h, rgba) =
+                            crate::edit::straighten::straighten(&picture.rgba, picture.width, picture.height, angle);
+                        Picture { width: w, height: h, original: (w, h), rgba: rgba.into() }
+                    }),
+                    move |r| Message::Edit(EditMsg::Straightened(generation, r)),
+                )
+            }
+            EditMsg::Straightened(generation, result) => {
+                if generation != self.generation {
+                    return Task::none();
+                }
+                match result {
+                    // What was drawn on it stays where it was on the screen.
+                    Ok(picture) => self.bake(picture),
+                    Err(e) => self.toast(trf!("Could not edit the picture: {}", e)),
+                }
+            }
             EditMsg::AdjustOpen => {
+                self.straighten = None;
                 self.adjust_open = !self.adjust_open;
                 self.resize_form = None;
                 self.crop = None;
@@ -612,6 +653,18 @@ impl App {
                 ),
                 Self::with_panel(
                     Self::named(
+                        icons::straighten(),
+                        tr("Straighten"),
+                        tr("Straighten"),
+                        e(EditMsg::StraightenOpen),
+                        self.straighten.is_some(),
+                        self.names_fit()
+                    ),
+                    self.straighten.map(|angle| self.straighten_panel(angle)),
+                    Message::Edit(EditMsg::StraightenOpen),
+                ),
+                Self::with_panel(
+                    Self::named(
                         icons::adjust(),
                         tr("Light and colour"),
                         tr("Light and colour"),
@@ -712,6 +765,34 @@ impl App {
 }
 
 impl App {
+    fn straighten_panel(&self, angle: f32) -> Element<'_, Message> {
+        let panel = column![
+            row![
+                text(tr("Straighten"))
+                    .size(style::BODY)
+                    .font(Font { weight: iced::font::Weight::Semibold, ..crate::style::FONT }),
+                space().width(Length::Fill),
+                text(format!("{angle:+.1}°")).size(style::SMALL).style(muted),
+            ],
+            ui::fine_slider(-45.0..=45.0, angle, |a| Message::Edit(EditMsg::StraightenAngle(a))).step(0.1_f32),
+            text(tr("The picture is cut to what stays inside it.")).size(style::SMALL).style(muted),
+            row![
+                button(text(tr("Reset")).size(style::BODY))
+                    .padding([5, 12])
+                    .style(style::secondary)
+                    .on_press_maybe((angle != 0.0).then_some(Message::Edit(EditMsg::StraightenAngle(0.0)))),
+                space().width(Length::Fill),
+                button(text(tr("Apply")).size(style::BODY))
+                    .padding([5, 14])
+                    .style(style::primary)
+                    .on_press_maybe((angle.abs() >= 0.05).then_some(Message::Edit(EditMsg::StraightenApply))),
+            ],
+        ]
+        .spacing(10)
+        .width(250);
+        Self::side_panel(container(panel).padding(14).into())
+    }
+
     fn resize_panel(&self) -> Element<'_, Message> {
         let (Some(form), Doc::Image(view)) = (&self.resize_form, &self.doc) else { return space().into() };
         let (uw, uh) = view.edit.edits.unscaled((view.original.width, view.original.height));

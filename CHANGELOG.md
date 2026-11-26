@@ -4,6 +4,9 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Added
+- Straighten, in the editing tools: turn a picture by up to 45° with a slider, seen at once, and keep the largest upright part of it; undo takes it back.
+
 ## [0.11.0] - 2026-11-26
 
 ### Added

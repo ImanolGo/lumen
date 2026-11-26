@@ -8,6 +8,7 @@
 pub mod adjust;
 pub mod crop;
 pub mod select;
+pub mod straighten;
 
 use std::sync::Arc;
 

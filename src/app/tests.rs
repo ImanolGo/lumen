@@ -1473,3 +1473,27 @@ fn a_pdf_comes_back_at_its_zoom_and_place() {
     assert_eq!(after.page, before.page);
     assert!((after.down - before.down).abs() < 0.01, "{before:?} {after:?}");
 }
+
+#[test]
+fn a_straightened_picture_is_turned_cut_and_can_be_undone() {
+    let _inside = runtime().enter();
+    let mut app = picture_app();
+    let size = |app: &App| match &app.doc {
+        Doc::Image(v) => (v.original.width, v.original.height),
+        _ => panic!("no picture"),
+    };
+    let _ = app.update(Message::Edit(edit::EditMsg::StraightenOpen));
+    let _ = app.update(Message::Edit(edit::EditMsg::StraightenAngle(60.0)));
+    assert_eq!(app.straighten, Some(45.0), "at most 45 degrees");
+    let _ = app.update(Message::Edit(edit::EditMsg::StraightenAngle(4.0)));
+    // What the work done off the screen sends back.
+    let Doc::Image(view) = &app.doc else { panic!("no picture") };
+    let p = view.shown.picture.clone();
+    let (w, h, rgba) = crate::edit::straighten::straighten(&p.rgba, p.width, p.height, 4.0);
+    app.straighten = None;
+    let turned = raster::Picture { width: w, height: h, original: (w, h), rgba: rgba.into() };
+    let _ = app.update(Message::Edit(edit::EditMsg::Straightened(app.generation, Ok(turned))));
+    assert!(size(&app).0 < 400 && app.has_unsaved_changes());
+    let _ = app.update(Message::Edit(edit::EditMsg::Undo));
+    assert_eq!(size(&app), (400, 300));
+}

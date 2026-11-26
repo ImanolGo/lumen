@@ -1152,3 +1152,12 @@ msgstr "Tamaño"
 
 msgid "Page {} ({} of {})"
 msgstr "Página {} ({} de {})"
+
+msgid "Straighten"
+msgstr "Enderezar"
+
+msgid "The picture is cut to what stays inside it."
+msgstr "La imagen se recorta a lo que queda dentro."
+
+msgid "Apply"
+msgstr "Aplicar"

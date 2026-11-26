@@ -705,7 +705,7 @@ Each is its own piece of work; ask the user which to do. Verified absent by sear
 | Sticky notes | A `/Text` annotation with a popup; the model already carries `/Contents` for imported ones. |
 | Sort order for folders | **Done.** By name, date modified, size, kind; reversed. A menu at the top of the Files list; remembered in the preferences. Files picked one by one keep the order they were picked in until an order is chosen. |
 | Rename the open file | **Done.** F2; keeps the place in the list and among the recent files; never overwrites (a hard link, which fails if the name is taken). A file with unsaved changes is saved or discarded first. |
-| Straighten and free rotation | A slider in the crop tool (±45°), cropping to the largest inner rectangle. |
+| Straighten and free rotation | **Done**, as its own tool next to Crop rather than inside it (the crop rectangle is measured on the picture as it is shown): a slider (±45°) turns the picture on the GPU while dragging; Apply turns its pixels once and keeps the largest inner rectangle of the same shape, as a baked step. Markup drawn before stays where it was on the screen. |
 | Colour management | Pictures are shown without regard to their ICC profile; wide-gamut photos look oversaturated or dull. Convert to sRGB on decode with a pure-Rust engine (`moxcms`), inside the worker. |
 | Page labels | **Done.** "iv" or "A-3" (`/PageLabels`) in the header, and taken by Go to Page. |
 | Open several documents | Tabs or windows; today opening a file replaces the list. iced 0.14 supports several windows (`window::open`). |
