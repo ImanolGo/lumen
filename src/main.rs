@@ -57,7 +57,7 @@ pub fn since_start() -> u64 {
 }
 
 const HELP: &str = "\
-Usage: lumen-rs [FILE|FOLDER]...
+Usage: lumen [FILE|FOLDER]...
 
 A fast, safe viewer for pictures and PDFs.
 
@@ -74,7 +74,7 @@ pub const WINDOW: (f32, f32) = (1180.0, 800.0);
 
 /// The window's icon, where windows have one of their own (Windows, X11).
 fn window_icon() -> Option<iced::window::Icon> {
-    let png = include_bytes!("../data/icons/64x64/apps/io.github.imanolgo.LumenRs.png");
+    let png = include_bytes!("../data/icons/64x64/apps/io.github.imanolgo.Lumen.png");
     let icon = image::load_from_memory_with_format(png, image::ImageFormat::Png).ok()?.into_rgba8();
     let (w, h) = icon.dimensions();
     iced::window::icon::from_rgba(icon.into_raw(), w, h).ok()
@@ -110,7 +110,7 @@ fn main() -> iced::Result {
     platform::startup::before_window();
     let log = tracing_subscriber::fmt().with_env_filter(
         tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| "warn,lumen_rs=info,wgpu=error,naga=error".into()),
+            .unwrap_or_else(|_| "warn,lumen=info,wgpu=error,naga=error".into()),
     );
     if control::stdio() {
         // Standard output carries the answers.
@@ -127,7 +127,7 @@ fn main() -> iced::Result {
                 return Ok(());
             }
             Some("-V" | "--version") => {
-                println!("lumen-rs {}", env!("CARGO_PKG_VERSION"));
+                println!("lumen {}", env!("CARGO_PKG_VERSION"));
                 return Ok(());
             }
             _ => paths.push(PathBuf::from(arg)),

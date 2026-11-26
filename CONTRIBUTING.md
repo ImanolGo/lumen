@@ -4,7 +4,7 @@ Thanks for helping. Bug reports, translations and pull requests are all welcome.
 
 ## Reporting bugs
 
-Open an [issue](https://github.com/ImanolGo/lumen-rs/issues) with your distribution and desktop, the Lumen version (`lumen-rs --version`), how you installed it and what you did. If you can, run `RUST_LOG=info lumen-rs` from a terminal and attach the log. For a problem with one file, say what kind of file it is and attach it if it is not private. If a picture will not open, try `LUMEN_NO_SANDBOX=1` and say whether that changes anything.
+Open an [issue](https://github.com/ImanolGo/lumen/issues) with your distribution and desktop, the Lumen version (`lumen --version`), how you installed it and what you did. If you can, run `RUST_LOG=info lumen` from a terminal and attach the log. For a problem with one file, say what kind of file it is and attach it if it is not private. If a picture will not open, try `LUMEN_NO_SANDBOX=1` and say whether that changes anything.
 
 ## Setting up
 

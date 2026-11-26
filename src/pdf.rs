@@ -603,7 +603,7 @@ pub(crate) mod tests {
 
     #[test]
     fn rejects_garbage() {
-        let dir = std::env::temp_dir().join(format!("lumen-rs-pdf-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lumen-pdf-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("bad.pdf");
         std::fs::write(&path, b"%PDF-1.7 nonsense").unwrap();
@@ -612,7 +612,7 @@ pub(crate) mod tests {
     }
 
     fn structured_pdf() -> PathBuf {
-        let path = std::env::temp_dir().join(format!("lumen-rs-structured-{}.pdf", std::process::id()));
+        let path = std::env::temp_dir().join(format!("lumen-structured-{}.pdf", std::process::id()));
         std::fs::write(&path, structured_bytes()).unwrap();
         path
     }
@@ -803,7 +803,7 @@ pub(crate) mod tests {
         let refs = opened.imported.as_ref().unwrap().refs.clone();
         let changes =
             Changes { layers: &layers, refs: &refs, pages: &[0], form: &form, values: &[], password: Some("secret") };
-        let dir = std::env::temp_dir().join(format!("lumen-rs-locked-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lumen-locked-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let target = dir.join("saved.pdf");
         let again = opened.doc.save_changes(&target, &changes, true).unwrap();
@@ -852,7 +852,7 @@ pub(crate) mod tests {
         pdf.objects.insert(pages, dictionary! { "Type" => "Pages", "Kids" => vec![page.into()], "Count" => 1 }.into());
         let root = pdf.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages });
         pdf.trailer.set("Root", root);
-        let path = std::env::temp_dir().join(format!("lumen-rs-huge-page-{}.pdf", std::process::id()));
+        let path = std::env::temp_dir().join(format!("lumen-huge-page-{}.pdf", std::process::id()));
         pdf.save(&path).unwrap();
         if let Ok(t) = thumbnail(&path, 64, None) {
             assert!(t.width <= 64 && t.height <= 64);

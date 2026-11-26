@@ -41,9 +41,9 @@ jobs:
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked --no-fail-fast
       - name: The real trash
-        run: cargo test --locked --bin lumen-rs trash -- --ignored
+        run: cargo test --locked --bin lumen trash -- --ignored
       - run: cargo build --release --locked
-      - run: ./target/release/lumen-rs --version | cat
+      - run: ./target/release/lumen --version | cat
         shell: bash
       - name: The app itself, driven over standard input
         timeout-minutes: 15
@@ -80,12 +80,12 @@ jobs:
       - run: cargo build --release --locked
       - name: Smoke test
         run: |
-          ./target/release/lumen-rs --version
-          ./target/release/lumen-rs --help
+          ./target/release/lumen --version
+          ./target/release/lumen --help
       - uses: actions/upload-artifact@v4
         with:
-          name: lumen-rs-x86_64-linux
-          path: target/release/lumen-rs
+          name: lumen-x86_64-linux
+          path: target/release/lumen
           retention-days: 14
 
   # The files that ship alongside the program: metadata, the .deb, the Flatpak sources.
@@ -97,8 +97,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y desktop-file-utils appstream libxkbcommon-dev libwayland-dev pkg-config
       - name: Desktop entry and AppStream metadata
         run: |
-          desktop-file-validate data/io.github.imanolgo.LumenRs.desktop
-          appstreamcli validate --no-net data/io.github.imanolgo.LumenRs.metainfo.xml
+          desktop-file-validate data/io.github.imanolgo.Lumen.desktop
+          appstreamcli validate --no-net data/io.github.imanolgo.Lumen.metainfo.xml
       - name: Flatpak sources match Cargo.lock
         run: python3 tools/check-flatpak-sources.py
       - uses: dtolnay/rust-toolchain@stable
@@ -110,9 +110,9 @@ jobs:
           deb=$(ls target/debian/*.deb)
           dpkg-deb --info "$deb"
           contents=$(dpkg-deb --contents "$deb")
-          for path in usr/bin/lumen-rs usr/share/applications/io.github.imanolgo.LumenRs.desktop \
-                      usr/share/metainfo/io.github.imanolgo.LumenRs.metainfo.xml \
-                      usr/share/icons/hicolor/scalable/apps/io.github.imanolgo.LumenRs.svg; do
+          for path in usr/bin/lumen usr/share/applications/io.github.imanolgo.Lumen.desktop \
+                      usr/share/metainfo/io.github.imanolgo.Lumen.metainfo.xml \
+                      usr/share/icons/hicolor/scalable/apps/io.github.imanolgo.Lumen.svg; do
             echo "$contents" | grep -q "$path" || { echo "missing from the .deb: $path"; exit 1; }
           done
 
@@ -128,7 +128,7 @@ jobs:
         run: |
           useradd -m builder
           chown -R builder .
-          for dir in build-aux/aur/lumen-rs build-aux/aur/lumen-rs-git; do
+          for dir in build-aux/aur/lumen-viewer build-aux/aur/lumen-viewer-git; do
             su builder -c "cd $dir && bash -n PKGBUILD && makepkg --printsrcinfo" | diff - "$dir/.SRCINFO" \
               || { echo "$dir/.SRCINFO is out of date: run makepkg --printsrcinfo > .SRCINFO"; exit 1; }
           done

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Compares how lumen-rs (hayro) and poppler draw the same PDF pages.
+"""Compares how lumen (hayro) and poppler draw the same PDF pages.
 
     python3 tools/fidelity.py OUT_DIR PDF_OR_FOLDER... [--per-file 6] [--per-producer 4] [--worst 12]
 
 For each PDF it picks a few pages (first two, last, and some in between), draws them at 72 dpi
-with `pdftoppm` and with lumen-rs (`cargo test --release render_corpus -- --ignored`), blurs both
+with `pdftoppm` and with lumen (`cargo test --release render_corpus -- --ignored`), blurs both
 a little (so anti-aliasing differences do not count) and measures how many pixels still differ.
-It writes OUT_DIR/report.md (every page, worst first) and OUT_DIR/worst/*.png (poppler | lumen-rs |
+It writes OUT_DIR/report.md (every page, worst first) and OUT_DIR/worst/*.png (poppler | lumen |
 difference) for the worst pages. Needs poppler-utils, numpy and Pillow.
 """
 import argparse
@@ -95,7 +95,7 @@ def montage(ref, got, diff, out_path, label):
         sheet.paste(im, (i * (w + 10), 18))
     from PIL import ImageDraw
     draw = ImageDraw.Draw(sheet)
-    for i, name in enumerate(("poppler", "lumen-rs", "difference")):
+    for i, name in enumerate(("poppler", "lumen", "difference")):
         draw.text((i * (w + 10) + 4, 3), f"{name}   {label}" if i == 0 else name, fill=(255, 255, 255))
     scale = min(1.0, 1800 / sheet.width)
     if scale < 1.0:
@@ -133,7 +133,7 @@ def main():
     lines = [l for l in run.stdout.splitlines() if l.startswith(("OK\t", "OPEN-ERR\t", "RENDER-ERR\t"))]
     if not lines:
         print(run.stdout[-2000:], run.stderr[-2000:], file=sys.stderr)
-        sys.exit("lumen-rs rendered nothing")
+        sys.exit("lumen rendered nothing")
 
     rows, errors, times = [], [], []
     for line in lines:
@@ -156,13 +156,13 @@ def main():
         r["montage"] = name
 
     fr = np.array([r["frac"] for r in rows])
-    lines = ["# Rendering fidelity: lumen-rs (hayro) against poppler", "",
+    lines = ["# Rendering fidelity: lumen (hayro) against poppler", "",
              f"{len(chosen)} PDFs, {len(rows)} pages compared at {args.dpi} dpi. A pixel counts as different when, after a 1 px blur, "
              f"its colour differs by more than {THRESHOLD}/255.", "",
              f"- median page: **{np.median(fr) * 100:.2f}%** of pixels differ; mean {fr.mean() * 100:.2f}%",
              f"- pages over 1%: {(fr > 0.01).sum()}; over 5%: {(fr > 0.05).sum()}; over 20%: {(fr > 0.20).sum()}",
              f"- render time (one page): median {int(np.median(times))} ms, slowest {max(times)} ms",
-             f"- pages that failed to open or render in lumen-rs: {len(errors)}", ""]
+             f"- pages that failed to open or render in lumen: {len(errors)}", ""]
     if errors:
         lines += ["## Failures", ""] + [f"- `{e[-2] if len(e) > 3 else ''}` {e[0]}: {e[-1]}" for e in errors] + [""]
     lines += ["## Pages, worst first", "", "| % differ | mean diff | file | page | producer | note |", "|---|---|---|---|---|---|"]

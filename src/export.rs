@@ -118,7 +118,7 @@ mod tests {
         let catalog = [("Type", "Catalog".into()), ("Pages", pages.into())];
         let root = pdf.add_object(lopdf::Dictionary::from_iter(catalog));
         pdf.trailer.set("Root", root);
-        let dir = std::env::temp_dir().join(format!("lumen-rs-dpi-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lumen-dpi-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         pdf.save(dir.join("big.pdf")).unwrap();
         let doc = pdf::Document::open(&dir.join("big.pdf")).unwrap();
@@ -158,7 +158,7 @@ mod tests {
     fn names_are_numbered_and_never_clash() {
         assert_eq!(numbered_names("doc", &[0, 8, 11], "png"), ["doc-01.png", "doc-09.png", "doc-12.png"]);
         assert_eq!(numbered_names("doc", &[0, 1], "png"), ["doc-1.png", "doc-2.png"]);
-        let dir = std::env::temp_dir().join(format!("lumen-rs-export-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lumen-export-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         assert_eq!(free_path(&dir, "a.png"), dir.join("a.png"));
         std::fs::write(dir.join("a.png"), b"x").unwrap();
@@ -173,7 +173,7 @@ mod tests {
         let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/form.pdf");
         let doc = pdf::Document::open(&source).unwrap();
         let (w, h) = doc.page_size(0);
-        let dir = std::env::temp_dir().join(format!("lumen-rs-export-png-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lumen-export-png-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         for dpi in [72u32, 150] {
             let target = dir.join(format!("p{dpi}.png"));
@@ -194,7 +194,7 @@ mod tests {
 
     #[test]
     fn a_picture_becomes_a_pdf_as_big_as_itself() {
-        let dir = std::env::temp_dir().join(format!("lumen-rs-export-pic-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lumen-export-pic-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("p.png");
         image::RgbaImage::from_pixel(300, 150, image::Rgba([1, 2, 3, 255])).save(&path).unwrap();

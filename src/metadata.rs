@@ -122,7 +122,7 @@ mod tests {
 
     #[test]
     fn only_a_profile_for_rgb_goes_into_an_rgb_copy() {
-        let dir = std::env::temp_dir().join(format!("lumen-rs-icc-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lumen-icc-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         for (space, kept) in [(b"RGB ", true), (b"CMYK", false), (b"GRAY", false)] {
             let mut icc = vec![0u8; 128];
@@ -140,7 +140,7 @@ mod tests {
 
     #[test]
     fn copies_keep_the_exif_but_not_the_old_layout() {
-        let dir = std::env::temp_dir().join(format!("lumen-rs-exif-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lumen-exif-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let source = dir.join("photo.jpg");
         photo(&source);

@@ -34,7 +34,7 @@ impl Job {
 
     /// A copy called `name`, in a folder only this user can look into, with what `write` puts there.
     pub fn copy(name: &str, write: impl FnOnce(&Path) -> Result<()>) -> Result<Self> {
-        let copy = PrivateCopy(crate::fsio::private_dir("lumen-rs-print").context("no place for the copy to print")?);
+        let copy = PrivateCopy(crate::fsio::private_dir("lumen-print").context("no place for the copy to print")?);
         COPIES.lock().unwrap_or_else(|e| e.into_inner()).push(copy.0.clone());
         let path = copy.0.join(name);
         write(&path)?;
@@ -210,7 +210,7 @@ mod tests {
     fn a_small_picture_is_not_cropped() {
         let banner =
             image::RgbImage::from_fn(1000, 50, |_, y| image::Rgb(if y < 12 { [255, 0, 0] } else { [0, 0, 255] }));
-        let dir = std::env::temp_dir().join(format!("lumen-rs-banner-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lumen-banner-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("b.png");
         banner.save(&path).unwrap();
@@ -226,7 +226,7 @@ mod tests {
 
     #[test]
     fn wraps_a_picture_in_a_valid_pdf() {
-        let dir = std::env::temp_dir().join(format!("lumen-rs-print-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lumen-print-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("p.png");
         image::RgbaImage::from_pixel(1200, 800, image::Rgba([200, 0, 0, 128])).save(&path).unwrap();

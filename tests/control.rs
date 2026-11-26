@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-const APP: &str = env!("CARGO_BIN_EXE_lumen-rs");
+const APP: &str = env!("CARGO_BIN_EXE_lumen");
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)
 }
@@ -61,11 +61,11 @@ impl Transport {
 }
 
 #[cfg(target_os = "linux")]
-const NAME: &str = "io.github.imanolgo.LumenRs";
+const NAME: &str = "io.github.imanolgo.Lumen";
 #[cfg(target_os = "linux")]
-const PATH: &str = "/io/github/imanolgo/LumenRs/Control";
+const PATH: &str = "/io/github/imanolgo/Lumen/Control";
 #[cfg(target_os = "linux")]
-const IFACE: &str = "io.github.imanolgo.LumenRs.Control1";
+const IFACE: &str = "io.github.imanolgo.Lumen.Control1";
 
 /// The app, and what it needs to run.
 struct Lumen {
@@ -121,7 +121,7 @@ async fn on_bus_started(mut app: Command, dir: PathBuf) -> Lumen {
 
 impl Lumen {
     async fn start(test: &str, files: &[PathBuf]) -> Self {
-        let dir = std::env::temp_dir().join(format!("lumen-rs-control-{test}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lumen-control-{test}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 

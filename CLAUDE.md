@@ -1,7 +1,7 @@
-# Working on lumen-rs
+# Working on lumen
 
-A picture and PDF viewer/editor in pure Rust with iced 0.14; a rewrite of the GTK
-Lumen (`~/repos/lumen`, also on GitHub as ImanolGo/lumen). `README.md` is the short
+A picture and PDF viewer/editor in pure Rust with iced 0.14; the successor of the GTK
+Lumen (`~/repos/lumen-gtk`, also on GitHub as ImanolGo/lumen-gtk, no longer developed). `README.md` is the short
 version; `docs/FEATURES.md` and `docs/ARCHITECTURE.md` have the features and the source
 layout, `docs/STATUS.md` says what is missing, and `docs/parity-plan.md` is the plan for
 what is left to do. Read the plan and the docs you need before starting.
@@ -51,10 +51,10 @@ There is no way to send real mouse, keyboard or touchpad events (no ydotool,
 3. **Screenshots** of the window (niri):
    ```sh
    wl-paste -n > /tmp/clip.bak                       # keep the user's clipboard
-   (env LUMEN_DEMO=x ./target/release/lumen-rs FILE &) ; sleep 3
+   (env LUMEN_DEMO=x ./target/release/lumen FILE &) ; sleep 3
    niri msg action screenshot-window -d false; sleep 0.5
    wl-paste -t image/png > shot.png
-   pkill -x lumen-rs                                 # never `pkill -f` (kills the shell)
+   pkill -x lumen                                 # never `pkill -f` (kills the shell)
    wl-copy < /tmp/clip.bak
    ```
    The shell is zsh: to pass several `VAR=x` words from one variable use `env ${=VARS}`.

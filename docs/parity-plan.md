@@ -8,14 +8,14 @@ in the same commit.
 
 ## Where we are (23 Nov 2026, commit 4a52aa1)
 
-lumen-rs covers roughly 80 % of the GTK Lumen 0.4.2: viewing, folders, PDF reading
+lumen covers roughly 80 % of the GTK Lumen 0.4.2: viewing, folders, PDF reading
 (contents, search, selection, links, column-aware reading order, passwords),
 markup, forms, signatures, picture editing (turn, mirror, crop, resize, colour),
 page organising, printing (portal or direct CUPS), built-in file chooser, pinch zoom.
 
 ### Benchmarks (`tools/bench.py`, medians of 5 cold starts, this laptop)
 
-| | GTK Lumen | lumen-rs |
+| | GTK Lumen | lumen |
 |---|---|---|
 | First view, PDF 42 p / 477 p | 312 / 397 ms | **165 / 190 ms** |
 | First view, JPEG 2256×1820 / PNG 5120×2160 | 357 / 440 ms | **203 / 286 ms** |
@@ -29,7 +29,7 @@ page organising, printing (portal or direct CUPS), built-in file chooser, pinch 
 (The GTK Lumen decodes pictures in separate glycin processes, so its picture RSS
 does not count the decoders.)
 
-### What the GTK Lumen has and lumen-rs lacks
+### What the GTK Lumen has and lumen lacks
 
 Formats (HEIC, AVIF, JPEG XL, JPEG 2000, OpenEXR), animation (GIF, APNG, WebP),
 sandboxed decoding, lossless JPEG rotation and saving in place, page thumbnails in
@@ -45,10 +45,10 @@ Ask these at the start (one `AskUserQuestion` call), because they change the wor
 1. **AVIF and HEIC** need C decoders (dav1d, libheif); everything else can stay
    pure Rust. Allow them as an optional cargo feature, or skip them?
 2. **Sandboxed decoding** (package 8): worth the extra process per decode?
-3. **Go to page shortcut**: the GTK Lumen uses Ctrl+G for "go to page"; lumen-rs
+3. **Go to page shortcut**: the GTK Lumen uses Ctrl+G for "go to page"; lumen
    uses Ctrl+G for "next search match". Which wins?
 4. **Saving edited pictures in place** (the GTK Lumen saves JPEG/PNG/WebP in place;
-   lumen-rs always saves a copy). Keep copy-only, or save in place with Ctrl+S and
+   lumen always saves a copy). Keep copy-only, or save in place with Ctrl+S and
    copy with Ctrl+Shift+S?
 
 Also ask about the open bug in package 1 if the user has not answered yet.
@@ -135,14 +135,14 @@ byte-identical to the original.
 
 ### 7. Preferences
 
-`~/.config/lumen-rs/settings.toml` (serde + toml are dependencies): theme
+`~/.config/lumen/settings.toml` (serde + toml are dependencies): theme
 (system/light/dark), slideshow interval, default PDF fit, sidebar open by default,
 floating controls on/off, portals on/off (same as `LUMEN_NO_PORTAL`), preload budget.
 A dialog from the ☰ menu in the existing dialog style (`src/app/menu.rs`).
 
 ### 8. Sandboxed decoding (per decision 2)
 
-Decode pictures in a child process (`lumen-rs --decode-worker`), restricted with
+Decode pictures in a child process (`lumen --decode-worker`), restricted with
 `landlock` (filesystem: read the one file) and `seccompiler` (syscalls), pixels back
 over a pipe or memfd. Fall back to in-process decoding if the sandbox cannot start.
 **Done when:** overhead < 15 ms per picture (measure with `tools/bench.py`), a crashing
@@ -155,10 +155,10 @@ decoder only produces an error message.
   match; English stays the source.
 - **Accessibility**: iced 0.14 has no screen reader support; note it in the README and
   re-check when iced gains it. Make sure every icon button has a tooltip label.
-- **D-Bus control interface** (zbus): `io.github.imanolgo.LumenRs` with Open, Next,
+- **D-Bus control interface** (zbus): `io.github.imanolgo.Lumen` with Open, Next,
   Previous, Zoom, GoToPage, State; port the scenarios of `~/repos/lumen/tests/control.rs`
   as integration tests (they also give real end-to-end UI tests).
-- **Packages**: AUR `lumen-rs` and `lumen-rs-git` PKGBUILDs (`build-aux/aur/`), a GitHub
+- **Packages**: AUR `lumen` and `lumen-git` PKGBUILDs (`build-aux/aur/`), a GitHub
   release workflow building an x86_64 tarball, `.deb` via `cargo-deb`, a Flatpak manifest
   (`flatpak-cargo-generator` for sources). Ask before publishing anything to the AUR.
 - **Tests**: bring the count past the GTK Lumen's (143), especially app-level message
@@ -168,7 +168,7 @@ decoder only produces an error message.
 
 Compare hayro with poppler on a corpus (the Ghostscript PDFs, `tests/fixtures`,
 pdf.js test PDFs if downloaded into a scratch folder): render page images with
-`pdftoppm` and with lumen-rs (`pdf::Document::render`, a small ignored test that
+`pdftoppm` and with lumen (`pdf::Document::render`, a small ignored test that
 writes PNGs), compute a pixel difference per page, and list the worst pages with
 screenshots. Fix what is ours; report upstream to hayro what is not.
 
@@ -182,7 +182,7 @@ screenshots. Fix what is ours; report upstream to hayro what is not.
 | 4 | File actions | done: show in folder, open with, move to trash with Undo (spec trash in Rust; no portal trash, since it cannot undo); no Ctrl+Delete shortcut on purpose |
 | 5 | Slideshow | done: F5, 5 s fixed until package 7 makes it a preference; PDFs advance page by page |
 | 6 | Pictures (animation, formats, lossless JPEG) | done: JPEG XL, JPEG 2000, OpenEXR, GIF/APNG/WebP animation, AVIF/HEIC (optional `heif` feature, tested with libheif 1.23), lossless JPEG turning, Ctrl+S saves JPEG/PNG/WebP in place |
-| 7 | Preferences | done: `~/.config/lumen-rs/settings.toml` + ☰ → Preferences…; night mode and the slideshow time are persistent now |
+| 7 | Preferences | done: `~/.config/lumen/settings.toml` + ☰ → Preferences…; night mode and the slideshow time are persistent now |
 | 8 | Sandboxed decoding | done, with one miss: Landlock + seccomp, every format and the escape attempts tested through the real binary. Measured overhead (load time, sandbox on vs off, one picture per folder, interleaved runs): the sandbox itself costs ~0–1 ms; a small picture 4 ms in all; but the 11 MP pictures cost +17…30 ms because their 44 MB of pixels are copied through a pipe (~16–20 ms; shared memory would need unsafe code). So the < 15 ms target holds up to about 4–5 MP and is missed by the largest pictures. Parent RSS is lower with the sandbox (133 vs 199 MB for the 5K PNG) |
 | 9 | Product finish | done except two checks: D-Bus control interface (off unless `LUMEN_CONTROL=1`; 5 end-to-end tests, opt-in), Spanish translation (embedded `.po` parsed in Rust, ~235 strings, guard test), accessibility note (+ tooltips on the floating controls), 16 app-level message-flow tests (154 unit + 3 sandbox tests always run, past the GTK Lumen's 143), packages: AUR PKGBUILDs (`.SRCINFO` generated), release workflow, `.deb` (built and inspected), AppStream metainfo (validated), Flatpak manifest (syntax-checked). Flatpak `cargo-sources.json` generated (608 crates, matches Cargo.lock) and the manifest parses with it. **Not done:** no Flatpak build, AUR upload, tag or release has been made |
 | 10 | PDF rendering fidelity | done: [FIDELITY.md](FIDELITY.md). 132 pages from 30 real PDFs plus a feature test, against poppler: median 0.33% of pixels differ at 72 dpi (none over 5%), nothing drawn wrongly. The differences (heavier hairlines from hayro's 1 px minimum line width, slightly heavier text, CMYK shades) are hayro's, not ours; nothing was filed upstream |

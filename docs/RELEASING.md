@@ -6,8 +6,8 @@ yet. This file is the checklist for a release.
 ## Before tagging
 
 1. Set the version in `Cargo.toml` (and run `cargo build` so `Cargo.lock` follows), in
-   `build-aux/aur/lumen-rs/PKGBUILD` (`pkgver`, `pkgrel=1`), and add a `<release>` with today's date
-   to `data/io.github.imanolgo.LumenRs.metainfo.xml`.
+   `build-aux/aur/lumen-viewer/PKGBUILD` (`pkgver`, `pkgrel=1`), and add a `<release>` with today's date
+   to `data/io.github.imanolgo.Lumen.metainfo.xml`.
 2. Move the `Unreleased` entries in `CHANGELOG.md` under the new version, with the same date.
 3. If `Cargo.lock` changed, regenerate the Flatpak sources and check them:
 
@@ -21,8 +21,8 @@ yet. This file is the checklist for a release.
 5. Build the Flatpak once, and try it (it has never been built):
 
    ```sh
-   flatpak-builder --user --install --force-clean build-dir build-aux/flatpak/io.github.imanolgo.LumenRs.yml
-   flatpak run io.github.imanolgo.LumenRs
+   flatpak-builder --user --install --force-clean build-dir build-aux/flatpak/io.github.imanolgo.Lumen.yml
+   flatpak run io.github.imanolgo.Lumen
    ```
 
 6. Run the real thing: `make install PREFIX=$HOME/.local`, then open a folder, a PDF and a form.
@@ -47,20 +47,20 @@ their output is piped (`Lumen.exe --version | more`).
 
 ## AUR
 
-There are two packages in `build-aux/aur/`: `lumen-rs` (a tagged release) and `lumen-rs-git` (the
+There are two packages in `build-aux/aur/`: `lumen` (a tagged release) and `lumen-git` (the
 latest commit). Each AUR package is its own git repository, and publishing needs an AUR account
 with your SSH key. After the tag exists:
 
 ```sh
-cd build-aux/aur/lumen-rs
+cd build-aux/aur/lumen-viewer
 updpkgsums                              # fills in the tarball's checksum (it is SKIP until then)
 makepkg --printsrcinfo > .SRCINFO
 makepkg -si                             # a real build and install, to check it
 ```
 
-Then push `PKGBUILD` and `.SRCINFO` to `ssh://aur@aur.archlinux.org/lumen-rs.git`. For `lumen-rs-git`
+Then push `PKGBUILD` and `.SRCINFO` to `ssh://aur@aur.archlinux.org/lumen.git`. For `lumen-git`
 only `.SRCINFO` needs regenerating when its PKGBUILD changes; its version is computed at build time.
-CI checks that each `.SRCINFO` matches its PKGBUILD. Check first that the name `lumen-rs` is free on the AUR.
+CI checks that each `.SRCINFO` matches its PKGBUILD. Check first that the name `lumen` is free on the AUR.
 
 ## Flatpak
 

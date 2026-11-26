@@ -1,12 +1,12 @@
 [package]
-name = "lumen-rs"
+name = "lumen"
 version = "0.8.0"
 edition = "2024"
 rust-version = "1.92"
 description = "A fast, safe image and PDF viewer for Linux, macOS and Windows, written in pure Rust with iced"
 license = "GPL-3.0-or-later"
 authors = ["Imanol Gomez"]
-repository = "https://github.com/ImanolGo/lumen-rs"
+repository = "https://github.com/ImanolGo/lumen"
 
 [features]
 # AVIF and HEIC through the system's libheif (C). Off by default: the default build has no C code in the document path.
@@ -78,7 +78,7 @@ iced_core = { path = "vendor/iced_core" }
 iced_winit = { path = "vendor/iced_winit" }
 
 [package.metadata.deb]
-maintainer = "ImanolGo <https://github.com/ImanolGo/lumen-rs>"
+maintainer = "ImanolGo <https://github.com/ImanolGo/lumen>"
 copyright = "2026, ImanolGo. GPL-3.0-or-later"
 license-file = ["LICENSE", "0"]
 extended-description = """\
@@ -91,16 +91,16 @@ priority = "optional"
 depends = "$auto, libxkbcommon0, libwayland-client0, libvulkan1 | libgl1"
 recommends = "xdg-desktop-portal, mesa-vulkan-drivers"
 assets = [
-    ["target/release/lumen-rs", "usr/bin/", "755"],
-    ["data/io.github.imanolgo.LumenRs.desktop", "usr/share/applications/", "644"],
-    ["data/io.github.imanolgo.LumenRs.metainfo.xml", "usr/share/metainfo/", "644"],
-    ["data/icons/scalable/apps/io.github.imanolgo.LumenRs.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
-    ["data/icons/16x16/apps/io.github.imanolgo.LumenRs.png", "usr/share/icons/hicolor/16x16/apps/", "644"],
-    ["data/icons/32x32/apps/io.github.imanolgo.LumenRs.png", "usr/share/icons/hicolor/32x32/apps/", "644"],
-    ["data/icons/48x48/apps/io.github.imanolgo.LumenRs.png", "usr/share/icons/hicolor/48x48/apps/", "644"],
-    ["data/icons/64x64/apps/io.github.imanolgo.LumenRs.png", "usr/share/icons/hicolor/64x64/apps/", "644"],
-    ["data/icons/128x128/apps/io.github.imanolgo.LumenRs.png", "usr/share/icons/hicolor/128x128/apps/", "644"],
-    ["data/icons/256x256/apps/io.github.imanolgo.LumenRs.png", "usr/share/icons/hicolor/256x256/apps/", "644"],
-    ["data/icons/512x512/apps/io.github.imanolgo.LumenRs.png", "usr/share/icons/hicolor/512x512/apps/", "644"],
-    ["README.md", "usr/share/doc/lumen-rs/README", "644"],
+    ["target/release/lumen", "usr/bin/", "755"],
+    ["data/io.github.imanolgo.Lumen.desktop", "usr/share/applications/", "644"],
+    ["data/io.github.imanolgo.Lumen.metainfo.xml", "usr/share/metainfo/", "644"],
+    ["data/icons/scalable/apps/io.github.imanolgo.Lumen.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+    ["data/icons/16x16/apps/io.github.imanolgo.Lumen.png", "usr/share/icons/hicolor/16x16/apps/", "644"],
+    ["data/icons/32x32/apps/io.github.imanolgo.Lumen.png", "usr/share/icons/hicolor/32x32/apps/", "644"],
+    ["data/icons/48x48/apps/io.github.imanolgo.Lumen.png", "usr/share/icons/hicolor/48x48/apps/", "644"],
+    ["data/icons/64x64/apps/io.github.imanolgo.Lumen.png", "usr/share/icons/hicolor/64x64/apps/", "644"],
+    ["data/icons/128x128/apps/io.github.imanolgo.Lumen.png", "usr/share/icons/hicolor/128x128/apps/", "644"],
+    ["data/icons/256x256/apps/io.github.imanolgo.Lumen.png", "usr/share/icons/hicolor/256x256/apps/", "644"],
+    ["data/icons/512x512/apps/io.github.imanolgo.Lumen.png", "usr/share/icons/hicolor/512x512/apps/", "644"],
+    ["README.md", "usr/share/doc/lumen/README", "644"],
 ]

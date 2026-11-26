@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn the_turned_file_shows_what_turning_the_pixels_would() {
-        let dir = std::env::temp_dir().join(format!("lumen-rs-lossless-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lumen-lossless-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (a, b) = (dir.join("a.jpg"), dir.join("b.jpg"));
         let original = jpeg(Some(exif_with(vec![orient_field(1)], false)));

@@ -129,7 +129,7 @@ mod tests {
     use std::os::unix::fs::{PermissionsExt, symlink};
 
     fn temp(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("lumen-rs-fsio-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lumen-fsio-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -198,7 +198,7 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn a_private_folder_is_private() {
-        let dir = private_dir("lumen-rs-test").unwrap();
+        let dir = private_dir("lumen-test").unwrap();
         assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
         std::fs::remove_dir(&dir).unwrap();
     }

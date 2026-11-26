@@ -151,7 +151,7 @@ pub struct App {
     mode: Mode,
     /// What the desktop says; `mode` is that unless the preferences or `LUMEN_THEME` say otherwise.
     system_mode: Mode,
-    /// The preferences, kept in `~/.config/lumen-rs/settings.toml`.
+    /// The preferences, kept in `~/.config/lumen/settings.toml`.
     prefs: crate::settings::Settings,
     theme: Theme,
     window: Option<window::Id>,

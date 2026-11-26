@@ -130,7 +130,7 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn a_link_is_browsed_where_it_is() {
-        let dir = std::env::temp_dir().join(format!("lumen-rs-links-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lumen-links-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("store")).unwrap();
         std::fs::create_dir_all(dir.join("album")).unwrap();
@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn expand_folder_and_single_file() {
-        let dir = std::env::temp_dir().join(format!("lumen-rs-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lumen-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         for name in ["b10.png", "b2.jpg", "a.pdf", ".hidden.png", "skip.txt"] {
             std::fs::write(dir.join(name), b"x").unwrap();

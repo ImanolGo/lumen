@@ -412,7 +412,7 @@ impl App {
                         tr("A fast, safe viewer and editor for pictures and PDFs, in pure Rust with iced."),
                         style::BODY
                     ),
-                    line(tr("GPL-3.0-or-later · github.com/ImanolGo/lumen-rs"), style::SMALL).style(muted),
+                    line(tr("GPL-3.0-or-later · github.com/ImanolGo/lumen"), style::SMALL).style(muted),
                 ]
                 .spacing(10);
                 close(ui::dialog(tr("About Lumen"), ui::ASK, body))

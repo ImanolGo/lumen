@@ -1,6 +1,6 @@
 //! What Lumen remembers between runs besides the preferences: the size of the window and the
 //! files opened recently, with the page each PDF was left at. Kept in
-//! `~/.local/state/lumen-rs/state.toml` on Linux. It is only ever a
+//! `~/.local/state/lumen/state.toml` on Linux. It is only ever a
 //! convenience: a missing or damaged file is the same as an empty one.
 
 use std::collections::HashSet;
@@ -54,7 +54,7 @@ fn now() -> u64 {
 }
 
 impl State {
-    /// `~/.local/state/lumen-rs/state.toml`.
+    /// `~/.local/state/lumen/state.toml`.
     pub fn path() -> Option<PathBuf> {
         Some(crate::platform::dirs::state()?.join("state.toml"))
     }

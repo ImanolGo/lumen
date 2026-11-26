@@ -2,15 +2,15 @@
 #
 # The offline Cargo sources are generated from Cargo.lock; see README.md in this folder.
 # Build and try it:
-#   flatpak-builder --user --install --force-clean build-dir build-aux/flatpak/io.github.imanolgo.LumenRs.yml
-#   flatpak run io.github.imanolgo.LumenRs
-app-id: io.github.imanolgo.LumenRs
+#   flatpak-builder --user --install --force-clean build-dir build-aux/flatpak/io.github.imanolgo.Lumen.yml
+#   flatpak run io.github.imanolgo.Lumen
+app-id: io.github.imanolgo.Lumen
 runtime: org.freedesktop.Platform
 runtime-version: '24.08'
 sdk: org.freedesktop.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
-command: lumen-rs
+command: lumen
 finish-args:
   # A window, either way, and the GPU.
   - --socket=wayland
@@ -25,25 +25,25 @@ finish-args:
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
   env:
-    CARGO_HOME: /run/build/lumen-rs/cargo
+    CARGO_HOME: /run/build/lumen/cargo
 modules:
-  - name: lumen-rs
+  - name: lumen
     buildsystem: simple
     build-commands:
       - cargo --offline fetch --manifest-path Cargo.toml --verbose
       - cargo --offline build --release --locked --verbose
-      - install -Dm755 target/release/lumen-rs /app/bin/lumen-rs
-      - install -Dm644 data/io.github.imanolgo.LumenRs.desktop /app/share/applications/io.github.imanolgo.LumenRs.desktop
-      - install -Dm644 data/io.github.imanolgo.LumenRs.metainfo.xml /app/share/metainfo/io.github.imanolgo.LumenRs.metainfo.xml
+      - install -Dm755 target/release/lumen /app/bin/lumen
+      - install -Dm644 data/io.github.imanolgo.Lumen.desktop /app/share/applications/io.github.imanolgo.Lumen.desktop
+      - install -Dm644 data/io.github.imanolgo.Lumen.metainfo.xml /app/share/metainfo/io.github.imanolgo.Lumen.metainfo.xml
       - |
         cd data/icons
-        for f in */apps/io.github.imanolgo.LumenRs.*; do
+        for f in */apps/io.github.imanolgo.Lumen.*; do
           install -Dm644 "$f" "/app/share/icons/hicolor/$f"
         done
     sources:
       # Building the working tree. For a release, use a git source with the tag instead:
       #   - type: git
-      #     url: https://github.com/ImanolGo/lumen-rs.git
+      #     url: https://github.com/ImanolGo/lumen.git
       #     tag: v0.1.0
       - type: dir
         path: ../..

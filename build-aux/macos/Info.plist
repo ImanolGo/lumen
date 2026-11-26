@@ -2,10 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleIdentifier</key><string>io.github.imanolgo.LumenRs</string>
+  <key>CFBundleIdentifier</key><string>io.github.imanolgo.Lumen</string>
   <key>CFBundleName</key><string>Lumen</string>
   <key>CFBundleDisplayName</key><string>Lumen</string>
-  <key>CFBundleExecutable</key><string>lumen-rs</string>
+  <key>CFBundleExecutable</key><string>lumen</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>

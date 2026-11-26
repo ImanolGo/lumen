@@ -26,7 +26,7 @@ driven by the messages those events would produce.
    A picture's window fits the picture: make `firstsize::picture` return none, for 1200×800.
 3. `SCRATCH=DIR ./shoot.sh SCENE NAME THEME SECONDS FILE_OR_FOLDER`, for example
    `./shoot.sh markup image-markup dark 8 pictures/golden-hour.jpg`. It starts the app (`APP`, if it is
-   not `target/release/lumen-rs`) in a throw-away config on an invisible X display (Xvfb and
+   not `target/release/lumen`) in a throw-away config on an invisible X display (Xvfb and
    ImageMagick are needed), waits, takes the screenshot and stops the app.
 4. **Remove the demo code again** before committing: `grep -rc DEMO src` must find nothing.
 

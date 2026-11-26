@@ -1,6 +1,6 @@
 # PDF rendering fidelity
 
-How closely lumen-rs (which draws PDFs with [hayro](https://github.com/LaurenzV/hayro)) matches
+How closely lumen (which draws PDFs with [hayro](https://github.com/LaurenzV/hayro)) matches
 poppler, the reference most Linux readers use. Measured on 24 November 2026 with hayro 0.9 and poppler's
 `pdftoppm`.
 
@@ -40,9 +40,9 @@ PDF specification"). poppler draws them thinner and fainter. It shows on graph d
 resolution, and is the largest difference found: the worst real page, `dotguide.pdf` page 1, differs in 3.8% of
 its pixels at 72 dpi and 2.2% at 144 dpi, almost all of it the graph's edges.
 
-![poppler, lumen-rs and Ghostscript drawing the same hairlines](fidelity/hairlines-three-renderers.png)
+![poppler, lumen and Ghostscript drawing the same hairlines](fidelity/hairlines-three-renderers.png)
 
-Left to right: poppler, lumen-rs, Ghostscript. Ghostscript also draws one-pixel lines, so hayro is
+Left to right: poppler, lumen, Ghostscript. Ghostscript also draws one-pixel lines, so hayro is
 following the specification's wording; poppler is the lighter one. Lumen draws at the window's scale,
 so on a normal or HiDPI screen the effect is smaller than in the 72 dpi numbers.
 
@@ -51,10 +51,10 @@ so on a normal or HiDPI screen the effect is smaller than in the 72 dpi numbers.
 ### 2. Text is very slightly heavier
 
 Glyph shapes and positions match, but hayro's anti-aliased text looks a touch bolder than poppler's
-(top: poppler, bottom: lumen-rs, enlarged three times). This accounts for most of the 0.3 to 0.5% of
+(top: poppler, bottom: lumen, enlarged three times). This accounts for most of the 0.3 to 0.5% of
 pixels that differ on ordinary text pages, and grows with resolution because there are more edge pixels.
 
-![poppler above, lumen-rs below](fidelity/text-weight.png)
+![poppler above, lumen below](fidelity/text-weight.png)
 
 ### 3. Smaller things
 
@@ -62,7 +62,7 @@ pixels that differ on ordinary text pages, and grows with resolution because the
 - **Page size in pixels** differs by one pixel on pages whose size is not a whole number of points (hayro's is one pixel smaller in each direction than poppler's). Content lines up exactly at the far corner, so this is a one-pixel sliver, and Lumen scales each page's bitmap to its size in points anyway.
 - **Zero-width lines** (a width of 0, meaning "thinnest possible") are drawn like poppler's and lighter than Ghostscript's.
 
-![the feature test, poppler | lumen-rs | difference](fidelity/features-p1.png)
+![the feature test, poppler | lumen | difference](fidelity/features-p1.png)
 
 ## What was done about it
 
@@ -83,7 +83,7 @@ python3 tools/make_feature_pdf.py features.pdf && python3 tools/fidelity.py OUT_
 
 `tools/fidelity.py` needs poppler-utils, numpy and Pillow. It draws the pages with `pdftoppm` and with
 the ignored test `render_corpus` in `src/pdf.rs` (`cargo test --release render_corpus -- --ignored`),
-writes `OUT_DIR/report.md` (every page, worst first) and `OUT_DIR/worst/` (poppler | lumen-rs |
+writes `OUT_DIR/report.md` (every page, worst first) and `OUT_DIR/worst/` (poppler | lumen |
 difference). A third opinion from Ghostscript (`gs -sDEVICE=png16m`) is useful when the two disagree.
 
 ## Limits

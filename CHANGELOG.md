@@ -4,6 +4,9 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Changed
+- Lumen (Rust/iced) is now Lumen: the repository is ImanolGo/lumen, the command `lumen`, the app ID `io.github.imanolgo.Lumen`, and on Linux the settings and state are in `~/.config/lumen` and `~/.local/state/lumen` (moved from `lumen-rs` the first time). The AUR packages are `lumen-viewer` and `lumen-viewer-git`, as `lumen` there is another program; release files are called `lumen-…`. The first Lumen, written with GTK, is now [lumen-gtk](https://github.com/ImanolGo/lumen-gtk).
+
 ## [0.8.0] - 2026-11-26
 
 ### Added
@@ -173,13 +176,13 @@ First release. Lumen (Rust/iced) is a rewrite of the GTK Lumen without GTK, popp
 - A comparison of PDF rendering with poppler (`tools/fidelity.py`, `docs/FIDELITY.md`).
 - CI: format, lint, tests, minimum Rust version, release build, packaging checks, AUR checks, dependency audit and a headless GUI job.
 
-[Unreleased]: https://github.com/ImanolGo/lumen-rs/compare/v0.8.0...HEAD
-[0.8.0]: https://github.com/ImanolGo/lumen-rs/compare/v0.7.0...v0.8.0
-[0.7.0]: https://github.com/ImanolGo/lumen-rs/compare/v0.6.0...v0.7.0
-[0.6.0]: https://github.com/ImanolGo/lumen-rs/compare/v0.5.0...v0.6.0
-[0.5.0]: https://github.com/ImanolGo/lumen-rs/compare/v0.4.0...v0.5.0
-[0.4.0]: https://github.com/ImanolGo/lumen-rs/compare/v0.3.0...v0.4.0
-[0.3.0]: https://github.com/ImanolGo/lumen-rs/compare/v0.2.0...v0.3.0
-[0.2.0]: https://github.com/ImanolGo/lumen-rs/compare/v0.1.1...v0.2.0
-[0.1.1]: https://github.com/ImanolGo/lumen-rs/compare/v0.1.0...v0.1.1
+[Unreleased]: https://github.com/ImanolGo/lumen/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/ImanolGo/lumen/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/ImanolGo/lumen/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/ImanolGo/lumen/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/ImanolGo/lumen/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/ImanolGo/lumen/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/ImanolGo/lumen/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/ImanolGo/lumen/compare/v0.1.1...v0.2.0
+[0.1.1]: https://github.com/ImanolGo/lumen/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/ImanolGo/lumen-rs/releases/tag/v0.1.0

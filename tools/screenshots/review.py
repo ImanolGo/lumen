@@ -11,7 +11,7 @@ app is reached over LUMEN_CONTROL=stdio. A contact sheet per theme and size is m
 import json, os, pathlib, shutil, subprocess, sys, tempfile, time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-APP = ROOT / "target/release/lumen-rs"
+APP = ROOT / "target/release/lumen"
 FIX = ROOT / "tests/fixtures"
 PDF, FORM, PICTURE = FIX / "pages.pdf", FIX / "form.pdf", FIX / "pictures/g.png"
 
@@ -67,8 +67,8 @@ SCENES = {
 
 class Lumen:
     def __init__(self, work, theme, size, file):
-        (work / "state/lumen-rs").mkdir(parents=True, exist_ok=True)
-        (work / "state/lumen-rs/state.toml").write_text(f"window = [{size[0]}, {size[1]}]\n")
+        (work / "state/lumen").mkdir(parents=True, exist_ok=True)
+        (work / "state/lumen/state.toml").write_text(f"window = [{size[0]}, {size[1]}]\n")
         env = dict(os.environ, LUMEN_CONTROL="stdio", LUMEN_THEME=theme, LUMEN_NO_PORTAL="1", LUMEN_NO_REEXEC="1",
                    ICED_BACKEND=os.environ.get("ICED_BACKEND", "wgpu"), WGPU_POWER_PREF="low", LC_ALL="", LANGUAGE="en", LANG=os.environ.get("REVIEW_LANG", "en_US.UTF-8"))
         if "REVIEW_LANG" in os.environ:

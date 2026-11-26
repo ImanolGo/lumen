@@ -409,7 +409,7 @@ msgstr "Después"
     fn every_string_the_code_translates_has_a_spanish_entry() {
         let es = catalogue_for(&["es".to_string()]);
         // Names, codes and examples that read the same in every language.
-        let same = ["Aa", "Lumen", "px", "GPL-3.0-or-later · github.com/ImanolGo/lumen-rs", "#rrggbb"];
+        let same = ["Aa", "Lumen", "px", "GPL-3.0-or-later · github.com/ImanolGo/lumen", "#rrggbb"];
         let missing: Vec<String> = strings_in_the_source()
             .into_iter()
             .filter(|s| !es.contains_key(s) && !same.contains(&s.as_str()))

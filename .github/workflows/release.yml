@@ -34,7 +34,7 @@ jobs:
         run: |
           make install PREFIX=/usr DESTDIR="$PWD/stage"
           mkdir out
-          tar -C stage -czf "out/lumen-rs-v$VERSION-x86_64-linux.tar.gz" usr
+          tar -C stage -czf "out/lumen-v$VERSION-x86_64-linux.tar.gz" usr
       - name: Debian package
         run: |
           cargo install cargo-deb --locked
@@ -60,16 +60,16 @@ jobs:
         run: |
           cargo build --release --locked --target aarch64-apple-darwin
           cargo build --release --locked --target x86_64-apple-darwin
-          lipo -create -output lumen-rs target/aarch64-apple-darwin/release/lumen-rs target/x86_64-apple-darwin/release/lumen-rs
+          lipo -create -output lumen target/aarch64-apple-darwin/release/lumen target/x86_64-apple-darwin/release/lumen
       - name: Disk image
         run: |
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
           mkdir out
-          build-aux/macos/bundle.sh lumen-rs "$version" "out/lumen-rs-v$version-macos-universal.dmg"
+          build-aux/macos/bundle.sh lumen "$version" "out/lumen-v$version-macos-universal.dmg"
       - name: It starts from the disk image
         run: |
           hdiutil attach -quiet -mountpoint mnt out/*.dmg
-          mnt/Lumen.app/Contents/MacOS/lumen-rs --version
+          mnt/Lumen.app/Contents/MacOS/lumen --version
           hdiutil detach -quiet mnt
       - uses: actions/upload-artifact@v4
         with:
@@ -91,11 +91,11 @@ jobs:
         run: |
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
           mkdir -p out "Lumen-$version"
-          cp target/release/lumen-rs.exe "Lumen-$version/Lumen.exe"
+          cp target/release/lumen.exe "Lumen-$version/Lumen.exe"
           cp LICENSE "Lumen-$version/LICENSE.txt"
           cp README.md CHANGELOG.md "Lumen-$version/"
           "Lumen-$version/Lumen.exe" --version | cat
-          7z a "out/lumen-rs-v$version-x86_64-windows.zip" "Lumen-$version"
+          7z a "out/lumen-v$version-x86_64-windows.zip" "Lumen-$version"
       - uses: actions/upload-artifact@v4
         with:
           name: windows

@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="data/icons/scalable/apps/io.github.imanolgo.LumenRs.svg" alt="Lumen icon" width="128" height="128">
+  <img src="data/icons/scalable/apps/io.github.imanolgo.Lumen.svg" alt="Lumen icon" width="128" height="128">
 </p>
 
-<h1 align="center">Lumen (Rust/iced)</h1>
+<h1 align="center">Lumen</h1>
 
 <p align="center">
   A fast image and PDF viewer for Linux, macOS and Windows, with the light editing, markup, form filling and signing you use every day.<br>
@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ImanolGo/lumen-rs/actions/workflows/ci.yml"><img src="https://github.com/ImanolGo/lumen-rs/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/ImanolGo/lumen/actions/workflows/ci.yml"><img src="https://github.com/ImanolGo/lumen/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License: GPL-3.0-or-later"></a>
 </p>
 
@@ -18,7 +18,7 @@
   <img src="data/screenshots/image-markup.png" alt="Marking up a picture in Lumen" width="720">
 </p>
 
-> **Status: early (0.8.0).** This is a ground-up rewrite of [Lumen](https://github.com/ImanolGo/lumen), which is built on GTK 4 and poppler. It has had little use so far; see [docs/STATUS.md](docs/STATUS.md) for what works, what is missing and what has not been checked.
+> **Status: early (0.8.0).** It has had little use so far; see [docs/STATUS.md](docs/STATUS.md) for what works, what is missing and what has not been checked. It replaces the first Lumen, written with GTK 4 and poppler, which is kept as [lumen-gtk](https://github.com/ImanolGo/lumen-gtk) and no longer developed.
 
 ## Features
 
@@ -45,12 +45,12 @@ The full list, with the details, is in [docs/FEATURES.md](docs/FEATURES.md).
 
 ## Installing
 
-The [latest release](https://github.com/ImanolGo/lumen-rs/releases/latest) has the packages. The AUR packages and the Flatpak are not published yet; the files to build them are in the repository:
+The [latest release](https://github.com/ImanolGo/lumen/releases/latest) has the packages. The AUR packages and the Flatpak are not published yet; the files to build them are in the repository:
 
 | How | Where | State |
 |---|---|---|
 | From source | below | works |
-| Arch Linux (AUR) | [`build-aux/aur/`](build-aux/aur/): `lumen-rs` (a release) and `lumen-rs-git` (the latest commit). Try one with `makepkg -si` inside its folder | `lumen-rs-git` builds; not on the AUR yet |
+| Arch Linux (AUR) | [`build-aux/aur/`](build-aux/aur/): `lumen` (a release) and `lumen-git` (the latest commit). Try one with `makepkg -si` inside its folder | `lumen-git` builds; not on the AUR yet |
 | Debian and Ubuntu (`.deb`) | on the release page | works |
 | macOS 11 or newer (`.dmg`, Apple silicon and Intel) | on the release page from 0.2 on | new. It is not signed, so macOS says it could not verify it: click Done, then System Settings → Privacy & Security → Open Anyway (or `xattr -dr com.apple.quarantine /Applications/Lumen.app`) |
 | Windows 10 or newer (`.zip`, unpack and run `Lumen.exe`) | on the release page from 0.2 on | new. It is not signed: SmartScreen warns; More info → Run anyway |
@@ -73,8 +73,8 @@ What works where:
 You need Rust 1.92 or newer ([rustup](https://rustup.rs) if yours is older). Nothing else is needed to build, and nothing but your window system and graphics driver at run time.
 
 ```sh
-git clone https://github.com/ImanolGo/lumen-rs.git
-cd lumen-rs
+git clone https://github.com/ImanolGo/lumen.git
+cd lumen
 make                                  # cargo build --release (on Windows, that command)
 sudo make install                     # to /usr/local
 make install PREFIX=$HOME/.local      # or just for your user
@@ -93,15 +93,15 @@ On the desktop Lumen uses the XDG desktop portal when there is one (`xdg-desktop
 ## Usage
 
 ```sh
-lumen-rs                            # empty window, Ctrl+O to open
-lumen-rs photo.jpg report.pdf       # open files directly
-lumen-rs ~/Pictures/Trip            # or every picture and PDF in a folder
+lumen                            # empty window, Ctrl+O to open
+lumen photo.jpg report.pdf       # open files directly
+lumen ~/Pictures/Trip            # or every picture and PDF in a folder
 ```
 
 Drop more files or folders onto the window to add them to the ones you are browsing. To make it the default PDF viewer:
 
 ```sh
-xdg-mime default io.github.imanolgo.LumenRs.desktop application/pdf
+xdg-mime default io.github.imanolgo.Lumen.desktop application/pdf
 ```
 
 ### Filling in forms
@@ -132,7 +132,7 @@ The main shortcuts (☰ → Keyboard Shortcuts has the full list):
 | `F5` / `F11`, `Esc` | Slideshow / fullscreen, leave them |
 | `Ctrl+Shift+N` | PDF night mode |
 
-Lumen only overwrites a file you opened when you choose Save. Preferences are in `~/.config/lumen-rs/settings.toml`; the [features page](docs/FEATURES.md#files-lumen-reads-and-writes) lists every file it writes.
+Lumen only overwrites a file you opened when you choose Save. Preferences are in `~/.config/lumen/settings.toml`; the [features page](docs/FEATURES.md#files-lumen-reads-and-writes) lists every file it writes.
 
 ## Contributing
 
@@ -143,13 +143,13 @@ Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md
 - [docs/FEATURES.md](docs/FEATURES.md): every feature in detail, the keyboard, files and environment variables
 - [docs/STATUS.md](docs/STATUS.md): benchmarks, what is missing, what has not been checked
 - [docs/FIDELITY.md](docs/FIDELITY.md): how closely PDFs render compared with poppler
-- [docs/parity-plan.md](docs/parity-plan.md): the plan for closing the gap with the GTK Lumen
+- [docs/parity-plan.md](docs/parity-plan.md): the plan that closed the gap with the GTK Lumen ([lumen-gtk](https://github.com/ImanolGo/lumen-gtk))
 - [docs/RELEASING.md](docs/RELEASING.md): tagging, the AUR, Flatpak
 - [CHANGELOG.md](CHANGELOG.md)
 
 ## How Lumen was made
 
-Lumen started because I wanted a fast picture and PDF viewer with light editing on my own Linux desktop, and nothing quite fit. This edition is a rewrite of it in pure Rust, to see how fast and how safe it could be without GTK or poppler. I'm sharing it in case it's useful to someone else too.
+Lumen started because I wanted a fast picture and PDF viewer with light editing on my own Linux desktop, and nothing quite fit. The first version was written with GTK 4 and poppler ([lumen-gtk](https://github.com/ImanolGo/lumen-gtk)); this one is a rewrite in pure Rust, to see how fast and how safe it could be without them, and it has taken its place. I'm sharing it in case it's useful to someone else too.
 
 It was built with an AI coding agent (Claude Code). I chose the features, directed the work and tested the app, but most of the code, documentation, packaging files and the app icon were generated by the agent. Commits made this way carry a `Co-Authored-By: Claude` trailer, so the history shows which ones.
 

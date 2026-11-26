@@ -7,7 +7,7 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
-const WORKER: &str = env!("CARGO_BIN_EXE_lumen-rs");
+const WORKER: &str = env!("CARGO_BIN_EXE_lumen");
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
@@ -86,7 +86,7 @@ fn every_format_decodes_inside_the_sandbox() {
 
 #[test]
 fn a_damaged_picture_is_an_error_message_not_a_crash() {
-    let garbage = std::env::temp_dir().join(format!("lumen-rs-sandbox-garbage-{}.png", std::process::id()));
+    let garbage = std::env::temp_dir().join(format!("lumen-sandbox-garbage-{}.png", std::process::id()));
     std::fs::write(&garbage, b"\x89PNG\r\n\x1a\nthis is not a png at all").unwrap();
     let out = worker("load", "png", Some(&garbage));
     assert_eq!(out.status.code(), Some(0));
@@ -112,7 +112,7 @@ fn the_sandbox_stops_file_access_sockets_and_programs() {
             String::from_utf8_lossy(&out.stderr)
         );
     }
-    assert!(!Path::new("/tmp/lumen-rs-sandbox-escape").exists());
+    assert!(!Path::new("/tmp/lumen-sandbox-escape").exists());
 }
 
 #[test]
@@ -132,7 +132,7 @@ fn a_panic_is_not_taken_for_a_missing_sandbox() {
 
 #[test]
 fn a_picture_that_claims_to_be_huge_is_refused() {
-    let path = std::env::temp_dir().join(format!("lumen-rs-sandbox-huge-{}.png", std::process::id()));
+    let path = std::env::temp_dir().join(format!("lumen-sandbox-huge-{}.png", std::process::id()));
     let mut encoder = png::Encoder::new(std::fs::File::create(&path).unwrap(), 50_000, 50_000);
     encoder.set_color(png::ColorType::Rgba);
     let mut writer = encoder.write_header().unwrap();

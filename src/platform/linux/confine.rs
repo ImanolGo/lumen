@@ -46,7 +46,7 @@ pub fn enter(max_memory: u64) -> Result<()> {
         .and_then(|r| r.restrict_self());
     if let Err(e) = landlock {
         // Seccomp below still stops file access; Landlock is a second wall.
-        let _ = writeln!(std::io::stderr(), "lumen-rs worker: no Landlock ({e})");
+        let _ = writeln!(std::io::stderr(), "lumen worker: no Landlock ({e})");
     }
     // Best effort: the decoders check sizes themselves, this catches what they miss.
     let memory = rustix::process::Rlimit { current: Some(max_memory), maximum: Some(max_memory) };

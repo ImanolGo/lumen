@@ -115,7 +115,7 @@ cases; the animation and the over-limit fixtures are generated in the tests, not
 | # | Where | What is wrong | Fix |
 |---|---|---|---|
 | 2.1 | `src/pdf.rs:233` (`with_changes`), `src/app.rs:2494-2498` | **Saving after another program rewrote the PDF corrupts it.** The toast says "saving will overwrite it", but the save re-reads the file from disk and applies object ids from the version that was opened: annotations with those ids are removed and form values are written into whatever objects now have them. Confirmed. | Apply changes to the bytes the document was opened from (keep them in `pdf::Document`), never to a fresh read. When the file changed on disk, Ctrl+S asks: overwrite with my version, or save a copy. |
-| 2.2 | `src/app/markup.rs:179-183, 975-978` (`print_copy`) | **A decrypted copy of a protected PDF stays in `/tmp`.** It is written to `/tmp/lumen-rs-<pid>/<name>` with default permissions and never deleted. Confirmed (no `remove_file` for it anywhere). | Make it like `print.rs:193-207`: a private directory (0700), `create_new`, deleted in `Message::Printed` and on exit. |
+| 2.2 | `src/app/markup.rs:179-183, 975-978` (`print_copy`) | **A decrypted copy of a protected PDF stays in `/tmp`.** It is written to `/tmp/lumen-<pid>/<name>` with default permissions and never deleted. Confirmed (no `remove_file` for it anywhere). | Make it like `print.rs:193-207`: a private directory (0700), `create_new`, deleted in `Message::Printed` and on exit. |
 | 2.3 | `src/pdf.rs:424-442` (`write_atomic`), `src/annotate/flatten.rs:98-157` | Two copies of the atomic write, both weak. Pictures are **not fsynced** before the rename (a power cut after "Saved" can leave a short file where the original was). Both use one fixed temp name (two saves collide), follow a symlink planted at it, replace a symlinked target with a regular file, and set permissions only after writing. Confirmed. A failed save never truncates the original; that part is sound. | One `fsio::write_atomic` used by both: resolve a symlinked target first, temp file with a random suffix and `create_new`, permissions at creation, `sync_all`, rename, then sync the directory (Unix). |
 | 2.4 | `src/pdf.rs:225-229`, `src/app/pages.rs:406-408` | The file is replaced before the new bytes are checked to open again. Suspected failing case: lopdf's recovery of a broken xref leaves out `/Prev`. | Parse the new bytes with hayro first; write only if that works. |
 | 2.5 | `Message::Trash` (`src/app.rs:1515-1560`) | Moving a file with unsaved markup or edits to the trash drops them (`stash.remove`) without asking, and Undo does not bring them back. Confirmed. | Ask first when that file has unsaved changes; keep the stash until the Undo toast has gone. |
@@ -275,7 +275,7 @@ grep -rnE 'std::os::(unix|fd)|rustix|ashpd|zbus|landlock|seccompiler|wl_clipboar
        - run: cargo clippy --all-targets --locked -- -D warnings
        - run: cargo test --locked
        - run: cargo build --release --locked
-       - run: ./target/release/lumen-rs --version
+       - run: ./target/release/lumen --version
    ```
 
    Tests that are about Linux (the sandbox escapes in `tests/sandbox.rs`, the trash spec, the thumbnail cache's permissions, CUPS) get `#[cfg(target_os = "linux")]`; the rest must pass everywhere. Watch for tests that build paths with `/tmp` or `/`.
@@ -368,7 +368,7 @@ where a window can open.
 | | Linux (as today) | macOS | Windows |
 |---|---|---|---|
 | Build | `cargo build --release` on `ubuntu-latest` | on `macos-latest`: build `aarch64-apple-darwin` and `x86_64-apple-darwin`, join with `lipo -create` | on `windows-latest`: `x86_64-pc-windows-msvc` |
-| App identity | `.desktop`, AppStream, icons | `Lumen.app`: `Info.plist` (bundle id `io.github.imanolgo.LumenRs`, `CFBundleDocumentTypes` for PDF and the picture types, `NSHighResolutionCapable`), `AppIcon.icns` made from `assets/app-icon.svg` | `#![windows_subsystem = "windows"]` (no console window), an `.ico` and version info embedded by `build.rs` with the `winresource` crate (`[target.'cfg(windows)'.build-dependencies]`) |
+| App identity | `.desktop`, AppStream, icons | `Lumen.app`: `Info.plist` (bundle id `io.github.imanolgo.Lumen`, `CFBundleDocumentTypes` for PDF and the picture types, `NSHighResolutionCapable`), `AppIcon.icns` made from `assets/app-icon.svg` | `#![windows_subsystem = "windows"]` (no console window), an `.ico` and version info embedded by `build.rs` with the `winresource` crate (`[target.'cfg(windows)'.build-dependencies]`) |
 | Package | tarball, `.deb`, AUR, Flatpak | `.dmg` (use `cargo-packager`, or `hdiutil` in the workflow) | `.zip` of the `.exe` first; then an installer (`cargo-packager`'s NSIS, or `cargo-wix`) that registers "Open with" for the file types |
 | Signing | none | per decision 5: Developer ID + notarisation (`xcrun notarytool`), or unsigned with a note on right-click → Open | per decision 5 |
 
@@ -386,7 +386,7 @@ make check-all
 yay -S mingw-w64-gcc
 rustup target add x86_64-pc-windows-gnu
 cargo build --release --locked --target x86_64-pc-windows-gnu
-#   → target/x86_64-pc-windows-gnu/release/lumen-rs.exe  (try it: ICED_BACKEND=tiny-skia wine …)
+#   → target/x86_64-pc-windows-gnu/release/lumen.exe  (try it: ICED_BACKEND=tiny-skia wine …)
 
 # A Windows .exe from Linux, MSVC toolchain (what CI ships)
 cargo install cargo-xwin        # downloads Microsoft's CRT and SDK; read their licence
@@ -763,7 +763,7 @@ What makes it tractable: the worker already needs nothing but its standard input
 file) and its standard output (the pixels). It opens no file and no socket itself.
 
 **macOS, step 1: `sandbox-exec` (no `unsafe`, no signing).** Start the worker as
-`/usr/bin/sandbox-exec -p '<profile>' <lumen-rs> --decode-worker …` with a profile that denies
+`/usr/bin/sandbox-exec -p '<profile>' <lumen> --decode-worker …` with a profile that denies
 everything by default and allows only what a process needs to start (reading the system
 libraries and the binary itself) and nothing else: no file writes, no network, no starting
 programs. Apple marks the tool deprecated; it still ships and other projects rely on it. If it

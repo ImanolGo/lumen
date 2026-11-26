@@ -67,10 +67,10 @@ you cannot send real mouse or keyboard events (for example `/dev/uinput` is not 
 
    ```sh
    wl-paste -n > /tmp/clip.bak                      # keep the clipboard
-   (env LUMEN_DEMO=x ./target/release/lumen-rs FILE &); sleep 3
+   (env LUMEN_DEMO=x ./target/release/lumen FILE &); sleep 3
    niri msg action screenshot-window -d false; sleep 0.5
    wl-paste -t image/png > shot.png
-   pkill -x lumen-rs                                # exact name, never `pkill -f`
+   pkill -x lumen                                # exact name, never `pkill -f`
    wl-copy < /tmp/clip.bak
    ```
 
@@ -88,8 +88,8 @@ scenes, the capture script and the steps to reproduce them are in
 
 ### The control interface
 
-With `LUMEN_CONTROL=1`, Lumen offers `io.github.imanolgo.LumenRs.Control1` at
-`/io/github/imanolgo/LumenRs/Control` on the session bus. It is off by default, because anything
+With `LUMEN_CONTROL=1`, Lumen offers `io.github.imanolgo.Lumen.Control1` at
+`/io/github/imanolgo/Lumen/Control` on the session bus. It is off by default, because anything
 on the bus could otherwise open files in your viewer.
 
 | Method | Does |
@@ -118,11 +118,11 @@ and read `notice` for what the window said.
 
 ## PDF rendering fidelity
 
-`tools/fidelity.py` compares how lumen-rs and poppler draw the same pages and ranks them by pixel difference; `tools/make_feature_pdf.py` makes a PDF with gradients, transparency, clipping, CMYK and so on to try it on. The method and results are in [FIDELITY.md](FIDELITY.md).
+`tools/fidelity.py` compares how lumen and poppler draw the same pages and ranks them by pixel difference; `tools/make_feature_pdf.py` makes a PDF with gradients, transparency, clipping, CMYK and so on to try it on. The method and results are in [FIDELITY.md](FIDELITY.md).
 
 ## Benchmarks
 
-`tools/bench.py [runs]` starts the GTK Lumen and lumen-rs cold on the same files (from
+`tools/bench.py [runs]` starts the GTK Lumen and lumen cold on the same files (from
 `~/.local/bin`), reads their timing logs, samples memory and CPU, and prints JSON. Set
 `BENCH_JPEG=/path/to/photo.jpg` to include a picture. Results are in [STATUS.md](STATUS.md).
 

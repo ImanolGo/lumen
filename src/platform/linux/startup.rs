@@ -19,10 +19,7 @@ pub fn before_window() {
 
 /// How the system knows the window.
 pub fn window() -> iced::window::settings::PlatformSpecific {
-    iced::window::settings::PlatformSpecific {
-        application_id: "io.github.imanolgo.LumenRs".into(),
-        ..Default::default()
-    }
+    iced::window::settings::PlatformSpecific { application_id: "io.github.imanolgo.Lumen".into(), ..Default::default() }
 }
 
 /// The environment says it all here.

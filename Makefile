@@ -1,7 +1,7 @@
 PREFIX ?= /usr/local
 DESTDIR ?=
-APP_ID := io.github.imanolgo.LumenRs
-BIN := target/release/lumen-rs
+APP_ID := io.github.imanolgo.Lumen
+BIN := target/release/lumen
 
 .PHONY: all build test lint check-all install uninstall clean
 
@@ -24,7 +24,7 @@ check-all:
 	cargo check --locked --all-targets --target aarch64-apple-darwin
 
 install: build
-	install -Dm755 $(BIN) $(DESTDIR)$(PREFIX)/bin/lumen-rs
+	install -Dm755 $(BIN) $(DESTDIR)$(PREFIX)/bin/lumen
 	install -Dm644 data/$(APP_ID).desktop $(DESTDIR)$(PREFIX)/share/applications/$(APP_ID).desktop
 	install -Dm644 data/$(APP_ID).metainfo.xml $(DESTDIR)$(PREFIX)/share/metainfo/$(APP_ID).metainfo.xml
 	cd data/icons && for f in */apps/$(APP_ID).*; do \
@@ -34,7 +34,7 @@ install: build
 	-gtk-update-icon-cache -q -t $(DESTDIR)$(PREFIX)/share/icons/hicolor 2>/dev/null
 
 uninstall:
-	rm -f $(DESTDIR)$(PREFIX)/bin/lumen-rs
+	rm -f $(DESTDIR)$(PREFIX)/bin/lumen
 	rm -f $(DESTDIR)$(PREFIX)/share/applications/$(APP_ID).desktop
 	rm -f $(DESTDIR)$(PREFIX)/share/metainfo/$(APP_ID).metainfo.xml
 	rm -f $(DESTDIR)$(PREFIX)/share/icons/hicolor/*/apps/$(APP_ID).*

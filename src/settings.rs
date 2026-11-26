@@ -1,4 +1,4 @@
-//! Preferences, kept in `~/.config/lumen-rs/settings.toml` on Linux.
+//! Preferences, kept in `~/.config/lumen/settings.toml` on Linux.
 //!
 //! The file is read leniently: a missing file, a missing key, an unknown key or a value of
 //! the wrong kind never stops Lumen from starting; each such setting just keeps its default.
@@ -95,7 +95,7 @@ const HEADER: &str = "# Lumen preferences. Lumen rewrites this file when you cha
 static LOADED: OnceLock<toml::Table> = OnceLock::new();
 
 impl Settings {
-    /// `~/.config/lumen-rs/settings.toml`.
+    /// `~/.config/lumen/settings.toml`.
     pub fn path() -> Option<PathBuf> {
         Some(crate::platform::dirs::config()?.join("settings.toml"))
     }
@@ -262,8 +262,8 @@ mod tests {
 
     #[test]
     fn saving_to_a_path_makes_the_folder_and_leaves_no_temporary_file() {
-        let dir = std::env::temp_dir().join(format!("lumen-rs-settings-{}", std::process::id()));
-        let path = dir.join("nested/lumen-rs/settings.toml");
+        let dir = std::env::temp_dir().join(format!("lumen-settings-{}", std::process::id()));
+        let path = dir.join("nested/lumen/settings.toml");
         let settings = Settings { slideshow_seconds: 9, theme: Theme::Light, ..Settings::default() };
         settings.save_to(&path, &toml::Table::new());
         assert_eq!(Settings::parse(&std::fs::read_to_string(&path).unwrap()), settings);

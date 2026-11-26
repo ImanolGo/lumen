@@ -320,7 +320,7 @@ mod tests {
 
     #[test]
     fn reads_a_picture() {
-        let dir = std::env::temp_dir().join(format!("lumen-rs-props-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lumen-props-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("p.png");
         image::RgbaImage::from_pixel(300, 200, image::Rgba([1, 2, 3, 255])).save(&path).unwrap();

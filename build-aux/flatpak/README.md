@@ -1,6 +1,6 @@
 # Flatpak
 
-`io.github.imanolgo.LumenRs.yml` builds Lumen against the freedesktop 24.08 runtime with
+`io.github.imanolgo.Lumen.yml` builds Lumen against the freedesktop 24.08 runtime with
 the Rust SDK extension, entirely offline. Flatpak builds cannot download crates, so the
 manifest lists them in `cargo-sources.json`, which is generated from `Cargo.lock`
 and committed: **regenerate it whenever `Cargo.lock` changes**, or the build will fail.
@@ -14,8 +14,8 @@ python3 flatpak-cargo-generator.py Cargo.lock -o build-aux/flatpak/cargo-sources
 
 flatpak install --user flathub org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08 \
     org.freedesktop.Sdk.Extension.rust-stable//24.08
-flatpak-builder --user --install --force-clean build-dir build-aux/flatpak/io.github.imanolgo.LumenRs.yml
-flatpak run io.github.imanolgo.LumenRs
+flatpak-builder --user --install --force-clean build-dir build-aux/flatpak/io.github.imanolgo.Lumen.yml
+flatpak run io.github.imanolgo.Lumen
 ```
 
 Notes:

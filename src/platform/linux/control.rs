@@ -7,8 +7,8 @@ use zbus::interface;
 
 use crate::control::{Command, Shared};
 
-const NAME: &str = "io.github.imanolgo.LumenRs";
-const PATH: &str = "/io/github/imanolgo/LumenRs/Control";
+const NAME: &str = "io.github.imanolgo.Lumen";
+const PATH: &str = "/io/github/imanolgo/Lumen/Control";
 
 struct Control {
     to_app: mpsc::Sender<Shared>,
@@ -20,7 +20,7 @@ impl Control {
     }
 }
 
-#[interface(name = "io.github.imanolgo.LumenRs.Control1")]
+#[interface(name = "io.github.imanolgo.Lumen.Control1")]
 impl Control {
     async fn get_state(&self) -> zbus::fdo::Result<String> {
         self.ask(Command::State).await

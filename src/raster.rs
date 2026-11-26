@@ -575,7 +575,7 @@ mod tests {
 
     #[test]
     fn a_huge_svg_keeps_its_proportions() {
-        let dir = std::env::temp_dir().join(format!("lumen-rs-svg-huge-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lumen-svg-huge-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("t.svg");
         std::fs::write(&path, r#"<svg xmlns="http://www.w3.org/2000/svg" width="4000000" height="2000000"/>"#).unwrap();
@@ -620,7 +620,7 @@ mod tests {
     fn an_svg_reads_no_other_files() {
         use base64_png::PNG;
         let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/pictures/g.png");
-        let dir = std::env::temp_dir().join(format!("lumen-rs-svg-href-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lumen-svg-href-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("t.svg");
         let opaque = |href: &str| {
@@ -643,7 +643,7 @@ mod tests {
 
     #[test]
     fn decodes_png_and_thumbnails() {
-        let dir = std::env::temp_dir().join(format!("lumen-rs-raster-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lumen-raster-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("t.png");
         RgbaImage::from_pixel(640, 320, image::Rgba([10, 20, 30, 255])).save(&path).unwrap();
@@ -660,7 +660,7 @@ mod tests {
 
     #[test]
     fn counts_pixels_from_the_header() {
-        let dir = std::env::temp_dir().join(format!("lumen-rs-pixels-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lumen-pixels-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("p.png");
         RgbaImage::from_pixel(300, 200, image::Rgba([1, 2, 3, 255])).save(&path).unwrap();
@@ -671,7 +671,7 @@ mod tests {
 
     #[test]
     fn streamed_png_thumbnail_matches_shape_and_colour() {
-        let dir = std::env::temp_dir().join(format!("lumen-rs-pngthumb-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lumen-pngthumb-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("big.png");
         image::RgbImage::from_pixel(1024, 512, image::Rgb([200, 100, 50])).save(&path).unwrap();
@@ -684,7 +684,7 @@ mod tests {
 
     #[test]
     fn scaled_jpeg_thumbnail_matches_shape_and_colour() {
-        let dir = std::env::temp_dir().join(format!("lumen-rs-jpgthumb-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lumen-jpgthumb-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("big.jpg");
         image::RgbImage::from_pixel(2048, 1024, image::Rgb([200, 100, 50])).save(&path).unwrap();
@@ -737,7 +737,7 @@ mod tests {
 
     #[test]
     fn decodes_openexr_with_the_srgb_curve() {
-        let dir = std::env::temp_dir().join(format!("lumen-rs-exr-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lumen-exr-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("t.exr");
         // Linear light: 0.5 should come out as about 188 after the sRGB curve, 2.0 clamps to 255.
@@ -756,7 +756,7 @@ mod tests {
 
     #[test]
     fn rejects_garbage() {
-        let dir = std::env::temp_dir().join(format!("lumen-rs-garbage-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lumen-garbage-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("bad.jpg");
         std::fs::write(&path, b"definitely not a jpeg").unwrap();

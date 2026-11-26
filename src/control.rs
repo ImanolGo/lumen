@@ -6,7 +6,7 @@
 //! `{"method": "GotoPage", "args": [3]}`, and one JSON answer per line on standard output,
 //! `{"ok": …}` or `{"error": "why"}`, in order. Methods and answers are the same.
 //!
-//! `io.github.imanolgo.LumenRs.Control1` at `/io/github/imanolgo/LumenRs/Control`. Every
+//! `io.github.imanolgo.Lumen.Control1` at `/io/github/imanolgo/Lumen/Control`. Every
 //! method answers with the state afterwards as JSON (see `App::control_state`), except the two
 //! that read something (`GetForm`, `GetAnnotations`). Work that finishes later (opening a file,
 //! saving, exporting, an edit being drawn) is not waited for: poll `GetState` until `busy` is

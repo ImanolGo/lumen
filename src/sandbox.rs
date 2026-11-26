@@ -1,6 +1,6 @@
 //! Decoding pictures in a child process with almost no rights.
 //!
-//! Picture decoders parse files that may be hostile. Lumen runs them in `lumen-rs
+//! Picture decoders parse files that may be hostile. Lumen runs them in `lumen
 //! --decode-worker`, a fresh process per picture that is given the open file as its standard
 //! input, shuts itself in (Landlock: no file system access; seccomp: a short list of
 //! allowed system calls, everything else kills it) and only then reads and decodes. The
@@ -409,14 +409,14 @@ fn write_reply(out: &mut impl Write, result: Result<Picture>) -> std::io::Result
 
 // ------------------------------------------------------------------ worker
 
-/// `lumen-rs --decode-worker MODE EXT`, with the picture on standard input. Never returns.
+/// `lumen --decode-worker MODE EXT`, with the picture on standard input. Never returns.
 pub fn worker_main(args: &[String]) -> ! {
     let (mode, ext) = (args.first().map(String::as_str).unwrap_or(""), args.get(1).cloned().unwrap_or_default());
     // Only for looking at what the worker does with `gdb`/`strace`.
     let unsandboxed = cfg!(debug_assertions) && args.iter().any(|a| a == "--unsandboxed");
 
     if !unsandboxed && let Err(e) = confine::enter(MAX_MEMORY) {
-        let _ = writeln!(std::io::stderr(), "lumen-rs worker: {e}");
+        let _ = writeln!(std::io::stderr(), "lumen worker: {e}");
         std::process::exit(EXIT_NO_SANDBOX);
     }
     let mut out = std::io::stdout().lock();
@@ -471,7 +471,7 @@ fn self_test(test: &str) -> ! {
             let big: Result<(), _> = Vec::<u8>::new().try_reserve_exact((MAX_MEMORY + 1) as usize);
             std::process::exit(if big.is_err() { 0 } else { 1 });
         }
-        "write-file" => drop(std::fs::write("/tmp/lumen-rs-sandbox-escape", b"x")),
+        "write-file" => drop(std::fs::write("/tmp/lumen-sandbox-escape", b"x")),
         other if confine::escape(other) => {}
         _ => std::process::exit(2),
     }
@@ -534,7 +534,7 @@ mod tests {
     /// A picture that decodes fine, and what comes of it when the worker behaves like `script`.
     #[cfg(unix)]
     fn with_fake_worker(name: &str, script: &str) -> Result<Picture> {
-        let dir = std::env::temp_dir().join(format!("lumen-rs-sandbox-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lumen-sandbox-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("t.png");
         image::RgbaImage::from_pixel(5, 3, image::Rgba([1, 2, 3, 255])).save(&path).unwrap();

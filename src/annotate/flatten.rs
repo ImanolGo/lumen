@@ -153,7 +153,7 @@ mod tests {
         assert_eq!(flat.get_pixel(20, 20).0, [230, 26, 26, 255], "inside the red square");
         assert_eq!(flat.get_pixel(90, 5).0, [0, 0, 255, 255], "untouched elsewhere");
 
-        let dir = std::env::temp_dir().join(format!("lumen-rs-flatten-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lumen-flatten-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         for name in ["out.png", "out.jpg", "out.webp"] {
             save(

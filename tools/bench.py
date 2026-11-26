@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cold-start benchmark of the GTK Lumen and lumen-rs on the same files.
+"""Cold-start benchmark of Lumen and the GTK Lumen (lumen-gtk) on the same files.
 
 For each run: start the app with the file, read its own timing logs until the
 first view is on screen, then sample memory (RSS) and CPU time, wait 3 s idle,
@@ -16,8 +16,8 @@ import json, os, re, signal, statistics, subprocess, sys, time
 APPS = {
     name: [path]
     for name, path in {
-        "lumen (GTK)": os.path.expanduser("~/.local/bin/lumen"),
-        "lumen-rs": os.path.expanduser("~/.local/bin/lumen-rs"),
+        "lumen-gtk": os.path.expanduser("~/.local/bin/lumen-gtk"),
+        "lumen": os.path.expanduser("~/.local/bin/lumen"),
     }.items()
     if os.path.exists(path)
 }

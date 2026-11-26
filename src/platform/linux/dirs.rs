@@ -16,17 +16,30 @@ fn xdg(variable: &str, default: &str) -> Option<PathBuf> {
         .or_else(|| Some(home()?.join(default)))
 }
 
-/// Lumen's preferences: `~/.config/lumen-rs`.
+/// Lumen's preferences: `~/.config/lumen`.
 pub fn config() -> Option<PathBuf> {
-    Some(xdg("XDG_CONFIG_HOME", ".config")?.join("lumen-rs"))
+    Some(moved(xdg("XDG_CONFIG_HOME", ".config")?, "lumen"))
 }
 
-/// What Lumen remembers between runs: `~/.local/state/lumen-rs`.
+/// What Lumen remembers between runs: `~/.local/state/lumen`.
 pub fn state() -> Option<PathBuf> {
-    Some(xdg("XDG_STATE_HOME", ".local/state")?.join("lumen-rs"))
+    Some(moved(xdg("XDG_STATE_HOME", ".local/state")?, "lumen"))
 }
 
-/// Signatures: `~/.local/share/lumen`, which the GTK Lumen shares.
+/// `base/name`, where versions called `lumen-rs` kept what is now kept there: moved over once.
+fn moved(base: PathBuf, name: &str) -> PathBuf {
+    let (old, new) = (base.join("lumen-rs"), base.join(name));
+    if old.is_dir()
+        && !new.exists()
+        && let Err(e) = std::fs::rename(&old, &new)
+    {
+        tracing::warn!("could not move {} to {}: {e}", old.display(), new.display());
+        return old;
+    }
+    new
+}
+
+/// Signatures: `~/.local/share/lumen`.
 pub fn data() -> Option<PathBuf> {
     Some(xdg("XDG_DATA_HOME", ".local/share")?.join("lumen"))
 }
@@ -62,4 +75,24 @@ pub fn places() -> Vec<(String, PathBuf)> {
     }
     out.push((tr("Computer"), "/".into()));
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn what_was_kept_as_lumen_rs_moves_over_once() {
+        let base = std::env::temp_dir().join(format!("lumen-dirs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("lumen-rs")).unwrap();
+        std::fs::write(base.join("lumen-rs/settings.toml"), "theme = \"dark\"").unwrap();
+        assert_eq!(moved(base.clone(), "lumen"), base.join("lumen"));
+        assert!(base.join("lumen/settings.toml").is_file() && !base.join("lumen-rs").exists());
+        // Never over what is there already.
+        std::fs::create_dir_all(base.join("lumen-rs")).unwrap();
+        assert_eq!(moved(base.clone(), "lumen"), base.join("lumen"));
+        assert!(base.join("lumen-rs").exists());
+        std::fs::remove_dir_all(&base).unwrap();
+    }
 }
