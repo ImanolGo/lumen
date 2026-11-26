@@ -4,6 +4,8 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-26
+
 ### Added
 - Rename… (F2, in the File menu and a file's right-click menu) renames the file on screen in its folder; it keeps its place in the list and among the recent files, and never replaces another file.
 - Select an Area (a page's right-click menu, or the command palette): a drag over a PDF page draws a rectangle instead of moving the view, and Copy puts that part of the page on the clipboard as a picture at 300 dpi.
@@ -185,7 +187,8 @@ First release. Lumen (Rust/iced) is a rewrite of the GTK Lumen without GTK, popp
 - A comparison of PDF rendering with poppler (`tools/fidelity.py`, `docs/FIDELITY.md`).
 - CI: format, lint, tests, minimum Rust version, release build, packaging checks, AUR checks, dependency audit and a headless GUI job.
 
-[Unreleased]: https://github.com/ImanolGo/lumen/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/ImanolGo/lumen/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/ImanolGo/lumen/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/ImanolGo/lumen/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/ImanolGo/lumen/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/ImanolGo/lumen/compare/v0.6.0...v0.7.0
