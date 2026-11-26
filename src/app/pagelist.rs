@@ -24,8 +24,10 @@ const MARGIN_ROWS: usize = 5;
 const KEEP: usize = 80;
 
 /// The page number typed into the go-to-page box: digits only, as many as any page count needs.
-pub fn clean_page_input(typed: &str) -> String {
-    typed.chars().filter(char::is_ascii_digit).take(6).collect()
+pub fn clean_page_input(typed: &str, labels: bool) -> String {
+    // Pages that have names ("iv", "A-3") may be asked for by them.
+    let keep = |c: &char| if labels { c.is_alphanumeric() || "-._ ".contains(*c) } else { c.is_ascii_digit() };
+    typed.chars().filter(keep).take(if labels { 24 } else { 6 }).collect()
 }
 
 /// The page (counted from 0) a typed number stands for, clamped to the document; none if it is not a number.
@@ -161,7 +163,8 @@ impl App {
 
     pub(super) fn goto_submit(&mut self) -> Task<Message> {
         let Doc::Pdf(view) = &self.doc else { return Task::none() };
-        let page = self.goto.as_deref().and_then(|t| typed_page(t, view.doc.page_count()));
+        let page =
+            self.goto.as_deref().and_then(|t| view.doc.page_named(t).or_else(|| typed_page(t, view.doc.page_count())));
         self.goto = None;
         match page {
             Some(page) => self.go_to_page(page),
@@ -171,11 +174,12 @@ impl App {
 
     /// The small floating box asking for a page number.
     pub(super) fn goto_bar<'a>(&'a self, typed: &'a str, pages: usize) -> Element<'a, Message> {
+        let labels = matches!(&self.doc, Doc::Pdf(v) if v.doc.has_labels());
         container(
             row![
                 ui::input(&trf!("Page (1–{})", pages), typed)
                     .id(self.widget_id("goto-page"))
-                    .on_input(|t| Message::GoToInput(clean_page_input(&t)))
+                    .on_input(move |t| Message::GoToInput(clean_page_input(&t, labels)))
                     .on_submit(Message::GoToSubmit)
                     .width(130),
                 text(trf!("of {}", pages)).size(style::SMALL).style(super::muted),
@@ -274,8 +278,9 @@ mod tests {
         assert_eq!(typed_page("999", 42), Some(41));
         assert_eq!(typed_page("", 42), None);
         assert_eq!(typed_page("x", 42), None);
-        assert_eq!(clean_page_input("1a2 3-"), "123");
-        assert_eq!(clean_page_input("12345678"), "123456");
+        assert_eq!(clean_page_input("1a2 3-", false), "123");
+        assert_eq!(clean_page_input("12345678", false), "123456");
+        assert_eq!(clean_page_input("A-3/x", true), "A-3x");
     }
 
     #[test]

@@ -707,7 +707,7 @@ Each is its own piece of work; ask the user which to do. Verified absent by sear
 | Rename the open file | **Done.** F2; keeps the place in the list and among the recent files; never overwrites (a hard link, which fails if the name is taken). A file with unsaved changes is saved or discarded first. |
 | Straighten and free rotation | A slider in the crop tool (±45°), cropping to the largest inner rectangle. |
 | Colour management | Pictures are shown without regard to their ICC profile; wide-gamut photos look oversaturated or dull. Convert to sRGB on decode with a pure-Rust engine (`moxcms`), inside the worker. |
-| Page labels | Show "iv" or "A-3" (`/PageLabels`) in the header and in go-to-page. |
+| Page labels | **Done.** "iv" or "A-3" (`/PageLabels`) in the header, and taken by Go to Page. |
 | Open several documents | Tabs or windows; today opening a file replaces the list. iced 0.14 supports several windows (`window::open`). |
 | Remember zoom and scroll per file, not only the PDF page | **Done**, for the recent files (`state.rs`): the zoom (none when fitted) and the place, in page points or picture pixels. |
 

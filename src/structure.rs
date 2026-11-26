@@ -48,6 +48,75 @@ const MAX_LINKS_PER_PAGE: usize = 2_000;
 const MAX_DEPTH: u16 = 32;
 
 /// Reads the outline and every page's links. Cheap: no page content is interpreted.
+/// The pages' own names (`/PageLabels`, "iv" or "A-3"); none when there are none, or they are
+/// just the numbers.
+pub fn page_labels(pdf: &Pdf) -> Option<Vec<String>> {
+    let resolver = Resolver::new(pdf);
+    let root = resolver.catalog.as_ref()?.get::<Dict<'_>>("PageLabels")?;
+    let mut ranges = Vec::new();
+    resolver.number_tree(&root, 0, &mut ranges, &mut HashSet::new());
+    ranges.sort_by_key(|(start, _)| *start);
+    let count = pdf.pages().len();
+    let mut labels = Vec::with_capacity(count);
+    for page in 0..count {
+        let range = ranges.iter().rposition(|(start, _)| *start as usize <= page);
+        let label = match range.map(|r| &ranges[r]) {
+            Some((start, dict)) => {
+                let style = dict.get::<Name<'_>>("S").and_then(|s| s.as_str().chars().next());
+                let prefix = dict.get::<PdfString<'_>>("P").map(|p| decode_text(p.as_bytes())).unwrap_or_default();
+                let first = dict.get::<u32>("St").unwrap_or(1).max(1);
+                page_label(style, &prefix, first + (page - *start as usize) as u32)
+            }
+            None => (page + 1).to_string(),
+        };
+        labels.push(label);
+    }
+    let plain = labels.iter().enumerate().all(|(i, l)| *l == (i + 1).to_string());
+    (!plain).then_some(labels)
+}
+
+/// The label of the `n`th page of a range: `D` decimal, `R`/`r` Roman, `A`/`a` letters (AA after Z),
+/// none the prefix alone.
+fn page_label(style: Option<char>, prefix: &str, n: u32) -> String {
+    let roman = |mut n: u32| {
+        let mut out = String::new();
+        for (value, digits) in [
+            (1000, "m"),
+            (900, "cm"),
+            (500, "d"),
+            (400, "cd"),
+            (100, "c"),
+            (90, "xc"),
+            (50, "l"),
+            (40, "xl"),
+            (10, "x"),
+            (9, "ix"),
+            (5, "v"),
+            (4, "iv"),
+            (1, "i"),
+        ] {
+            while n >= value {
+                out.push_str(digits);
+                n -= value;
+            }
+        }
+        out
+    };
+    let letters = |n: u32| {
+        let letter = char::from(b'a' + ((n - 1) % 26) as u8);
+        std::iter::repeat_n(letter, (n as usize - 1) / 26 + 1).collect::<String>()
+    };
+    let number = match style {
+        Some('D') => n.to_string(),
+        Some('r') => roman(n.min(4999)),
+        Some('R') => roman(n.min(4999)).to_uppercase(),
+        Some('a') => letters(n.min(26 * 40)),
+        Some('A') => letters(n.min(26 * 40)).to_uppercase(),
+        _ => String::new(),
+    };
+    format!("{prefix}{number}")
+}
+
 pub fn read(pdf: &Pdf) -> (Vec<OutlineItem>, Vec<Vec<Link>>) {
     let resolver = Resolver::new(pdf);
     let outline = resolver.outline();
@@ -263,6 +332,33 @@ impl<'a> Resolver<'a> {
         if let Some(kids) = node.get::<Array<'_>>("Kids") {
             for kid in dicts(self.pdf, &kids) {
                 self.name_tree(&kid, depth + 1, out, seen);
+            }
+        }
+    }
+
+    /// The entries of a number tree (`/Nums`, `/Kids`).
+    fn number_tree(&self, node: &Dict<'a>, depth: u8, out: &mut Vec<(i64, Dict<'a>)>, seen: &mut HashSet<ObjRef>) {
+        if depth > 32 || out.len() > 100_000 {
+            return;
+        }
+        if let Some(id) = node.obj_id()
+            && !seen.insert(ObjRef::from(id))
+        {
+            return;
+        }
+        if let Some(nums) = node.get::<Array<'_>>("Nums") {
+            let mut iter = nums.raw_iter();
+            while let (Some(key), Some(value)) = (iter.next(), iter.next()) {
+                if let (Some(Object::Number(n)), Some(Object::Dict(d))) = (self.resolve(key), self.resolve(value))
+                    && n.as_i64() >= 0
+                {
+                    out.push((n.as_i64(), d));
+                }
+            }
+        }
+        if let Some(kids) = node.get::<Array<'_>>("Kids") {
+            for kid in dicts(self.pdf, &kids) {
+                self.number_tree(&kid, depth + 1, out, seen);
             }
         }
     }
@@ -1009,6 +1105,16 @@ impl<'a> Device<'a> for TextDevice {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn page_labels_are_written_as_their_style_says() {
+        assert_eq!(page_label(Some('r'), "", 4), "iv");
+        assert_eq!(page_label(Some('R'), "", 1994), "MCMXCIV");
+        assert_eq!(page_label(Some('D'), "A-", 3), "A-3");
+        assert_eq!(page_label(Some('a'), "", 1), "a");
+        assert_eq!(page_label(Some('A'), "", 28), "BB");
+        assert_eq!(page_label(None, "Cover", 1), "Cover");
+    }
+
     use super::*;
 
     #[test]

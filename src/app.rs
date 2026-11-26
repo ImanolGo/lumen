@@ -3742,7 +3742,14 @@ impl App {
             Doc::Failed { path, .. } => (file_name(path), tr("Could not open")),
             Doc::Locked { path, .. } => (file_name(path), tr("Password-protected")),
             Doc::Image(v) => (file_name(&v.path), String::new()),
-            Doc::Pdf(v) => (file_name(v.doc.path()), trf!("Page {} of {}", v.current_page + 1, v.doc.page_count())),
+            Doc::Pdf(v) => {
+                let (at, of) = (v.current_page + 1, v.doc.page_count());
+                let subtitle = match v.doc.label(v.current_page) {
+                    Some(label) => trf!("Page {} ({} of {})", label, at, of),
+                    None => trf!("Page {} of {}", at, of),
+                };
+                (file_name(v.doc.path()), subtitle)
+            }
         };
         let position = match browsed.iter().position(|&i| i == self.current) {
             Some(at) if browsed.len() > 1 => trf!("{} of {}", at + 1, browsed.len()),

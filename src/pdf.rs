@@ -122,6 +122,8 @@ struct Inner {
     pages: Vec<(f32, f32)>,
     outline: Vec<OutlineItem>,
     links: Vec<Vec<Link>>,
+    /// The pages' own names, when they have any but their numbers.
+    labels: Option<Vec<String>>,
     /// Extracted text per page, filled in as search needs it.
     text: Mutex<Vec<Option<Arc<PageText>>>>,
     queue: Arc<Queue>,
@@ -319,6 +321,7 @@ impl Document {
             tracing::warn!("could not read the outline or links of {}", path.display());
             (Vec::new(), vec![Vec::new(); pages.len()])
         });
+        let labels = catch_unwind(AssertUnwindSafe(|| structure::page_labels(&pdf))).ok().flatten();
         drop(pdf);
 
         let queue = Arc::new(Queue::default());
@@ -337,8 +340,33 @@ impl Document {
         let text = Mutex::new(vec![None; pages.len()]);
         let password = password.filter(|p| !p.is_empty()).map(str::to_owned);
         Ok(Self {
-            inner: Arc::new(Inner { path: path.to_owned(), original, pages, outline, links, text, queue, password }),
+            inner: Arc::new(Inner {
+                path: path.to_owned(),
+                original,
+                pages,
+                outline,
+                links,
+                labels,
+                text,
+                queue,
+                password,
+            }),
         })
+    }
+
+    /// The name page `page` gives itself ("iv", "A-3"), if it is not just its number.
+    pub fn label(&self, page: usize) -> Option<&str> {
+        self.inner.labels.as_ref()?.get(page).map(String::as_str).filter(|l| *l != (page + 1).to_string())
+    }
+
+    /// The page called `name`, ignoring case.
+    pub fn page_named(&self, name: &str) -> Option<usize> {
+        let name = name.trim();
+        self.inner.labels.as_ref()?.iter().position(|l| l.eq_ignore_ascii_case(name))
+    }
+
+    pub fn has_labels(&self) -> bool {
+        self.inner.labels.is_some()
     }
 
     pub fn path(&self) -> &Path {
@@ -687,6 +715,39 @@ pub(crate) mod tests {
         assert_eq!(text.find("HELLO LUMEN world").len(), 1);
         assert_eq!(doc.text(1).await.find("second").len(), 1);
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn pages_are_called_by_their_labels() {
+        use lopdf::{Object, StringFormat, dictionary};
+        let mut pdf = lopdf::Document::with_version("1.7");
+        let pages = pdf.new_object_id();
+        let media: Vec<Object> = [0, 0, 600, 800].map(Object::Integer).to_vec();
+        let kids: Vec<Object> = (0..5)
+            .map(|_| {
+                pdf.add_object(dictionary! { "Type" => "Page", "Parent" => pages, "MediaBox" => media.clone() }).into()
+            })
+            .collect();
+        pdf.objects.insert(pages, dictionary! { "Type" => "Pages", "Kids" => kids, "Count" => 5 }.into());
+        // i, ii, then A-1, A-2, A-3.
+        let prefix = Object::String(b"A-".to_vec(), StringFormat::Literal);
+        let nums: Vec<Object> = vec![
+            0.into(),
+            dictionary! { "S" => "r" }.into(),
+            2.into(),
+            dictionary! { "S" => "D", "P" => prefix }.into(),
+        ];
+        let labels = pdf.add_object(dictionary! { "Nums" => nums });
+        let root = pdf.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages, "PageLabels" => labels });
+        pdf.trailer.set("Root", root);
+        let path = std::env::temp_dir().join(format!("lumen-labels-{}.pdf", std::process::id()));
+        pdf.save(&path).unwrap();
+        let doc = Document::open(&path).unwrap();
+        assert_eq!((0..5).map(|p| doc.label(p).unwrap_or("-")).collect::<Vec<_>>(), ["i", "ii", "A-1", "A-2", "A-3"]);
+        assert_eq!((doc.page_named("II"), doc.page_named("a-3"), doc.page_named("9")), (Some(1), Some(4), None));
+        std::fs::remove_file(&path).unwrap();
+        // Plain numbers are no labels.
+        assert!(Document::open(&structured_pdf()).unwrap().label(0).is_none());
     }
 
     #[test]

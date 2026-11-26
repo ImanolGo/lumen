@@ -1149,3 +1149,6 @@ msgstr "Nombre"
 
 msgid "Size"
 msgstr "Tamaño"
+
+msgid "Page {} ({} of {})"
+msgstr "Página {} ({} de {})"
