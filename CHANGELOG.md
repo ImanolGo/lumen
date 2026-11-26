@@ -4,6 +4,8 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-26
+
 ### Added
 - More ways to select part of a picture, chosen in the editing tools: a rectangle, freehand (lasso), or by colour (click, and drag away to take in more of it). A selection can be inverted (Ctrl+Shift+I), and its pixels deleted (Delete), which makes them transparent; undo brings them back. Copy takes only what is selected, with the rest transparent.
 
@@ -179,7 +181,8 @@ First release. Lumen (Rust/iced) is a rewrite of the GTK Lumen without GTK, popp
 - A comparison of PDF rendering with poppler (`tools/fidelity.py`, `docs/FIDELITY.md`).
 - CI: format, lint, tests, minimum Rust version, release build, packaging checks, AUR checks, dependency audit and a headless GUI job.
 
-[Unreleased]: https://github.com/ImanolGo/lumen/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/ImanolGo/lumen/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/ImanolGo/lumen/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/ImanolGo/lumen/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/ImanolGo/lumen/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/ImanolGo/lumen/compare/v0.5.0...v0.6.0

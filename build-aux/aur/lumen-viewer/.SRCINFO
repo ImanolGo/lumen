@@ -1,6 +1,6 @@
 pkgbase = lumen-viewer
 	pkgdesc = A fast, safe viewer and editor for pictures and PDFs, in pure Rust with iced
-	pkgver = 0.8.0
+	pkgver = 0.9.0
 	pkgrel = 1
 	url = https://github.com/ImanolGo/lumen
 	arch = x86_64
@@ -16,7 +16,7 @@ pkgbase = lumen-viewer
 	optdepends = cups: printing without a desktop print dialog
 	optdepends = xdg-utils: opening links when there is no portal
 	conflicts = lumen
-	source = lumen-0.8.0.tar.gz::https://github.com/ImanolGo/lumen/archive/refs/tags/v0.8.0.tar.gz
+	source = lumen-0.9.0.tar.gz::https://github.com/ImanolGo/lumen/archive/refs/tags/v0.9.0.tar.gz
 	sha256sums = SKIP
 
 pkgname = lumen-viewer

@@ -711,6 +711,10 @@ Each is its own piece of work; ask the user which to do. Verified absent by sear
 | Open several documents | Tabs or windows; today opening a file replaces the list. iced 0.14 supports several windows (`window::open`). |
 | Remember zoom and scroll per file, not only the PDF page | `state.rs` already keeps per-file data. |
 
+**Order agreed on 26 November 2026:** after *Rectangular selection on PDF pages*, the common ones above
+(underline and strike-out and sticky notes come with *Notes, underline, strike-out* below; *Open several
+documents* is done, by package 23), then the rest of the Preview list.
+
 **From macOS Preview: to be done** (the user asked for all of them on 25 November 2026; no need to ask
 again which). The rectangular selection on pictures, with Copy and Crop, is done. In this order, each
 a commit of its own with tests and docs:
