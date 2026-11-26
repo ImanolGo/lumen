@@ -5,6 +5,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 ## [Unreleased]
 
 ### Added
+- A recent file comes back at the zoom and place it was left at, not only at its page; one that was fitted to the window is fitted again.
 - The files of a folder can be sorted by name, date modified, size or kind, and reversed, from the top of the Files list; the order is remembered. The file on screen stays where it is.
 
 ## [0.10.0] - 2026-11-26

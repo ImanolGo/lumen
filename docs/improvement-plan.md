@@ -709,7 +709,7 @@ Each is its own piece of work; ask the user which to do. Verified absent by sear
 | Colour management | Pictures are shown without regard to their ICC profile; wide-gamut photos look oversaturated or dull. Convert to sRGB on decode with a pure-Rust engine (`moxcms`), inside the worker. |
 | Page labels | Show "iv" or "A-3" (`/PageLabels`) in the header and in go-to-page. |
 | Open several documents | Tabs or windows; today opening a file replaces the list. iced 0.14 supports several windows (`window::open`). |
-| Remember zoom and scroll per file, not only the PDF page | `state.rs` already keeps per-file data. |
+| Remember zoom and scroll per file, not only the PDF page | **Done**, for the recent files (`state.rs`): the zoom (none when fitted) and the place, in page points or picture pixels. |
 
 **Order agreed on 26 November 2026:** after *Rectangular selection on PDF pages*, the common ones above
 (underline and strike-out and sticky notes come with *Notes, underline, strike-out* below; *Open several

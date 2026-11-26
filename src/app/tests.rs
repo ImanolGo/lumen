@@ -1427,3 +1427,49 @@ fn the_files_follow_the_order_asked_for_and_the_one_on_screen_stays() {
     let _ = app.update(Message::Sorted(sorted[..1].to_vec()));
     assert_eq!(app.files.len(), 4);
 }
+
+#[test]
+fn a_file_comes_back_as_it_was_looked_at() {
+    let _inside = runtime().enter();
+    let mut app = picture_app();
+    let path = app.files[0].clone();
+    app.state.touch(&path);
+    let _ = app.update(Message::AreaResized(iced::Size::new(200.0, 150.0)));
+    let _ = app.set_image_zoom(Some(2.0));
+    app.viewport.x = 80.0;
+    app.viewport.y = 60.0;
+    app.remember_place();
+    let spot = app.state.spot_of(&path).expect("noted");
+    assert_eq!((spot.zoom, spot.across, spot.down), (Some(2.0), 40.0, 30.0));
+    // Shown again later: at that zoom and place.
+    app.viewport = Viewport::default();
+    let picture = raster::load(&path).unwrap();
+    let _ = app.show_picture(path.clone(), picture.into());
+    let Doc::Image(view) = &app.doc else { panic!("no picture") };
+    assert_eq!((view.zoom, app.viewport.x, app.viewport.y), (Some(2.0), 80.0, 60.0));
+    // A fitted picture is fitted again, wherever it was.
+    let _ = app.set_image_zoom(None);
+    app.remember_place();
+    assert_eq!(app.state.spot_of(&path).unwrap().zoom, None);
+}
+
+#[test]
+fn a_pdf_comes_back_at_its_zoom_and_place() {
+    let _inside = runtime().enter();
+    let mut app = pdf_app();
+    let path = fixture("pages.pdf");
+    app.state.touch(&path);
+    let _ = app.update(Message::ZoomTo(2.0));
+    let _ = app.update(Message::Frame(Instant::now() + Duration::from_secs(2)));
+    scrolled_to_page(&mut app, 3);
+    app.viewport.y += 37.0;
+    let before = app.place().unwrap();
+    app.remember_place();
+    let doc = pdf::Document::open(&path).unwrap();
+    let _ = app.open_pdf_view(path, doc);
+    let Doc::Pdf(view) = &app.doc else { panic!("no PDF") };
+    assert_eq!((view.fit, view.zoom), (PdfFit::Manual, 2.0 * PT_TO_PX));
+    let after = app.place().unwrap();
+    assert_eq!(after.page, before.page);
+    assert!((after.down - before.down).abs() < 0.01, "{before:?} {after:?}");
+}

@@ -20,12 +20,25 @@ pub struct Recent {
     /// The page a PDF was left at, counting from 0.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page: Option<usize>,
+    /// How it was looked at, when it was left.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spot: Option<Spot>,
     /// When it was last opened (milliseconds since 1970), to tell whose news is newer.
     #[serde(default)]
     pub at: u64,
     /// It is not there now (a disk that is not mounted, say): kept, but not listed.
     #[serde(skip)]
     pub missing: bool,
+}
+
+/// Where a file was looked at: its zoom (none when it was fitted to the window) and how far into it
+/// the view was: in a PDF, points from the top-left of its page; in a picture, its pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Spot {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zoom: Option<f32>,
+    pub down: f32,
+    pub across: f32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -102,7 +115,7 @@ impl State {
         for d in disk.recent {
             let gone = self.forgotten.contains(&d.path) || d.at < self.cleared;
             match recent.iter_mut().find(|r| r.path == d.path) {
-                Some(r) if d.at > r.at => (r.page, r.at) = (d.page, d.at),
+                Some(r) if d.at > r.at => (r.page, r.spot, r.at) = (d.page, d.spot, d.at),
                 Some(_) => {}
                 None if gone => {}
                 None => recent.push(d),
@@ -129,11 +142,14 @@ impl State {
 
     /// Notes that `path` was opened: it moves to the front, keeping the page it had.
     pub fn touch(&mut self, path: &Path) {
-        let page = match self.recent.iter().position(|r| r.path == path) {
-            Some(i) => self.recent.remove(i).page,
-            None => None,
+        let (page, spot) = match self.recent.iter().position(|r| r.path == path) {
+            Some(i) => {
+                let r = self.recent.remove(i);
+                (r.page, r.spot)
+            }
+            None => (None, None),
         };
-        self.recent.insert(0, Recent { path: path.to_path_buf(), page, at: now(), missing: false });
+        self.recent.insert(0, Recent { path: path.to_path_buf(), page, spot, at: now(), missing: false });
         self.forgotten.remove(path);
         self.touched.insert(path.to_path_buf());
         self.recent.truncate(MAX_RECENT);
@@ -144,6 +160,17 @@ impl State {
         if let Some(r) = self.recent.iter_mut().find(|r| r.path == path) {
             r.page = Some(page);
         }
+    }
+
+    /// Notes how a file is looked at (a file not in the list is left out of it).
+    pub fn set_spot(&mut self, path: &Path, spot: Spot) {
+        if let Some(r) = self.recent.iter_mut().find(|r| r.path == path) {
+            r.spot = Some(spot);
+        }
+    }
+
+    pub fn spot_of(&self, path: &Path) -> Option<Spot> {
+        self.recent.iter().find(|r| r.path == path)?.spot
     }
 
     pub fn page_of(&self, path: &Path) -> Option<usize> {
@@ -198,6 +225,11 @@ mod tests {
         s.touch(Path::new("other.pdf"));
         s.touch(Path::new("book.pdf"));
         assert_eq!(s.page_of(Path::new("book.pdf")), Some(41));
+        let spot = Spot { zoom: Some(2.0), down: 120.5, across: 3.0 };
+        s.set_spot(Path::new("book.pdf"), spot);
+        s.touch(Path::new("book.pdf"));
+        assert_eq!(s.spot_of(Path::new("book.pdf")), Some(spot));
+        assert_eq!(State::parse(&s.to_toml()).spot_of(Path::new("book.pdf")), Some(spot));
         assert_eq!(s.page_of(Path::new("other.pdf")), None);
         // A page for a file that is not listed is not invented.
         s.set_page(Path::new("unlisted.pdf"), 3);

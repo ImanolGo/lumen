@@ -2665,8 +2665,13 @@ impl App {
             crate::settings::PdfFit::Width => PdfFit::Width,
             crate::settings::PdfFit::Page => PdfFit::Page,
         };
+        let spot = self.state.spot_of(&path);
         let mut view = PdfView { doc, zoom: 1.0, fit, tops: Vec::new(), slots, current_page: 0 };
         view.zoom = self.pdf_fit_zoom(&view, fit).min(1.5 * PT_TO_PX);
+        // As it was left: at its zoom, if it was not fitted.
+        if let Some(zoom) = spot.and_then(|s| s.zoom) {
+            (view.zoom, view.fit) = (zoom.clamp(MIN_ZOOM, MAX_ZOOM), PdfFit::Manual);
+        }
         view.layout();
         self.set_doc(Doc::Pdf(view));
         self.viewport.y = 0.0;
@@ -2681,7 +2686,11 @@ impl App {
         let restored = match (self.restore.take(), self.state.page_of(&path)) {
             (Some(place), _) => self.go_to_place(place),
             // A PDF opened again comes back at the page it was left at.
-            (None, Some(page)) if page > 0 && page < pages => self.go_to_page(page),
+            (None, Some(page)) if page < pages => match spot {
+                Some(s) => self.go_to_place(Place { page, down: s.down, across: s.across }),
+                None if page > 0 => self.go_to_page(page),
+                None => Task::none(),
+            },
             _ => Task::none(),
         };
         Task::batch([
@@ -2706,15 +2715,13 @@ impl App {
         let original = loaded.picture.clone();
         let anim = Anim::start(&path);
         let animated = anim.is_some() && crate::animation::looks_animated(&path);
-        self.set_doc(Doc::Image(Box::new(ImageView {
-            path,
-            original,
-            shown: loaded,
-            zoom: None,
-            edit,
-            anim,
-            animated,
-        })));
+        // As it was left, unless it was fitted to the window.
+        let spot = self.state.spot_of(&path).filter(|s| s.zoom.is_some());
+        let zoom = spot.and_then(|s| s.zoom).map(|z| z.clamp(MIN_ZOOM, MAX_ZOOM));
+        if let (Some(s), Some(z)) = (spot, zoom) {
+            (self.viewport.x, self.viewport.y) = (s.across * z, s.down * z);
+        }
+        self.set_doc(Doc::Image(Box::new(ImageView { path, original, shown: loaded, zoom, edit, anim, animated })));
         if edited { self.render_edits() } else { Task::none() }
     }
 
@@ -3211,9 +3218,25 @@ impl App {
     /// Scrolls so that `point` (page points from the page's top-left) is near the top-left of the view.
     /// Notes the page the open PDF is at, for next time.
     fn remember_place(&mut self) {
-        if let Doc::Pdf(view) = &self.doc {
-            let path = view.doc.path().to_path_buf();
-            self.state.set_page(&path, view.current_page);
+        match &self.doc {
+            Doc::Pdf(view) => {
+                let path = view.doc.path().to_path_buf();
+                self.state.set_page(&path, view.current_page);
+                if let Some(place) = self.place() {
+                    let zoom = (view.fit == PdfFit::Manual).then_some(view.zoom);
+                    self.state.set_spot(&path, crate::state::Spot { zoom, down: place.down, across: place.across });
+                }
+            }
+            Doc::Image(view) => {
+                let zoom = view.zoom.unwrap_or(1.0);
+                let spot = crate::state::Spot {
+                    zoom: view.zoom,
+                    down: self.viewport.y / zoom,
+                    across: self.viewport.x / zoom,
+                };
+                self.state.set_spot(&view.path.clone(), spot);
+            }
+            _ => {}
         }
     }
 

@@ -144,7 +144,7 @@ Lumen does not work with screen readers yet. iced 0.14, the toolkit it is built 
 |---|---|
 | `~/.config/lumen/settings.toml` (or under `$XDG_CONFIG_HOME`) | Preferences, written when you change them in the app |
 | `~/.cache/thumbnails/large/` (or under `$XDG_CACHE_HOME`) | The desktop's thumbnail cache, shared with the file manager: Lumen shows a thumbnail another program made (if the file has not changed since) and adds the ones it makes (256 px PNGs named after the MD5 of the file's address, private to you). Turn it off in Preferences. PDFs are not cached, since drawing a page is as fast as reading one |
-| `~/.local/state/lumen/state.toml` (or under `$XDG_STATE_HOME`) | The window's size, the last 30 files opened and the page each PDF was left at. Written a moment after you open a file and when Lumen quits; "Clear" in the recent list empties it. Safe to delete |
+| `~/.local/state/lumen/state.toml` (or under `$XDG_STATE_HOME`) | The window's size, the last 30 files opened, and the page, zoom and place each was left at. Written a moment after you open a file and when Lumen quits; "Clear" in the recent list empties it. Safe to delete |
 | `~/.local/share/lumen/signatures.toml` (or under `$XDG_DATA_HOME`) | Your saved signatures (up to eight), as strokes; shared with the GTK Lumen |
 | `~/.local/share/Trash/` (or `.Trash-<uid>` at the top of another disk) | Files moved to the trash, in the freedesktop format |
 
