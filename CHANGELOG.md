@@ -4,6 +4,8 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-26
+
 ### Added
 - Page labels: a PDF whose pages are called "iv" or "A-3" shows that in the header ("Page iv (6 of 300)"), and Go to Page takes the label as well as the number.
 - A recent file comes back at the zoom and place it was left at, not only at its page; one that was fitted to the window is fitted again.
@@ -192,7 +194,8 @@ First release. Lumen (Rust/iced) is a rewrite of the GTK Lumen without GTK, popp
 - A comparison of PDF rendering with poppler (`tools/fidelity.py`, `docs/FIDELITY.md`).
 - CI: format, lint, tests, minimum Rust version, release build, packaging checks, AUR checks, dependency audit and a headless GUI job.
 
-[Unreleased]: https://github.com/ImanolGo/lumen/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/ImanolGo/lumen/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/ImanolGo/lumen/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/ImanolGo/lumen/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/ImanolGo/lumen/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/ImanolGo/lumen/compare/v0.7.0...v0.8.0

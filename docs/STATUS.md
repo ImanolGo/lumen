@@ -1,6 +1,6 @@
 # Status
 
-Where Lumen stands, as of 26 November 2026 (version 0.10.0). It is a
+Where Lumen stands, as of 26 November 2026 (version 0.11.0). It is a
 ground-up rewrite of the [GTK Lumen](https://github.com/ImanolGo/lumen-gtk) 0.4.2, which it replaces, and
 [parity-plan.md](parity-plan.md) is the plan that closes the gap.
 
@@ -8,7 +8,7 @@ ground-up rewrite of the [GTK Lumen](https://github.com/ImanolGo/lumen-gtk) 0.4.
 
 Everything on the GTK Lumen's feature list works in some form, except the items under
 [Not there yet](#not-there-yet). It opens files about as fast as the GTK Lumen, with less CPU and none while idle, uses no C library in
-the document path, and decodes pictures in a sandbox. Version 0.10.0 is tagged and published on
+the document path, and decodes pictures in a sandbox. Version 0.11.0 is tagged and published on
 GitHub; it is in no distribution's packages, has been used by no one but its author, and a number of things have only been checked in tests and screenshots, not by
 a person clicking (see [What has not been checked](#what-has-not-been-checked)).
 

@@ -18,7 +18,7 @@
   <img src="data/screenshots/image-markup.png" alt="Marking up a picture in Lumen" width="720">
 </p>
 
-> **Status: early (0.10.0).** It has had little use so far; see [docs/STATUS.md](docs/STATUS.md) for what works, what is missing and what has not been checked. It replaces the first Lumen, written with GTK 4 and poppler, which is kept as [lumen-gtk](https://github.com/ImanolGo/lumen-gtk) and no longer developed.
+> **Status: early (0.11.0).** It has had little use so far; see [docs/STATUS.md](docs/STATUS.md) for what works, what is missing and what has not been checked. It replaces the first Lumen, written with GTK 4 and poppler, which is kept as [lumen-gtk](https://github.com/ImanolGo/lumen-gtk) and no longer developed.
 
 ## Features
 
