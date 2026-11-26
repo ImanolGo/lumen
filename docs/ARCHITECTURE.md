@@ -111,7 +111,8 @@ dependencies (touchpad pinch); see `vendor/README.md`.
 | `src/app/hint.rs` | The words shown while the pointer rests on something |
 | `src/app/popup.rs` | A panel that opens under a button or at the pointer, inside the window |
 | `src/app/scroller.rs` | The scrolled view of a picture or PDF, at the position the app says |
-| `src/app/region.rs` | Selecting a part of a picture: copy, crop |
+| `src/app/region.rs` | Selecting a part of a picture (rectangle, freehand, by colour): copy, crop, invert, delete |
+| `src/edit/select.rs` | What is selected of a picture, as pixels: cutting it out, clearing it, selecting by colour |
 | `src/app/slideshow.rs` | The slideshow |
 | `src/app/chooser.rs`, `src/app/printing.rs` | Lumen's own file chooser and print dialog, for desktops without a portal |
 | `src/platform/mod.rs` | The operating system behind the same functions everywhere (`dirs`, `dialogs`, `shell`, `clipboard`, `watch`, `trash`, `print`, `confine`, `startup`, `thumbs`, `control`, `fs`), and `caps()`: what this system can do |
