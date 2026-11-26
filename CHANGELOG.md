@@ -5,6 +5,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 ## [Unreleased]
 
 ### Added
+- Colour management: a picture with a colour profile (Adobe RGB, Display P3…) is shown in its real colours, turned into sRGB as it is decoded (with moxcms, pure Rust, in the sandbox). A copy saved from it is sRGB, without the old profile.
 - Straighten, in the editing tools: turn a picture by up to 45° with a slider, seen at once, and keep the largest upright part of it; undo takes it back.
 
 ## [0.11.0] - 2026-11-26

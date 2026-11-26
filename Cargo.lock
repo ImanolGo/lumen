@@ -2799,6 +2799,7 @@ dependencies = [
  "libc",
  "libheif-rs",
  "lopdf",
+ "moxcms",
  "muda",
  "natord",
  "notify",

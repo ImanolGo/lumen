@@ -322,11 +322,20 @@ fn decode(data: &[u8], ext: &str) -> Result<DynamicImage> {
     reader.limits(limits());
     let mut decoder = reader.into_decoder().context("unsupported picture format")?;
     let orientation = decoder.orientation().unwrap_or(Orientation::NoTransforms);
+    let icc = decoder.icc_profile().ok().flatten();
     // `from_decoder` does not count its own buffer.
     let mut limits = limits();
     limits.reserve(decoder.total_bytes()).map_err(|_| anyhow::anyhow!("the picture is too large"))?;
     decoder.set_limits(limits).context("the picture is too large")?;
     let mut img = DynamicImage::from_decoder(decoder).context("the picture is damaged")?;
+    // Colours as the picture means them, in sRGB.
+    if let Some(icc) = icc {
+        let rgba = img.to_rgba8();
+        let (w, h) = rgba.dimensions();
+        if let Some(out) = crate::colour::to_srgb(rgba.as_raw(), &icc) {
+            img = DynamicImage::ImageRgba8(RgbaImage::from_raw(w, h, out).context("the picture is damaged")?);
+        }
+    }
     img.apply_orientation(orientation);
     Ok(img)
 }

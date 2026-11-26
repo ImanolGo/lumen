@@ -22,7 +22,10 @@ pub struct Metadata {
 impl Metadata {
     /// The metadata of the picture at `source`, fixed up for an upright copy of `width`×`height`.
     pub fn for_copy(source: &Path, width: u32, height: u32) -> Self {
-        Self { exif: exif_for_copy(source, width, height), icc: icc_profile(source).filter(|icc| is_rgb(icc)) }
+        Self {
+            exif: exif_for_copy(source, width, height),
+            icc: icc_profile(source).filter(|icc| is_rgb(icc) && !crate::colour::is_converted(icc)),
+        }
     }
 }
 
@@ -118,6 +121,21 @@ mod tests {
 
     fn read(path: &Path) -> exif::Exif {
         exif::Reader::new().read_from_container(&mut BufReader::new(std::fs::File::open(path).unwrap())).unwrap()
+    }
+
+    #[test]
+    fn a_profile_the_colours_were_turned_from_is_left_out_of_a_copy() {
+        use image::ImageEncoder;
+        let path = std::env::temp_dir().join(format!("lumen-icc-p3-{}.png", std::process::id()));
+        let mut file = std::fs::File::create(&path).unwrap();
+        let mut png = image::codecs::png::PngEncoder::new(&mut file);
+        png.set_icc_profile(moxcms::ColorProfile::new_display_p3().encode().unwrap()).unwrap();
+        png.write_image(&[0, 0, 0, 255], 1, 1, image::ExtendedColorType::Rgba8).unwrap();
+        drop(file);
+        assert!(icc_profile(&path).is_some());
+        // The copy has sRGB pixels, so no profile says otherwise.
+        assert!(Metadata::for_copy(&path, 1, 1).icc.is_none());
+        std::fs::remove_file(&path).unwrap();
     }
 
     #[test]

@@ -10,6 +10,7 @@ mod animation;
 mod annotate;
 mod app;
 mod clipboard;
+mod colour;
 mod control;
 mod cups;
 mod edit;

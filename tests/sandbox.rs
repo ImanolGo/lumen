@@ -184,3 +184,33 @@ fn animations_are_decoded_inside_too() {
         assert_ne!(child.wait().unwrap().signal(), Some(31));
     }
 }
+
+/// A picture that says its colours are Display P3 is shown in sRGB, also inside the sandbox.
+#[test]
+fn colours_with_a_profile_are_turned_into_srgb_inside_too() {
+    use image::ImageEncoder;
+    assert!(sandbox_available(), "this machine cannot sandbox: the test cannot say anything");
+    let path = std::env::temp_dir().join(format!("lumen-p3-{}.png", std::process::id()));
+    let pixels: Vec<u8> = [100u8, 180, 100, 255].repeat(4);
+    let write = |icc: Option<Vec<u8>>| {
+        let mut file = std::fs::File::create(&path).unwrap();
+        let mut png = image::codecs::png::PngEncoder::new(&mut file);
+        if let Some(icc) = icc {
+            png.set_icc_profile(icc).unwrap();
+        }
+        png.write_image(&pixels, 2, 2, image::ExtendedColorType::Rgba8).unwrap();
+    };
+    let first_pixel = || {
+        let out = worker("load", "png", Some(&path));
+        assert_eq!(answer(&out), Ok((2, 2)), "{}", String::from_utf8_lossy(&out.stderr));
+        let rest = &after_ready(&out)[1..];
+        rest[16..20].to_vec()
+    };
+    write(None);
+    assert_eq!(first_pixel(), [100, 180, 100, 255], "without a profile, as it is");
+    write(Some(moxcms::ColorProfile::new_display_p3().encode().unwrap()));
+    let shown = first_pixel();
+    assert_ne!(shown, [100, 180, 100, 255], "with one, turned into sRGB");
+    assert!(shown[1] > 180, "a P3 green is a stronger green in sRGB terms: {shown:?}");
+    std::fs::remove_file(&path).unwrap();
+}
