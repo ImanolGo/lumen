@@ -1410,3 +1410,20 @@ fn the_file_on_screen_can_be_renamed_but_not_over_another() {
     assert_eq!((app.files[0].clone(), app.current), (new, 0));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn the_files_follow_the_order_asked_for_and_the_one_on_screen_stays() {
+    let _inside = runtime().enter();
+    let mut app = opened(2, false);
+    let on_screen = app.files[app.current].clone();
+    let _ = app.update(Message::Sort(crate::settings::SortBy::Kind));
+    assert_eq!(app.prefs.sort_by, crate::settings::SortBy::Kind);
+    // What the work off the screen sends back.
+    let sorted = library::sorted(app.files.clone(), crate::settings::SortBy::Kind, false);
+    let _ = app.update(Message::Sorted(sorted.clone()));
+    assert_eq!(app.files, sorted);
+    assert_eq!(app.files[app.current], on_screen);
+    // A list that changed meanwhile is not replaced by an old one.
+    let _ = app.update(Message::Sorted(sorted[..1].to_vec()));
+    assert_eq!(app.files.len(), 4);
+}

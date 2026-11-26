@@ -1128,3 +1128,24 @@ msgstr "Nombre cambiado a «{}»"
 
 msgid "In {}"
 msgstr "En {}"
+
+msgid "Sorted by {}"
+msgstr "Ordenado por {}"
+
+msgid "Sort By"
+msgstr "Ordenar por"
+
+msgid "Date Modified"
+msgstr "Fecha de modificación"
+
+msgid "Kind"
+msgstr "Tipo"
+
+msgid "Reversed"
+msgstr "Al revés"
+
+msgid "Name"
+msgstr "Nombre"
+
+msgid "Size"
+msgstr "Tamaño"

@@ -19,6 +19,20 @@ pub enum Theme {
     Dark,
 }
 
+/// The order of the files of a folder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SortBy {
+    /// By name, with numbers in order (`photo2` before `photo10`).
+    #[default]
+    Name,
+    /// Last changed, oldest first.
+    Date,
+    Size,
+    /// By ending, then by name.
+    Kind,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum PdfFit {
@@ -52,6 +66,9 @@ pub struct Settings {
     pub window_buttons: bool,
     /// Dragging over a picture selects a part of it (else it moves the picture).
     pub select_on_drag: bool,
+    /// The order of the files of a folder, and whether it is turned round.
+    pub sort_by: SortBy,
+    pub sort_reversed: bool,
     /// The interface's language ("en", "es"); empty follows the system.
     pub language: String,
     /// Use the desktop's thumbnail cache (`~/.cache/thumbnails`) and add to it.
@@ -77,6 +94,8 @@ impl Default for Settings {
             window_buttons: false,
             select_on_drag: true,
             language: String::new(),
+            sort_by: SortBy::Name,
+            sort_reversed: false,
             thumbnail_cache: true,
             cache_mb: 64,
             preload_megapixels: 4,
@@ -137,6 +156,8 @@ impl Settings {
         get(&table, "window_buttons", &mut out.window_buttons);
         get(&table, "select_on_drag", &mut out.select_on_drag);
         get(&table, "language", &mut out.language);
+        get(&table, "sort_by", &mut out.sort_by);
+        get(&table, "sort_reversed", &mut out.sort_reversed);
         get(&table, "thumbnail_cache", &mut out.thumbnail_cache);
         get(&table, "cache_mb", &mut out.cache_mb);
         get(&table, "preload_megapixels", &mut out.preload_megapixels);
@@ -240,6 +261,8 @@ mod tests {
             window_buttons: true,
             select_on_drag: false,
             language: "es".into(),
+            sort_by: SortBy::Size,
+            sort_reversed: true,
             thumbnail_cache: false,
             cache_mb: 128,
             preload_megapixels: 0,

@@ -4,6 +4,9 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Added
+- The files of a folder can be sorted by name, date modified, size or kind, and reversed, from the top of the Files list; the order is remembered. The file on screen stays where it is.
+
 ## [0.10.0] - 2026-11-26
 
 ### Added

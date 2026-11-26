@@ -756,6 +756,11 @@ pub enum Message {
     Region(region::RegionMsg),
     Area(area::AreaMsg),
     Rename(rename::RenameMsg),
+    /// Sorts the files so, or turns the order round.
+    Sort(crate::settings::SortBy),
+    SortReversed,
+    /// The files, sorted (when they are still the same ones).
+    Sorted(Vec<PathBuf>),
     /// Throw the unsaved changes of the file on screen away (asks first).
     Discard,
     Pages(PagesMsg),
@@ -2061,6 +2066,34 @@ impl App {
             Message::Region(msg) => self.region_update(msg),
             Message::Area(msg) => self.area_update(msg),
             Message::Rename(msg) => self.rename_update(msg),
+            Message::Sort(by) => {
+                self.menu = None;
+                self.prefs.sort_by = by;
+                self.prefs.save();
+                self.sort_files()
+            }
+            Message::SortReversed => {
+                self.menu = None;
+                self.prefs.sort_reversed = !self.prefs.sort_reversed;
+                self.prefs.save();
+                self.sort_files()
+            }
+            Message::Sorted(sorted) => {
+                // Only if nothing came or went meanwhile.
+                let mut now = self.files.clone();
+                let mut then = sorted.clone();
+                now.sort();
+                then.sort();
+                if now != then {
+                    return Task::none();
+                }
+                let on_screen = self.files.get(self.current).cloned();
+                self.files = sorted;
+                if let Some(at) = on_screen.and_then(|p| self.files.iter().position(|f| *f == p)) {
+                    self.current = at;
+                }
+                self.reveal_in_sidebar()
+            }
             Message::Discard => {
                 if self.confirm.take() == Some(Confirm::Discard) {
                     return self.discard_changes();
@@ -2427,7 +2460,27 @@ impl App {
             start
         };
         self.current = usize::MAX; // force a reload
-        self.show(index)
+        let shown = self.show(index);
+        // A folder in the order asked for; files picked one by one stay as they were picked, unless
+        // an order was asked for.
+        let sort =
+            if !append && (alone || self.prefs.sort_by != crate::settings::SortBy::Name || self.prefs.sort_reversed) {
+                self.sort_files()
+            } else {
+                Task::none()
+            };
+        Task::batch([shown, sort])
+    }
+
+    /// Puts the files in the order of the preferences, off the UI thread.
+    fn sort_files(&self) -> Task<Message> {
+        let (files, by, reversed) = (self.files.clone(), self.prefs.sort_by, self.prefs.sort_reversed);
+        if files.len() < 2 {
+            return Task::none();
+        }
+        Task::perform(blocking(move || library::sorted(files, by, reversed)), |r| {
+            r.map_or(Message::Nothing, Message::Sorted)
+        })
     }
 
     fn show(&mut self, index: usize) -> Task<Message> {
@@ -4239,6 +4292,30 @@ impl App {
         .into()
     }
 
+    /// The order of the files, and a menu to change it.
+    fn sort_button(&self) -> Element<'_, Message> {
+        use crate::settings::SortBy;
+        let by = match self.prefs.sort_by {
+            SortBy::Name => tr("Name"),
+            SortBy::Date => tr("Date Modified"),
+            SortBy::Size => tr("Size"),
+            SortBy::Kind => tr("Kind"),
+        };
+        let open = self.menu == Some(Menu::Sort);
+        let label = row![
+            text(trf!("Sorted by {}", by)).size(style::CAPTION).style(muted),
+            svg(icons::down()).width(12).height(12).style(style::icon_muted),
+        ]
+        .spacing(4)
+        .align_y(Alignment::Center);
+        let b = button(label)
+            .padding([3, 8])
+            .style(if open { style::tool_active } else { style::tool })
+            .on_press(Message::Menu(Some(Menu::Sort)));
+        let b = self.with_menu(b.into(), |m| m == Menu::Sort, popup::Anchor::Start);
+        container(b).padding(Padding { left: 6.0, top: 2.0, bottom: 2.0, right: 6.0 }).into()
+    }
+
     fn file_list(&self) -> Element<'_, Message> {
         let rows = self.sidebar_rows();
         let first = rows.start.saturating_sub(6);
@@ -4281,11 +4358,11 @@ impl App {
             list = list.push(container(entry).padding([2, 8]).height(self.row_h()));
         }
         list = list.push(space().height((self.files.len() - last) as f32 * self.row_h()));
-        ui::thin_scroll(list.width(Length::Fill))
+        let files = ui::thin_scroll(list.width(Length::Fill))
             .id(self.widget_id("sidebar"))
             .on_scroll(|vp| Message::SidebarScrolled(vp.absolute_offset().y, vp.bounds().height))
-            .height(Length::Fill)
-            .into()
+            .height(Length::Fill);
+        column![self.sort_button(), files].into()
     }
 
     fn empty_state(&self) -> Element<'_, Message> {

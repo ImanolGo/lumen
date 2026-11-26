@@ -30,6 +30,8 @@ pub enum Menu {
     Zoom,
     /// From the one in the header.
     HeaderZoom,
+    /// The order of the files.
+    Sort,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,12 +64,13 @@ impl Menu {
             Menu::Export => msgid("Export"),
             Menu::File => msgid("File"),
             Menu::Zoom | Menu::HeaderZoom => msgid("Zoom"),
+            Menu::Sort => msgid("Sort By"),
         }
     }
 
     /// Whether it hangs from the ☰ button.
     pub fn is_main(self) -> bool {
-        !matches!(self, Menu::Open | Menu::Zoom | Menu::HeaderZoom)
+        !matches!(self, Menu::Open | Menu::Zoom | Menu::HeaderZoom | Menu::Sort)
     }
 }
 
@@ -190,6 +193,23 @@ impl App {
         };
         match menu {
             Menu::Open => self.lines(&["open", "open-folder"]),
+            Menu::Sort => {
+                use crate::settings::SortBy;
+                let mark = |on: bool| if on { "✓" } else { "" };
+                let by = self.prefs.sort_by;
+                let mut lines: Vec<Line> = [
+                    (SortBy::Name, msgid("Name")),
+                    (SortBy::Date, msgid("Date Modified")),
+                    (SortBy::Size, msgid("Size")),
+                    (SortBy::Kind, msgid("Kind")),
+                ]
+                .into_iter()
+                .map(|(b, name)| Line::Item(tr(name), mark(b == by), Some(Message::Sort(b))))
+                .collect();
+                lines.push(Line::Rule);
+                lines.push(Line::Item(tr("Reversed"), mark(self.prefs.sort_reversed), Some(Message::SortReversed)));
+                lines
+            }
             Menu::Zoom | Menu::HeaderZoom => {
                 let mut lines = self.lines(&["fit", "fit-width", ""]);
                 lines.extend([50, 100, 200].map(|percent| {
@@ -317,7 +337,7 @@ impl App {
         anchor: Anchor,
     ) -> Element<'a, Message> {
         let panel = self.menu.filter(|m| which(*m)).map(|m| {
-            let width = if matches!(m, Menu::Zoom | Menu::HeaderZoom) { 180.0 } else { MENU_W };
+            let width = if matches!(m, Menu::Zoom | Menu::HeaderZoom | Menu::Sort) { 180.0 } else { MENU_W };
             Self::panel_of(self.menu_lines(m), width)
         });
         popup(base, panel, anchor, Message::Menu(None)).into()

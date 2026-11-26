@@ -42,6 +42,35 @@ pub fn natural_cmp(a: &Path, b: &Path) -> Ordering {
     natord::compare_ignore_case(&name(a), &name(b))
 }
 
+/// `files` in the order `by` (reversed with `reversed`). Reads each file's details: off the UI thread.
+pub fn sorted(mut files: Vec<PathBuf>, by: crate::settings::SortBy, reversed: bool) -> Vec<PathBuf> {
+    use crate::settings::SortBy;
+    let ending = |p: &PathBuf| p.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    match by {
+        SortBy::Name => files.sort_by(|a, b| natural_cmp(a, b)),
+        SortBy::Kind => files.sort_by(|a, b| ending(a).cmp(&ending(b)).then_with(|| natural_cmp(a, b))),
+        SortBy::Date | SortBy::Size => {
+            let key = |p: &PathBuf| {
+                let meta = std::fs::metadata(p).ok();
+                match by {
+                    SortBy::Size => meta.map_or(0, |m| u128::from(m.len())),
+                    _ => meta
+                        .and_then(|m| m.modified().ok())
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map_or(0, |d| d.as_nanos()),
+                }
+            };
+            let mut keyed: Vec<(u128, PathBuf)> = files.into_iter().map(|p| (key(&p), p)).collect();
+            keyed.sort_by(|(ka, a), (kb, b)| ka.cmp(kb).then_with(|| natural_cmp(a, b)));
+            files = keyed.into_iter().map(|(_, p)| p).collect();
+        }
+    }
+    if reversed {
+        files.reverse();
+    }
+    files
+}
+
 /// The supported, non-hidden files directly inside `dir`, naturally sorted.
 pub fn list_dir(dir: &Path) -> Vec<PathBuf> {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -125,6 +154,32 @@ mod tests {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/gradient.avif");
         let (files, start) = expand(std::slice::from_ref(&path));
         assert_eq!(files[start], path);
+    }
+
+    #[test]
+    fn files_are_sorted_by_what_is_asked() {
+        use crate::settings::SortBy;
+        let dir = std::env::temp_dir().join(format!("lumen-sort-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let names = ["b10.png", "b2.png", "a.pdf"];
+        for (i, name) in names.iter().enumerate() {
+            std::fs::write(dir.join(name), vec![0; (3 - i) * 10]).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(15));
+        }
+        let files: Vec<PathBuf> = names.iter().map(|n| dir.join(n)).collect();
+        let order = |by, reversed| {
+            sorted(files.clone(), by, reversed)
+                .iter()
+                .map(|p| p.file_name().unwrap().to_str().unwrap().to_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(order(SortBy::Name, false), ["a.pdf", "b2.png", "b10.png"]);
+        assert_eq!(order(SortBy::Name, true), ["b10.png", "b2.png", "a.pdf"]);
+        assert_eq!(order(SortBy::Date, false), ["b10.png", "b2.png", "a.pdf"]);
+        assert_eq!(order(SortBy::Size, false), ["a.pdf", "b2.png", "b10.png"]);
+        assert_eq!(order(SortBy::Kind, false), ["a.pdf", "b2.png", "b10.png"]);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

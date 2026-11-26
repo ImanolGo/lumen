@@ -703,7 +703,7 @@ Each is its own piece of work; ask the user which to do. Verified absent by sear
 |---|---|
 | Underline, strike-out and squiggly text markup | The highlighter already maps a drag to text quads; these are the same quads with another subtype and appearance. |
 | Sticky notes | A `/Text` annotation with a popup; the model already carries `/Contents` for imported ones. |
-| Sort order for folders | By name (now), date, size, type; reversed. A menu in the Files tab; remembered. |
+| Sort order for folders | **Done.** By name, date modified, size, kind; reversed. A menu at the top of the Files list; remembered in the preferences. Files picked one by one keep the order they were picked in until an order is chosen. |
 | Rename the open file | **Done.** F2; keeps the place in the list and among the recent files; never overwrites (a hard link, which fails if the name is taken). A file with unsaved changes is saved or discarded first. |
 | Straighten and free rotation | A slider in the crop tool (±45°), cropping to the largest inner rectangle. |
 | Colour management | Pictures are shown without regard to their ICC profile; wide-gamut photos look oversaturated or dull. Convert to sRGB on decode with a pure-Rust engine (`moxcms`), inside the worker. |
