@@ -36,6 +36,7 @@ mod popup;
 mod prefs;
 mod printing;
 mod region;
+mod rename;
 mod scroller;
 mod signature;
 mod slideshow;
@@ -292,6 +293,8 @@ pub struct App {
     /// Dragging over a PDF page selects an area of it; and that area.
     area_mode: bool,
     page_area: Option<area::Area>,
+    /// The new name being typed for the file on screen.
+    renaming: Option<String>,
     /// The tolerance of the last selection by colour.
     colour_tolerance: u8,
     /// The floating zoom and previous/next controls fade in while the pointer moves over the view.
@@ -752,6 +755,7 @@ pub enum Message {
     Edit(EditMsg),
     Region(region::RegionMsg),
     Area(area::AreaMsg),
+    Rename(rename::RenameMsg),
     /// Throw the unsaved changes of the file on screen away (asks first).
     Discard,
     Pages(PagesMsg),
@@ -959,6 +963,7 @@ impl App {
             select_mode: region::Mode::default(),
             area_mode: false,
             page_area: None,
+            renaming: None,
             colour_tolerance: 0,
             controls: iced::Animation::new(false).duration(Duration::from_millis(180)),
             now: Instant::now(),
@@ -1684,6 +1689,7 @@ impl App {
                     || self.edit_escape()
                     || self.region.take().is_some()
                     || self.page_area.take().is_some()
+                    || self.renaming.take().is_some()
                 {
                     Task::none()
                 } else if let Some(task) = self.markup_escape() {
@@ -2054,6 +2060,7 @@ impl App {
             Message::Sign(msg) => self.sign_update(msg),
             Message::Region(msg) => self.region_update(msg),
             Message::Area(msg) => self.area_update(msg),
+            Message::Rename(msg) => self.rename_update(msg),
             Message::Discard => {
                 if self.confirm.take() == Some(Confirm::Discard) {
                     return self.discard_changes();
@@ -3515,6 +3522,9 @@ impl App {
         }
         if let Some(palette) = self.palette_view() {
             layers = layers.push(palette);
+        }
+        if let Some(rename) = self.rename_dialog() {
+            layers = layers.push(rename);
         }
         if let Some(dialog) = self.dialog_view() {
             layers = layers.push(dialog);

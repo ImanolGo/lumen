@@ -149,7 +149,7 @@ impl App {
                 lines.push(front);
                 lines
             }
-            Context::File(_) => self.lines(&["new-window", "show", "open-with", "properties", "", "trash"]),
+            Context::File(_) => self.lines(&["new-window", "show", "open-with", "properties", "", "rename", "trash"]),
             Context::View => {
                 let picture = matches!(self.doc, Doc::Image(_));
                 let text = matches!(self.doc, Doc::Pdf(_)) && self.selection.is_some_and(|s| !s.is_empty());

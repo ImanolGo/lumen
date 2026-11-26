@@ -97,6 +97,27 @@ fn create_beside(target: &Path, mode: Option<&std::fs::Permissions>) -> Result<(
     anyhow::bail!("cannot write there")
 }
 
+/// Renames `from` to `to`, which must not exist: never over another file, even one that appears
+/// meanwhile (a hard link fails if the name is taken). Where links cannot be made, it is looked at
+/// first. A change of case only, on a disk that ignores case, is a plain rename.
+pub fn rename_new(from: &Path, to: &Path) -> std::io::Result<()> {
+    let same_file = || {
+        let (a, b) = (std::fs::canonicalize(from), std::fs::canonicalize(to));
+        matches!((a, b), (Ok(a), Ok(b)) if a == b)
+    };
+    if to.symlink_metadata().is_ok() && same_file() {
+        return std::fs::rename(from, to);
+    }
+    match std::fs::hard_link(from, to) {
+        Ok(()) => std::fs::remove_file(from).inspect_err(|_| {
+            let _ = std::fs::remove_file(to);
+        }),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(e),
+        Err(_) if to.symlink_metadata().is_ok() => Err(std::io::ErrorKind::AlreadyExists.into()),
+        Err(_) => std::fs::rename(from, to),
+    }
+}
+
 /// Text that is different every time, also between processes.
 pub fn unique() -> String {
     use std::hash::{BuildHasher, Hasher};
@@ -127,6 +148,21 @@ mod tests {
     use super::*;
     #[cfg(unix)]
     use std::os::unix::fs::{PermissionsExt, symlink};
+
+    #[test]
+    fn a_rename_never_replaces_a_file() {
+        let dir = std::env::temp_dir().join(format!("lumen-rename-new-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b, c) = (dir.join("a"), dir.join("b"), dir.join("c"));
+        std::fs::write(&a, b"one").unwrap();
+        std::fs::write(&b, b"two").unwrap();
+        assert!(rename_new(&a, &b).is_err());
+        assert_eq!(std::fs::read(&b).unwrap(), b"two");
+        rename_new(&a, &c).unwrap();
+        assert!(!a.exists() && std::fs::read(&c).unwrap() == b"one");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     fn temp(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("lumen-fsio-{name}-{}", std::process::id()));

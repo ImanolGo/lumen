@@ -1101,3 +1101,30 @@ msgstr "{} × {} pt"
 
 msgid "Stop Selecting Areas"
 msgstr "Dejar de seleccionar áreas"
+
+msgid "Rename…"
+msgstr "Cambiar el nombre…"
+
+msgid "Rename"
+msgstr "Cambiar el nombre"
+
+msgid "Type a name"
+msgstr "Escribe un nombre"
+
+msgid "A name cannot have a slash in it"
+msgstr "Un nombre no puede tener una barra"
+
+msgid "There is a file of that name already"
+msgstr "Ya hay un archivo con ese nombre"
+
+msgid "Save or discard the changes first, then rename it"
+msgstr "Guarda o descarta los cambios primero y luego cámbiale el nombre"
+
+msgid "Could not rename it: {}"
+msgstr "No se ha podido cambiar el nombre: {}"
+
+msgid "Renamed to “{}”"
+msgstr "Nombre cambiado a «{}»"
+
+msgid "In {}"
+msgstr "En {}"

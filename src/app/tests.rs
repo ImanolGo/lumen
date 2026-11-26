@@ -1382,3 +1382,31 @@ fn an_area_of_a_page_is_drawn_instead_of_moving_the_view() {
     let _ = app.update(Message::MouseUp);
     assert!(app.page_area.is_none());
 }
+
+#[test]
+fn the_file_on_screen_can_be_renamed_but_not_over_another() {
+    let _inside = runtime().enter();
+    let dir = std::env::temp_dir().join(format!("lumen-rename-app-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    for name in ["a.png", "b.png"] {
+        std::fs::copy(fixture("pictures").join("g.png"), dir.join(name)).unwrap();
+    }
+    let mut app = app();
+    let files = vec![dir.join("a.png"), dir.join("b.png")];
+    let _ = app.update(Message::Expanded { files, start: 0, append: false, alone: false });
+    let _ = app.update(Message::Rename(rename::RenameMsg::Open));
+    assert_eq!(app.renaming.as_deref(), Some("a.png"));
+    let _ = app.update(Message::Rename(rename::RenameMsg::Input("b.png".into())));
+    let _ = app.update(Message::Rename(rename::RenameMsg::Go));
+    assert!(app.renaming.is_some(), "not over b.png");
+    let _ = app.update(Message::Rename(rename::RenameMsg::Input("c.png".into())));
+    let _ = app.update(Message::Rename(rename::RenameMsg::Go));
+    assert!(app.renaming.is_none());
+    // What the work done off the screen sends back:
+    let (old, new) = (dir.join("a.png"), dir.join("c.png"));
+    crate::fsio::rename_new(&old, &new).unwrap();
+    let _ = app.update(Message::Rename(rename::RenameMsg::Done(old, Ok(new.clone()))));
+    assert_eq!((app.files[0].clone(), app.current), (new, 0));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

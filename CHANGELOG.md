@@ -5,6 +5,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 ## [Unreleased]
 
 ### Added
+- Rename… (F2, in the File menu and a file's right-click menu) renames the file on screen in its folder; it keeps its place in the list and among the recent files, and never replaces another file.
 - Select an Area (a page's right-click menu, or the command palette): a drag over a PDF page draws a rectangle instead of moving the view, and Copy puts that part of the page on the clipboard as a picture at 300 dpi.
 
 ## [0.9.0] - 2026-11-26

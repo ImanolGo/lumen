@@ -280,6 +280,14 @@ impl App {
         if crate::platform::caps().open_with {
             add("open-with", msgid("Open With…"), File, Some(Place::File), &[], file(Message::OpenWith));
         }
+        add(
+            "rename",
+            msgid("Rename…"),
+            File,
+            Some(Place::File),
+            &["F2"],
+            file(Message::Rename(super::rename::RenameMsg::Open)),
+        );
         add("trash", msgid("Move to Trash"), File, Some(Place::File), &[], file(Message::Trash));
         add("properties", msgid("Properties…"), File, Some(Place::File), &["Alt+Enter"], file(Message::ShowProperties));
         add("preferences", preferences_name(), File, main(2), &["Ctrl+,"], dialog(Dialog::Preferences));

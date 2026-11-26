@@ -150,6 +150,15 @@ impl State {
         self.recent.iter().find(|r| r.path == path)?.page
     }
 
+    /// The file at `old` is at `new` now; it keeps its place and its page.
+    pub fn rename(&mut self, old: &Path, new: &Path) {
+        if let Some(r) = self.recent.iter_mut().find(|r| r.path == old) {
+            r.path = new.to_path_buf();
+        }
+        self.forgotten.insert(old.to_path_buf());
+        self.touched.insert(new.to_path_buf());
+    }
+
     /// Forgets a file (it could not be opened, or the person cleared the list).
     pub fn forget(&mut self, path: &Path) {
         self.recent.retain(|r| r.path != path);
