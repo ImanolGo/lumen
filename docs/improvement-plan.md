@@ -717,7 +717,7 @@ a commit of its own with tests and docs:
 
 | Feature | Notes |
 |---|---|
-| More ways to select a picture's part | Lasso; "instant alpha" (pick by colour, for cutting out backgrounds); invert the selection; delete what is selected (to transparent); paste it as a new picture |
+| More ways to select a picture's part | **Done**: lasso, by colour, invert, delete to transparent (the picture is "baked": the edits start again from it, and undo takes it back). Pasting a selection as a new picture comes with *Open the clipboard as a new picture*, which needs the same thing: a picture that is not a file yet. |
 | Rectangular selection on PDF pages | Copy a part of a page as a picture, crop the page to it |
 | Sketch tool that recognises shapes | A roughly drawn circle, arrow or rectangle becomes a clean one |
 | More shapes | Rounded rectangle, star, polygon, speech bubble; dashed and double-ended lines |
@@ -828,5 +828,5 @@ say exactly which systems those are.
 | 21 | A toolbar joined to the header | Done. What is said of a selected part of a picture (Copy, Crop) stays a small island on the view: in the row it would move the picture under the pointer. Rotate, crop, a slider and a click outside its panel were tried with a pointer on an X display. `data/screenshots/` was taken again after package 23. |
 | 22 | The window's first size | Done. The size is read from the picture's header, not decoded. Looked at on an X display without a window manager; not on Wayland desktops, macOS or Windows. SVGs keep the remembered size. |
 | 23 | A window for each opening | Done. Linux and Windows: a process for each window; a file already open in another one is not brought forward there (Wayland gives a program no way to raise another's window, and saving asks when the file changed on disk). macOS: one process (`app/windows.rs`), which ends with its last window. `vendor/` did not have to be changed: a widget uploads pictures with its own window's renderer. Tried on Linux with `LUMEN_ONE_PROCESS=1`: the real-app tests with both renderers, and no blank frame while zooming a PDF in a second window (0 of 758; 122 of 272 with iced's own way). Passwords and caches are per window. **Not tried on a Mac.** |
-| 18 | Features: the ones from macOS Preview (all of them, see the list), then those the user picks | |
+| 18 | Features: the ones from macOS Preview (all of them, see the list), then those the user picks | Under way; each done feature says so in the list. |
 | 19 | Confine the decoder on macOS and Windows | |

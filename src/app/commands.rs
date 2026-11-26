@@ -298,8 +298,12 @@ impl App {
             .or_else(|| image(Message::Region(RegionMsg::All)));
         add("select-all", msgid("Select All"), Edit, None, &["Ctrl+A"], everything);
         let crop = self.region.is_some().then_some(Message::Region(RegionMsg::Crop));
+        let invert = self.region.is_some().then_some(Message::Region(RegionMsg::Invert));
+        add("invert", msgid("Invert Selection"), Edit, None, &["Ctrl+Shift+I"], invert);
         add("crop", msgid("Crop to Selection"), Edit, None, &["Ctrl+K"], crop);
-        let delete = organising(PagesMsg::Delete).or(selected.then_some(Message::Markup(MarkupMsg::Delete)));
+        let delete = organising(PagesMsg::Delete)
+            .or(selected.then_some(Message::Markup(MarkupMsg::Delete)))
+            .or(self.region.is_some().then_some(Message::Region(RegionMsg::Delete)));
         add("delete", msgid("Delete Selection"), Edit, None, &["Delete", "Backspace"], delete);
 
         let view = Some(Place::View);

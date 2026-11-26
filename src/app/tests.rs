@@ -1280,3 +1280,73 @@ fn a_file_can_be_opened_in_a_window_of_its_own() {
     let _ = app.update(Message::Select(1));
     assert_eq!(app.current, 1);
 }
+
+fn picture_app() -> App {
+    let mut app = app();
+    let path = fixture("pictures").join("g.png");
+    app.files = vec![path.clone()];
+    app.current = 0;
+    let picture = raster::load(&path).unwrap();
+    let _ = app.show_picture(path, picture.into());
+    app
+}
+
+fn select(app: &mut App, mode: region::Mode, points: &[(f64, f64)]) {
+    let _ = app.update(Message::Region(region::RegionMsg::Mode(mode)));
+    let _ = app.update(Message::Region(region::RegionMsg::Press(points[0].0, points[0].1)));
+    for &(x, y) in &points[1..] {
+        let _ = app.update(Message::Region(region::RegionMsg::Drag(x, y)));
+    }
+    let _ = app.update(Message::Region(region::RegionMsg::Release));
+}
+
+#[test]
+fn a_freehand_selection_is_drawn_inverted_and_cleared() {
+    let _inside = runtime().enter();
+    let mut app = picture_app();
+    select(&mut app, region::Mode::Lasso, &[(10.0, 10.0), (200.0, 10.0), (200.0, 150.0), (10.0, 150.0)]);
+    let size = (400, 300);
+    let s = app.selection().expect("selected").clone();
+    assert_eq!(s.bounds(size), crate::edit::crop::Rect { x: 10.0, y: 10.0, w: 190.0, h: 140.0 });
+    let _ = app.update(Message::Region(region::RegionMsg::Invert));
+    assert!(app.selection().unwrap().inverted);
+    // A tiny one was a click.
+    select(&mut app, region::Mode::Lasso, &[(10.0, 10.0), (10.5, 10.5)]);
+    assert!(app.selection().is_none());
+}
+
+#[test]
+fn by_colour_takes_more_as_the_pointer_goes_further() {
+    let _inside = runtime().enter();
+    let mut app = picture_app();
+    select(&mut app, region::Mode::Colour, &[(200.0, 5.0)]);
+    let narrow = app.selection().unwrap().bounds((400, 300)).h;
+    select(&mut app, region::Mode::Colour, &[(200.0, 5.0), (200.0, 300.0)]);
+    let wide = app.selection().unwrap().bounds((400, 300)).h;
+    assert!(narrow < wide, "{narrow} then {wide}: the gradient goes down");
+    assert!(app.region.as_ref().is_some_and(|r| r.has_tint()));
+}
+
+#[test]
+fn clearing_a_part_can_be_undone_and_discarded() {
+    let _inside = runtime().enter();
+    let mut app = picture_app();
+    let alpha = |app: &App, x: u32, y: u32| match &app.doc {
+        Doc::Image(v) => v.original.rgba[((y * v.original.width + x) * 4 + 3) as usize],
+        _ => panic!("no picture"),
+    };
+    select(&mut app, region::Mode::Rect, &[(0.0, 0.0), (50.0, 50.0)]);
+    let _ = app.update(Message::Region(region::RegionMsg::Delete));
+    assert_eq!((alpha(&app, 10, 10), alpha(&app, 100, 100)), (0, 255));
+    assert!(app.has_unsaved_changes() && app.region.is_none());
+    let _ = app.update(Message::Edit(edit::EditMsg::Undo));
+    assert_eq!(alpha(&app, 10, 10), 255);
+    assert!(!app.has_unsaved_changes());
+    let _ = app.update(Message::Edit(edit::EditMsg::Redo));
+    assert_eq!(alpha(&app, 10, 10), 0);
+    // A turn after it, then all of it thrown away: back to the file as it is.
+    let _ = app.update(Message::Rotate(1));
+    let _ = app.discard_changes();
+    assert_eq!(alpha(&app, 10, 10), 255);
+    assert!(!app.has_unsaved_changes());
+}

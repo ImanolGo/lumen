@@ -1071,3 +1071,24 @@ msgstr "Abrir en una ventana nueva"
 
 msgid "Close Window"
 msgstr "Cerrar la ventana"
+
+msgid "Invert"
+msgstr "Invertir"
+
+msgid "Invert Selection"
+msgstr "Invertir la selección"
+
+msgid "Select a rectangle"
+msgstr "Seleccionar un rectángulo"
+
+msgid "Select freehand"
+msgstr "Seleccionar a mano alzada"
+
+msgid "Select by colour: click, and drag away to take in more"
+msgstr "Seleccionar por color: haz clic y arrastra para abarcar más"
+
+msgid "A JPEG has no transparency: saved, the cleared part is white"
+msgstr "Un JPEG no tiene transparencia: al guardarlo, la parte borrada queda blanca"
+
+msgid "Delete"
+msgstr "Borrar"

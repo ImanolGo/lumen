@@ -37,19 +37,6 @@ pub struct Picture {
 }
 
 impl Picture {
-    /// A part of it: x, y, width, height.
-    pub fn part(&self, (x, y, w, h): (u32, u32, u32, u32)) -> Option<Self> {
-        if w == 0 || h == 0 || x.checked_add(w)? > self.width || y.checked_add(h)? > self.height {
-            return None;
-        }
-        let mut out = Vec::with_capacity(w as usize * h as usize * 4);
-        for row in y..y + h {
-            let start = (row as usize * self.width as usize + x as usize) * 4;
-            out.extend_from_slice(self.rgba.get(start..start + w as usize * 4)?);
-        }
-        Some(Self { width: w, height: h, original: (w, h), rgba: out.into() })
-    }
-
     fn from_rgba(img: RgbaImage, original: (u32, u32)) -> Self {
         let (width, height) = img.dimensions();
         Self { width, height, original, rgba: img.into_raw().into() }
@@ -587,15 +574,6 @@ mod tests {
             pic.height
         );
         std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn a_part_of_a_picture_is_its_own_pixels() {
-        let rgba: Vec<u8> = (0..4 * 3).flat_map(|i| [i as u8, 0, 0, 255]).collect();
-        let pic = Picture { width: 4, height: 3, original: (4, 3), rgba: rgba.into() };
-        let part = pic.part((1, 1, 2, 2)).unwrap();
-        assert_eq!(part.rgba.chunks(4).map(|p| p[0]).collect::<Vec<_>>(), [5, 6, 9, 10]);
-        assert!(pic.part((3, 0, 2, 1)).is_none() && pic.part((0, 0, 0, 1)).is_none());
     }
 
     /// A PNG header and nothing else: 50 000 × 50 000 pixels.

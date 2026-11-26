@@ -159,7 +159,7 @@ impl App {
                     lines.push(Line::Item(tr("Highlight"), "", Some(mark)));
                 }
                 if picture && self.region.is_some() {
-                    lines.extend(self.lines(&["crop"]));
+                    lines.extend(self.lines(&["crop", "invert"]));
                 }
                 if !lines.is_empty() {
                     lines.push(Line::Rule);

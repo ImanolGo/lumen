@@ -7,6 +7,9 @@
 
 pub mod adjust;
 pub mod crop;
+pub mod select;
+
+use std::sync::Arc;
 
 use image::{DynamicImage, RgbaImage, imageops};
 
@@ -45,6 +48,38 @@ pub struct Step {
     pub after: Edits,
     pub forward: Vec<GeometryChange>,
     pub back: Vec<GeometryChange>,
+    /// Pixels changed outright (a part cleared, say): the picture the edits start from, before and after.
+    pub baked: Option<Arc<Baked>>,
+}
+
+/// A new picture to start from, which undo can take back.
+#[derive(Debug)]
+pub struct Baked {
+    /// Tells it from every other.
+    pub id: u64,
+    pub before: crate::raster::Picture,
+    pub after: crate::raster::Picture,
+}
+
+impl PartialEq for Baked {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Step {
+    /// The picture as shown becomes `after`, to start from with no edits.
+    pub fn bake(edits: Edits, before: crate::raster::Picture, after: crate::raster::Picture) -> Self {
+        static IDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let id = IDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Self {
+            before: edits,
+            after: Edits::default(),
+            forward: Vec::new(),
+            back: Vec::new(),
+            baked: Some(Arc::new(Baked { id, before, after })),
+        }
+    }
 }
 
 fn inverse(change: GeometryChange, before: (f64, f64)) -> GeometryChange {
@@ -100,7 +135,7 @@ impl Edits {
                 inverse(*c, (w as f64, h as f64))
             })
             .collect();
-        Step { before: self, after, forward, back }
+        Step { before: self, after, forward, back, baked: None }
     }
 
     /// Turn the shown picture a quarter clockwise.

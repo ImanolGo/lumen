@@ -913,7 +913,7 @@ impl App {
                 if in_place {
                     // The edits and markup are part of the picture now; show the new file as it is.
                     if let Doc::Image(view) = &mut self.doc {
-                        view.edit.saved = view.edit.edits;
+                        view.edit.saved_now();
                     }
                     self.marks = None;
                     self.pictures.retain(|(p, _)| *p != target);
@@ -929,7 +929,7 @@ impl App {
                     marks.saved = layers;
                 }
                 if let Doc::Image(view) = &mut self.doc {
-                    view.edit.saved = view.edit.edits;
+                    view.edit.saved_now();
                 }
                 saved
             }
@@ -975,7 +975,9 @@ impl App {
         }
         let reverted = match &mut self.doc {
             Doc::Image(view) if view.edit.is_dirty() => {
-                view.edit.revert();
+                if let Some(picture) = view.edit.revert() {
+                    view.original = picture;
+                }
                 // The markup was measured on the picture as it was edited.
                 self.marks = None;
                 self.render_edits()
@@ -1066,6 +1068,7 @@ impl App {
         let lossless = match &self.doc {
             Doc::Image(view)
                 if crate::lossless::only_turns(&view.edit.edits)
+                    && view.edit.bake().is_none()
                     && !self.marks.as_ref().is_some_and(DocMarkup::has_items) =>
             {
                 Some(view.edit.edits)

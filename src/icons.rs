@@ -54,6 +54,15 @@ pub fn app() -> svg::Handle {
 icon!(search, r#"<circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/>"#);
 icon!(close, r#"<path d="M6 6l12 12M18 6 6 18"/>"#);
 icon!(markup, r#"<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>"#);
+icon!(select_rect, r#"<rect x="4" y="5" width="16" height="14" rx="1" stroke-dasharray="3 2.5"/>"#);
+icon!(
+    lasso,
+    r#"<path d="M7 17c-3-1.5-4-4-3-6.5C5.5 6.5 10 4.5 14.5 5 19 5.5 21 8.5 20 11.5 19 14.5 14.5 16 10 15.5"/><path d="M10 15.5c-1.5.5-2.5 1.5-2 3s2 2.5 3.5 2.5"/>"#
+);
+icon!(
+    wand,
+    r#"<path d="m4 20 11-11"/><path d="m14 4 .7 1.8L16.5 6.5l-1.8.7L14 9l-.7-1.8L11.5 6.5l1.8-.7z"/><path d="M19 11h2M18 15l1.5 1M18 7l1.5-1"/>"#
+);
 icon!(select, r#"<path d="M5 3l14 7-6 2-2 6z"/>"#);
 icon!(
     highlighter,

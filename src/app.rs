@@ -286,6 +286,10 @@ pub struct App {
     organizer: Option<Organizer>,
     /// The part of the picture that is selected.
     region: Option<region::Region>,
+    /// How dragging over a picture selects.
+    select_mode: region::Mode,
+    /// The tolerance of the last selection by colour.
+    colour_tolerance: u8,
     /// The floating zoom and previous/next controls fade in while the pointer moves over the view.
     controls: iced::Animation<bool>,
     now: Instant,
@@ -947,6 +951,8 @@ impl App {
             disk_gone: false,
             organizer: None,
             region: None,
+            select_mode: region::Mode::default(),
+            colour_tolerance: 0,
             controls: iced::Animation::new(false).duration(Duration::from_millis(180)),
             now: Instant::now(),
             last_pointer: Instant::now(),
@@ -1481,14 +1487,15 @@ impl App {
             Message::CopyPicture => {
                 let Doc::Image(view) = &self.doc else { return Task::none() };
                 let picture = view.shown.picture.clone();
-                let part = self.region_pixels();
+                let selection = self.selection().cloned();
                 Task::perform(
                     blocking(move || {
-                        let picture = match part {
-                            Some(part) => picture.part(part).ok_or("the selection is not in the picture")?,
-                            None => picture,
+                        let size = (picture.width, picture.height);
+                        let (w, h, rgba) = match selection {
+                            Some(s) => s.cut(&picture.rgba, size).ok_or("the selection is not in the picture")?,
+                            None => (picture.width, picture.height, picture.rgba.to_vec()),
                         };
-                        let png = crate::clipboard::encode_png(picture.width, picture.height, &picture.rgba)?;
+                        let png = crate::clipboard::encode_png(w, h, &rgba)?;
                         crate::platform::clipboard::copy_png(png)
                     }),
                     |r| Message::PictureCopied(r.and_then(|r| r)),

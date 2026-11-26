@@ -34,17 +34,37 @@ pub struct PicEdit {
     again: bool,
     /// The adjustments when a slider drag began, for its undo step.
     adjust_from: Option<Edits>,
+    /// Which new picture (see [`Step::bake`]) the saved copy started from, and the picture it was.
+    saved_bake: Option<u64>,
+    saved_original: Option<Picture>,
 }
 
 impl PicEdit {
     pub fn is_dirty(&self) -> bool {
-        self.edits != self.saved
+        self.edits != self.saved || self.bake() != self.saved_bake
     }
 
-    /// Back to what is saved.
-    pub fn revert(&mut self) {
+    /// The new picture the edits start from now, if pixels were changed outright.
+    pub fn bake(&self) -> Option<u64> {
+        self.past.iter().rev().find_map(|s| s.baked.as_ref().map(|b| b.id))
+    }
+
+    /// Back to what is saved; and the picture to start from, if it is another one.
+    pub fn revert(&mut self) -> Option<Picture> {
+        let picture = if self.bake() != self.saved_bake { self.saved_original.take() } else { None };
         let (saved, seq, rendering, again) = (self.saved, self.seq, self.rendering, self.again);
+        let saved_bake = self.saved_bake;
         *self = Self { edits: saved, saved, seq, rendering, again, ..Self::default() };
+        // Its history is gone: what was saved is where it starts.
+        self.saved_bake = if picture.is_some() { None } else { saved_bake };
+        picture
+    }
+
+    /// What is on screen has been saved.
+    pub fn saved_now(&mut self) {
+        self.saved = self.edits;
+        self.saved_bake = self.bake();
+        self.saved_original = None;
     }
 
     pub fn is_busy(&self) -> bool {
@@ -205,6 +225,22 @@ impl App {
         self.apply_step(edits.crop(size, rect))
     }
 
+    /// The picture as shown becomes `after` (with pixels changed outright), to be edited from there.
+    pub(super) fn bake(&mut self, after: Picture) -> Task<Message> {
+        self.region = None;
+        let Doc::Image(view) = &mut self.doc else { return Task::none() };
+        let edit = &mut view.edit;
+        let before = std::mem::replace(&mut view.original, after.clone());
+        if edit.saved_original.is_none() && edit.bake() == edit.saved_bake {
+            edit.saved_original = Some(before.clone());
+        }
+        let step = Step::bake(edit.edits, before, after);
+        edit.edits = step.after;
+        edit.past.push(step);
+        edit.future.clear();
+        self.render_edits()
+    }
+
     /// Records `step` and shows its result; markup follows it.
     fn apply_step(&mut self, step: Step) -> Task<Message> {
         if step.before == step.after {
@@ -279,6 +315,9 @@ impl App {
                 let edit = &mut view.edit;
                 let Some(step) = (if undo { edit.past.pop() } else { edit.future.pop() }) else { return Task::none() };
                 edit.edits = if undo { step.before } else { step.after };
+                if let Some(baked) = &step.baked {
+                    view.original = if undo { baked.before.clone() } else { baked.after.clone() };
+                }
                 if let Some(marks) = &mut self.marks {
                     let changes = if undo { &step.back } else { &step.forward };
                     changes.iter().for_each(|c| marks.apply(*c));
@@ -555,6 +594,8 @@ impl App {
                 icon_button(icons::rotate_right(), tr("Rotate right (R)"), e(EditMsg::RotateCw), false),
                 icon_button(icons::flip_h(), tr("Mirror left to right"), e(EditMsg::FlipH), false),
                 icon_button(icons::flip_v(), tr("Mirror top to bottom"), e(EditMsg::FlipV), false),
+                super::separator(),
+                self.select_modes(),
                 super::separator(),
                 Self::named(icons::crop(), tr("Crop"), tr("Crop"), e(EditMsg::CropStart), false, self.names_fit()),
                 Self::with_panel(

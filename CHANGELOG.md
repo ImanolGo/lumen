@@ -4,6 +4,9 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Added
+- More ways to select part of a picture, chosen in the editing tools: a rectangle, freehand (lasso), or by colour (click, and drag away to take in more of it). A selection can be inverted (Ctrl+Shift+I), and its pixels deleted (Delete), which makes them transparent; undo brings them back. Copy takes only what is selected, with the rest transparent.
+
 ### Changed
 - Lumen (Rust/iced) is now Lumen: the repository is ImanolGo/lumen, the command `lumen`, the app ID `io.github.imanolgo.Lumen`, and on Linux the settings and state are in `~/.config/lumen` and `~/.local/state/lumen` (moved from `lumen-rs` the first time). The AUR packages are `lumen-viewer` and `lumen-viewer-git`, as `lumen` there is another program; release files are called `lumen-…`. The first Lumen, written with GTK, is now [lumen-gtk](https://github.com/ImanolGo/lumen-gtk).
 
