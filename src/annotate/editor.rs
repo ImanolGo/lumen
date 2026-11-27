@@ -17,6 +17,8 @@ pub enum Tool {
     Arrow,
     Line,
     Pen,
+    /// Drawn by hand, and made the clean shape it looks like.
+    Sketch,
     Text,
     Highlight,
 }
@@ -228,9 +230,15 @@ impl Editor {
         };
         match grab {
             Grab::Draw { page, .. } => {
-                let Some((_, draft)) = store.draft.take() else {
+                let Some((_, mut draft)) = store.draft.take() else {
                     return Outcome::default();
                 };
+                if self.tool == Tool::Sketch
+                    && let Shape::Freehand(points) = &draft.shape
+                    && let Some(clean) = super::sketch::recognise(points)
+                {
+                    draft.shape = clean;
+                }
                 if !is_substantial(&draft.shape) {
                     return Outcome { redraw: true, ..Outcome::default() };
                 }
@@ -432,6 +440,24 @@ mod tests {
         drag_out(&mut editor, &mut store, (110.0, 60.0), (10.0, 10.0));
         let Shape::Rect(r) = &store.layer(0).unwrap().items[0].shape else { panic!() };
         assert_eq!(*r, Rect::new(10.0, 10.0, 100.0, 50.0));
+    }
+
+    #[test]
+    fn a_sketched_circle_becomes_an_ellipse_and_a_scribble_stays() {
+        let (mut editor, mut store) = editor(Tool::Sketch);
+        editor.press(&mut store, 0, Point::new(180.0, 100.0), TOL, 1);
+        for i in 1..=60 {
+            let a = f64::from(i) / 60.0 * std::f64::consts::TAU;
+            editor.drag(&mut store, Point::new(100.0 + 80.0 * a.cos(), 100.0 + 50.0 * a.sin()));
+        }
+        assert!(editor.release(&mut store, Point::new(181.0, 101.0)).committed);
+        assert!(matches!(store.layer(0).unwrap().items[0].shape, Shape::Ellipse(_)));
+        editor.press(&mut store, 0, Point::new(0.0, 0.0), TOL, 1);
+        for i in 1..30 {
+            editor.drag(&mut store, Point::new(f64::from(i) * 6.0, if i % 2 == 0 { 0.0 } else { 40.0 }));
+        }
+        editor.release(&mut store, Point::new(180.0, 0.0));
+        assert!(matches!(store.layer(0).unwrap().items[1].shape, Shape::Freehand(_)));
     }
 
     #[test]

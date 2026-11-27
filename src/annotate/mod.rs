@@ -14,6 +14,7 @@ pub mod flatten;
 pub mod model;
 pub mod paint;
 pub mod pdf;
+pub mod sketch;
 
 pub use editor::{Editor, Outcome, Store, Tool};
 pub use model::{AnnotationLayer, Color, GeometryChange, History, Point, Rect, Shape};

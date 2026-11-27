@@ -103,3 +103,4 @@ icon!(
 icon!(resize, r#"<rect x="3" y="11" width="10" height="10" rx="1"/><path d="M14 3h7v7"/><path d="m21 3-8 8"/>"#);
 icon!(menu, r#"<path d="M4 7h16M4 12h16M4 17h16"/>"#);
 icon!(straighten, r#"<path d="M3 20h18"/><path d="M5 16 19 9"/><path d="M15 20a5 5 0 0 0-1-3"/>"#);
+icon!(sketch, r#"<circle cx="9" cy="10" r="5" stroke-dasharray="2 2"/><path d="m13 19 7-7"/><path d="m18 10 2 2"/>"#);

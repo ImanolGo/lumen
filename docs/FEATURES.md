@@ -38,7 +38,7 @@ Everything Lumen does, in detail. The [README](../README.md) has the short versi
 - **Properties:** ☰ → Properties… shows the file (name, folder, size, dates in UTC) and, for a PDF, its title, author, producer, version, page count and size, protection and form fields; for a picture its format, size, colour profile and EXIF summary (camera, lens, exposure, date, location).
 - **Table of contents:** the PDF's outline appears in the sidebar, follows you as you scroll, and jumps to the exact spot of each section. Entries with others under them can be folded.
 - **Links:** links inside the document jump to their target. Web and mail links open in your browser or mail app through the desktop portal; other kinds of link (files, programs) are ignored for safety.
-- **Markup:** press M (or the pen button) to draw on a picture or a PDF page: highlighter, pen, rectangles, ellipses, lines, arrows and text boxes, in eight colours and three line widths. Select, move, resize, recolour and delete what you drew, with undo and redo. On a PDF the highlighter marks the text you drag over.
+- **Markup:** press M (or the pen button) to draw on a picture or a PDF page: highlighter, pen, sketch (what you draw by hand becomes the line, arrow, ellipse or rectangle it looks like), rectangles, ellipses, lines, arrows and text boxes, in eight colours and three line widths. Select, move, resize, recolour and delete what you drew, with undo and redo. On a PDF the highlighter marks the text you drag over.
 - **Real PDF annotations:** markup is saved into the PDF as standard annotations (highlight, ink, square, circle, line, free text), each with its own appearance, so every PDF viewer shows it. Saving appends an incremental update: the original bytes are kept as they were. Annotations of those kinds that are already in a PDF, from Lumen or another app, can be edited too; comments attached to them are kept.
 - **Password-protected PDFs:** Lumen asks for the password and opens the file; the password stays in memory for the session only, so flipping back does not ask again. Markup and form values can be saved into it and it stays protected (what is added is encrypted the same way). Printing sends an unlocked copy, since the print system could not open the file otherwise. In the file list a protected PDF shows a lock until it is unlocked, then its real thumbnail.
 - **Forms:** fill in PDF forms: text fields (single and multi-line, passwords, length limits), check boxes, radio buttons and drop-downs. Ctrl+S saves the values into the PDF, each with a matching appearance, so other viewers and printers show the filled-in form. Read-only fields and script buttons are left alone.
@@ -118,6 +118,7 @@ Single letters of the tools work while the markup bar is open. On a Mac, ⌘ sta
 | Tools | V | Select |
 |  | H | Highlighter |
 |  | P | Pen |
+|  | S | Sketch |
 |  | R | Rectangle |
 |  | O | Ellipse |
 |  | L | Line |

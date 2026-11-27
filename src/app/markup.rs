@@ -1262,7 +1262,7 @@ impl App {
         let names = self.names_fit();
         let tool = |t: Tool, icon: iced::widget::svg::Handle, label: String| {
             // The first word of what it says is the tool's name.
-            let name = label.split([',', ' ']).next().unwrap_or_default().to_owned();
+            let name = label.split([',', ' ', ':']).next().unwrap_or_default().to_owned();
             Self::named(icon, name, label, Some(Message::Markup(MarkupMsg::Tool(t))), self.editor.tool == t, names)
         };
         let is_pdf = matches!(self.doc, Doc::Pdf(_));
@@ -1271,6 +1271,7 @@ impl App {
             tool(Tool::Select, icons::select(), tr("Select, move and resize")),
             tool(Tool::Highlight, icons::highlighter(), highlight_label),
             tool(Tool::Pen, icons::pen(), tr("Pen")),
+            tool(Tool::Sketch, icons::sketch(), tr("Sketch: draw a shape, and it is made neat")),
             tool(Tool::Rectangle, icons::rectangle(), tr("Rectangle")),
             tool(Tool::Ellipse, icons::ellipse(), tr("Ellipse")),
             tool(Tool::Line, icons::line(), tr("Line")),

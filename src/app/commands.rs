@@ -361,6 +361,7 @@ impl App {
         add("tool-select", msgid("Select"), Tools, None, &["V"], tool(Tool::Select));
         add("tool-highlight", msgid("Highlighter"), Tools, None, &["H"], tool(Tool::Highlight));
         add("tool-pen", msgid("Pen"), Tools, None, &["P"], tool(Tool::Pen));
+        add("tool-sketch", msgid("Sketch"), Tools, None, &["S"], tool(Tool::Sketch));
         add("tool-rectangle", msgid("Rectangle"), Tools, None, &["R"], tool(Tool::Rectangle));
         add("tool-ellipse", msgid("Ellipse"), Tools, None, &["O"], tool(Tool::Ellipse));
         add("tool-line", msgid("Line"), Tools, None, &["L"], tool(Tool::Line));

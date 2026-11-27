@@ -5,6 +5,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 ## [Unreleased]
 
 ### Added
+- Sketch (S), a markup tool: what you draw by hand becomes the line, arrow, ellipse or rectangle it looks like; a scribble stays a scribble.
 - Colour management: a picture with a colour profile (Adobe RGB, Display P3…) is shown in its real colours, turned into sRGB as it is decoded (with moxcms, pure Rust, in the sandbox). A copy saved from it is sRGB, without the old profile.
 - Straighten, in the editing tools: turn a picture by up to 45° with a slider, seen at once, and keep the largest upright part of it; undo takes it back.
 

@@ -723,7 +723,7 @@ a commit of its own with tests and docs:
 |---|---|
 | More ways to select a picture's part | **Done**: lasso, by colour, invert, delete to transparent (the picture is "baked": the edits start again from it, and undo takes it back). Pasting a selection as a new picture comes with *Open the clipboard as a new picture*, which needs the same thing: a picture that is not a file yet. |
 | Rectangular selection on PDF pages | **Copy: done** (Select an Area). Cropping the page to it is not: it means writing a CropBox, and markup and form fields are placed relative to the page's box, so it is a piece of work of its own; after the common features. |
-| Sketch tool that recognises shapes | A roughly drawn circle, arrow or rectangle becomes a clean one |
+| Sketch tool that recognises shapes | **Done** (S): line, arrow (a line with a hook at its end), ellipse, rectangle; anything else stays as drawn. |
 | More shapes | Rounded rectangle, star, polygon, speech bubble; dashed and double-ended lines |
 | Loupe and mask | A magnifier placed on the picture; everything but a region dimmed |
 | Text style | Font, bold, italic, alignment and colour in text boxes |

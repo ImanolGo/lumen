@@ -1161,3 +1161,9 @@ msgstr "La imagen se recorta a lo que queda dentro."
 
 msgid "Apply"
 msgstr "Aplicar"
+
+msgid "Sketch"
+msgstr "Boceto"
+
+msgid "Sketch: draw a shape, and it is made neat"
+msgstr "Boceto: dibuja una forma y queda limpia"
