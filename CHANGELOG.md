@@ -4,6 +4,8 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-27
+
 ### Added
 - Sketch (S), a markup tool: what you draw by hand becomes the line, arrow, ellipse or rectangle it looks like; a scribble stays a scribble.
 - Colour management: a picture with a colour profile (Adobe RGB, Display P3…) is shown in its real colours, turned into sRGB as it is decoded (with moxcms, pure Rust, in the sandbox). A copy saved from it is sRGB, without the old profile.
@@ -199,7 +201,8 @@ First release. Lumen (Rust/iced) is a rewrite of the GTK Lumen without GTK, popp
 - A comparison of PDF rendering with poppler (`tools/fidelity.py`, `docs/FIDELITY.md`).
 - CI: format, lint, tests, minimum Rust version, release build, packaging checks, AUR checks, dependency audit and a headless GUI job.
 
-[Unreleased]: https://github.com/ImanolGo/lumen/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/ImanolGo/lumen/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/ImanolGo/lumen/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/ImanolGo/lumen/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/ImanolGo/lumen/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/ImanolGo/lumen/compare/v0.8.0...v0.9.0

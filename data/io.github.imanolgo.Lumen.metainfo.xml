@@ -38,6 +38,11 @@
     <control>touch</control>
   </supports>
   <releases>
+    <release version="0.12.0" date="2026-11-27">
+      <description>
+        <p>Straighten a picture, colour profiles shown correctly, and a Sketch tool that turns hand-drawn shapes into clean ones.</p>
+      </description>
+    </release>
     <release version="0.11.0" date="2026-11-26">
       <description>
         <p>Sort a folder's files, files that reopen at the zoom and place they were left at, and page labels.</p>
