@@ -432,7 +432,7 @@ async fn draws_annotations_on_a_pdf_and_saves_them_as_real_ones() {
     for (kind, page, color, why) in [
         ("rectangle", 9u32, "", "pages 1 to 5"),
         ("rectangle", 0, "", "counted from 1"),
-        ("star", 1, "", "unknown kind"),
+        ("hexagon", 1, "", "unknown kind"),
         ("rectangle", 1, "red", "not a colour"),
     ] {
         let e = lumen.try_call("Annotate", &(kind, page, 0.0, 0.0, 9.0, 9.0, "", color)).await.unwrap_err();
