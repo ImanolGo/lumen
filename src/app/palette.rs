@@ -8,6 +8,7 @@ use iced::{Alignment, Color as IcedColor, Element, Length, Point, Rectangle, Ren
 
 use super::markup::{MarkupMsg, SWATCHES};
 use super::{App, Message, muted, tip};
+use crate::annotate::model::{CORNERS, Figure};
 use crate::annotate::{Color, Shape, Tool};
 use crate::i18n::tr;
 use crate::style;
@@ -96,6 +97,30 @@ impl App {
             Some(shape) => matches!(shape, Shape::Highlight(_)),
             None => self.editor.tool == Tool::Highlight,
         }
+    }
+
+    /// The star or polygon whose corners can be set: the selected one, or the tool's.
+    pub(super) fn styling_figure(&self) -> Option<Figure> {
+        let kind = match self.marks.as_ref().and_then(|m| m.store.selected()).map(|a| &a.shape) {
+            Some(Shape::Figure { kind, .. }) => *kind,
+            Some(_) => return None,
+            None => match self.editor.tool {
+                Tool::Figure(kind) => kind,
+                _ => return None,
+            },
+        };
+        kind.counts().then_some(kind)
+    }
+
+    fn current_corners(&self, kind: Figure) -> u8 {
+        match self.marks.as_ref().and_then(|m| m.store.selected()).map(|a| &a.shape) {
+            Some(Shape::Figure { corners, .. }) => *corners,
+            _ => self.editor.corners(kind),
+        }
+    }
+
+    fn current_dashed(&self) -> bool {
+        self.marks.as_ref().and_then(|m| m.store.selected()).map_or(self.editor.style.dashed, |a| a.style.dashed)
     }
 
     /// The size the slider shows, in points (PDFs) or the picture's own units.
@@ -243,6 +268,35 @@ impl App {
                 .spacing(8)
                 .align_y(Alignment::Center),
             );
+            let dashed = self.current_dashed();
+            let choice = |name: String, on: bool| {
+                let chosen = on == dashed;
+                button(text(name).size(style::SMALL))
+                    .padding([3, 10])
+                    .style(if chosen { style::tool_active } else { style::tool })
+                    .on_press(m(MarkupMsg::Dashed(on)))
+            };
+            col = col.push(
+                row![label(tr("LINE")).width(70), choice(tr("Solid"), false), choice(tr("Dashed"), true)]
+                    .spacing(6)
+                    .align_y(Alignment::Center),
+            );
+            if let Some(kind) = self.styling_figure() {
+                let n = self.current_corners(kind);
+                let name = if kind == Figure::Star { tr("POINTS") } else { tr("SIDES") };
+                let range = f32::from(*CORNERS.start())..=f32::from(*CORNERS.end());
+                col = col.push(
+                    row![
+                        label(name).width(70),
+                        ui::fine_slider(range, f32::from(n), move |v| m(MarkupMsg::Corners(v)))
+                            .step(1.0_f32)
+                            .on_release(m(MarkupMsg::StyleCommit)),
+                        text(n.to_string()).size(style::SMALL).style(muted).width(38).align_x(Alignment::End),
+                    ]
+                    .spacing(8)
+                    .align_y(Alignment::Center),
+                );
+            }
         }
         opaque(container(col).padding(14).style(style::panel))
     }

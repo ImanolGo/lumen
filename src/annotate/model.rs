@@ -95,11 +95,13 @@ pub struct Style {
     pub width: f64,
     /// Text size in document units.
     pub font_size: f64,
+    /// Outlines and lines drawn as dashes.
+    pub dashed: bool,
 }
 
 impl Default for Style {
     fn default() -> Self {
-        Self { stroke: Color::AMBER, fill: None, width: 3.0, font_size: 18.0 }
+        Self { stroke: Color::AMBER, fill: None, width: 3.0, font_size: 18.0, dashed: false }
     }
 }
 
@@ -109,6 +111,15 @@ pub enum Shape {
     Ellipse(Rect),
     Line(Point, Point),
     Arrow(Point, Point),
+    /// An arrow with a head at both ends.
+    DoubleArrow(Point, Point),
+    /// A closed outline that fills `bounds`: a star, a polygon, a speech bubble…
+    Figure {
+        bounds: Rect,
+        kind: Figure,
+        /// The points of a star or the sides of a polygon.
+        corners: u8,
+    },
     Freehand(Vec<Point>),
     /// Several strokes that belong together, such as a signature.
     Ink(Vec<Vec<Point>>),
@@ -118,6 +129,131 @@ pub enum Shape {
     },
     /// Translucent marker over one or more rectangles (a block of text may span lines).
     Highlight(Vec<Rect>),
+}
+
+/// The closed outlines besides rectangles and ellipses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Figure {
+    Rounded,
+    Star,
+    Polygon,
+    /// A speech bubble, its tail at the bottom left.
+    Bubble,
+}
+
+impl Figure {
+    /// The corners a new figure of this kind has.
+    pub fn default_corners(self) -> u8 {
+        match self {
+            Self::Star => 5,
+            Self::Polygon => 6,
+            Self::Rounded | Self::Bubble => 0,
+        }
+    }
+
+    /// Its name in files (and the control interface).
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Rounded => "rounded",
+            Self::Star => "star",
+            Self::Polygon => "polygon",
+            Self::Bubble => "bubble",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        [Self::Rounded, Self::Star, Self::Polygon, Self::Bubble].into_iter().find(|f| f.name() == name)
+    }
+
+    /// Whether the number of corners can be chosen.
+    pub fn counts(self) -> bool {
+        matches!(self, Self::Star | Self::Polygon)
+    }
+}
+
+/// The fewest and most corners of a star or polygon.
+pub const CORNERS: std::ops::RangeInclusive<u8> = 3..=12;
+
+/// Points on each rounded corner.
+const ARC_STEPS: usize = 10;
+
+/// A quarter circle around `c` of radius `r`, from angle `from` (radians), as `steps` points.
+fn arc(out: &mut Vec<Point>, c: Point, rx: f64, ry: f64, from: f64, steps: usize) {
+    for i in 0..=steps {
+        let a = from + std::f64::consts::FRAC_PI_2 * i as f64 / steps as f64;
+        out.push(Point::new(c.x + rx * a.cos(), c.y + ry * a.sin()));
+    }
+}
+
+/// A rounded rectangle's outline, clockwise from the top-right corner's start; `bottom`
+/// is where its lower edge is (a speech bubble's body is shorter than its box).
+fn rounded(r: Rect, bottom: f64, out: &mut Vec<Point>) {
+    use std::f64::consts::PI;
+    let h = bottom - r.y;
+    let radius = (r.w.min(h) * 0.2).min(r.w / 2.0).min(h / 2.0).max(0.0);
+    const STEPS: usize = ARC_STEPS;
+    arc(out, Point::new(r.right() - radius, r.y + radius), radius, radius, -PI / 2.0, STEPS);
+    arc(out, Point::new(r.right() - radius, bottom - radius), radius, radius, 0.0, STEPS);
+    arc(out, Point::new(r.x + radius, bottom - radius), radius, radius, PI / 2.0, STEPS);
+    arc(out, Point::new(r.x + radius, r.y + radius), radius, radius, PI, STEPS);
+}
+
+/// The outline of a figure as a closed polygon (the last point joins the first). It fills
+/// `bounds` exactly, so the box it is read back from is the one it was drawn in.
+pub fn figure_outline(bounds: Rect, kind: Figure, corners: u8) -> Vec<Point> {
+    use std::f64::consts::{PI, TAU};
+    let n = corners.clamp(*CORNERS.start(), *CORNERS.end()) as usize;
+    let mut out = Vec::new();
+    match kind {
+        Figure::Rounded => rounded(bounds, bounds.bottom(), &mut out),
+        Figure::Bubble => {
+            // The body is the top four fifths; the tail hangs from its lower edge.
+            let body = bounds.y + bounds.h * 0.8;
+            rounded(bounds, body, &mut out);
+            // The lower edge runs right to left, between the second and third corners.
+            let at = 2 * (ARC_STEPS + 1);
+            let tail = [
+                Point::new(bounds.x + bounds.w * 0.38, body),
+                Point::new(bounds.x + bounds.w * 0.18, bounds.bottom()),
+                Point::new(bounds.x + bounds.w * 0.22, body),
+            ];
+            out.splice(at..at, tail);
+            return out;
+        }
+        Figure::Polygon | Figure::Star => {
+            let star = kind == Figure::Star;
+            let count = if star { 2 * n } else { n };
+            // A classic star's inner points are this far out.
+            let inner = (PI / n as f64).cos() * if n > 4 { 0.5 } else { 0.42 };
+            for i in 0..count {
+                let a = -PI / 2.0 + TAU * i as f64 / count as f64;
+                let r = if star && i % 2 == 1 { inner } else { 1.0 };
+                out.push(Point::new(r * a.cos(), r * a.sin()));
+            }
+            // Stretched to fill the box.
+            let (x0, x1) = out.iter().fold((f64::MAX, f64::MIN), |(a, b), p| (a.min(p.x), b.max(p.x)));
+            let (y0, y1) = out.iter().fold((f64::MAX, f64::MIN), |(a, b), p| (a.min(p.y), b.max(p.y)));
+            for p in &mut out {
+                p.x = bounds.x + (p.x - x0) / (x1 - x0) * bounds.w;
+                p.y = bounds.y + (p.y - y0) / (y1 - y0) * bounds.h;
+            }
+        }
+    }
+    out
+}
+
+/// Whether `p` is inside the closed polygon `points` (even-odd).
+fn inside(points: &[Point], p: Point) -> bool {
+    let mut inside = false;
+    let mut j = points.len().wrapping_sub(1);
+    for (i, a) in points.iter().enumerate() {
+        let b = points[j];
+        if (a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
 }
 
 /// Which grab point of a selected annotation is being dragged.
@@ -217,11 +353,16 @@ impl Annotation {
     pub fn bounds(&self) -> Rect {
         match &self.shape {
             Shape::Rect(r) | Shape::Ellipse(r) => *r,
-            Shape::Text { bounds, .. } => *bounds,
+            Shape::Text { bounds, .. } | Shape::Figure { bounds, .. } => *bounds,
             Shape::Line(a, b) => Rect::from_corners(*a, *b),
             Shape::Arrow(a, b) => {
                 let [h1, h2] = arrow_head(*a, *b, self.style.width);
                 [h1, h2].iter().fold(Rect::from_corners(*a, *b), |r, p| r.union(&Rect::new(p.x, p.y, 0.0, 0.0)))
+            }
+            Shape::DoubleArrow(a, b) => {
+                let heads =
+                    arrow_head(*a, *b, self.style.width).into_iter().chain(arrow_head(*b, *a, self.style.width));
+                heads.fold(Rect::from_corners(*a, *b), |r, p| r.union(&Rect::new(p.x, p.y, 0.0, 0.0)))
             }
             Shape::Freehand(points) => {
                 points.iter().map(|p| Rect::new(p.x, p.y, 0.0, 0.0)).reduce(|a, b| a.union(&b)).unwrap_or_default()
@@ -247,8 +388,8 @@ impl Annotation {
         };
         match &mut self.shape {
             Shape::Rect(r) | Shape::Ellipse(r) => shift_rect(r),
-            Shape::Text { bounds, .. } => shift_rect(bounds),
-            Shape::Line(a, b) | Shape::Arrow(a, b) => {
+            Shape::Text { bounds, .. } | Shape::Figure { bounds, .. } => shift_rect(bounds),
+            Shape::Line(a, b) | Shape::Arrow(a, b) | Shape::DoubleArrow(a, b) => {
                 shift(a);
                 shift(b);
             }
@@ -275,9 +416,9 @@ impl Annotation {
         let map_rect = |r: Rect| Rect::from_corners(map(Point::new(r.x, r.y)), map(Point::new(r.right(), r.bottom())));
         match &mut self.shape {
             Shape::Rect(r) | Shape::Ellipse(r) => *r = target,
-            Shape::Text { bounds, .. } => *bounds = target,
+            Shape::Text { bounds, .. } | Shape::Figure { bounds, .. } => *bounds = target,
             // An arrow's bounds include its head; scale the shaft's ends instead.
-            Shape::Line(a, b) | Shape::Arrow(a, b) => {
+            Shape::Line(a, b) | Shape::Arrow(a, b) | Shape::DoubleArrow(a, b) => {
                 *a = map(*a);
                 *b = map(*b);
             }
@@ -291,8 +432,8 @@ impl Annotation {
     pub fn apply(&mut self, change: GeometryChange) {
         match &mut self.shape {
             Shape::Rect(r) | Shape::Ellipse(r) => *r = change.map_rect(*r),
-            Shape::Text { bounds, .. } => *bounds = change.map_rect(*bounds),
-            Shape::Line(a, b) | Shape::Arrow(a, b) => {
+            Shape::Text { bounds, .. } | Shape::Figure { bounds, .. } => *bounds = change.map_rect(*bounds),
+            Shape::Line(a, b) | Shape::Arrow(a, b) | Shape::DoubleArrow(a, b) => {
                 *a = change.map(*a);
                 *b = change.map(*b);
             }
@@ -330,6 +471,20 @@ impl Annotation {
                 distance_to_segment(p, *a, *b) <= reach
                     || arrow_head(*a, *b, self.style.width).iter().any(|h| distance_to_segment(p, *b, *h) <= reach)
             }
+            Shape::DoubleArrow(a, b) => {
+                let w = self.style.width;
+                distance_to_segment(p, *a, *b) <= reach
+                    || arrow_head(*a, *b, w).iter().any(|h| distance_to_segment(p, *b, *h) <= reach)
+                    || arrow_head(*b, *a, w).iter().any(|h| distance_to_segment(p, *a, *h) <= reach)
+            }
+            Shape::Figure { bounds, kind, corners } => {
+                let outline = figure_outline(*bounds, *kind, *corners);
+                let on_edge = outline
+                    .iter()
+                    .zip(outline.iter().cycle().skip(1))
+                    .any(|(a, b)| distance_to_segment(p, *a, *b) <= reach);
+                on_edge || (self.style.fill.is_some() && inside(&outline, p))
+            }
             Shape::Freehand(points) => match points.as_slice() {
                 [] => false,
                 [only] => p.distance_to(*only) <= reach,
@@ -345,7 +500,7 @@ impl Annotation {
     /// Grab points to show when the annotation is selected.
     pub fn handles(&self) -> Vec<(Handle, Point)> {
         match &self.shape {
-            Shape::Line(a, b) | Shape::Arrow(a, b) => {
+            Shape::Line(a, b) | Shape::Arrow(a, b) | Shape::DoubleArrow(a, b) => {
                 vec![(Handle::End(0), *a), (Handle::End(1), *b)]
             }
             _ => {
@@ -379,7 +534,7 @@ impl Annotation {
     pub fn drag_handle(&mut self, original: &Annotation, handle: Handle, to: Point) {
         *self = original.clone();
         match (handle, &mut self.shape) {
-            (Handle::End(i), Shape::Line(a, b) | Shape::Arrow(a, b)) => {
+            (Handle::End(i), Shape::Line(a, b) | Shape::Arrow(a, b) | Shape::DoubleArrow(a, b)) => {
                 if i == 0 {
                     *a = to;
                 } else {
@@ -695,6 +850,47 @@ mod tests {
             Annotation { id: 1, shape: Shape::Arrow(Point::new(0.0, 0.0), Point::new(100.0, 0.0)), style: style() };
         assert!(arrow.bounds().h > 0.0, "the head is part of the bounds");
         assert!(arrow.hit(Point::new(95.0, 3.0), 2.0));
+    }
+
+    #[test]
+    fn figures_fill_their_box_and_are_hit_on_their_outline() {
+        let bounds = Rect::new(10.0, 20.0, 100.0, 80.0);
+        for kind in [Figure::Rounded, Figure::Star, Figure::Polygon, Figure::Bubble] {
+            for corners in [3, 5, 6, 12] {
+                let outline = figure_outline(bounds, kind, corners);
+                let r = outline.iter().map(|p| Rect::new(p.x, p.y, 0.0, 0.0)).reduce(|a, b| a.union(&b)).unwrap();
+                for (got, want) in [(r.x, 10.0), (r.y, 20.0), (r.w, 100.0), (r.h, 80.0)] {
+                    assert!((got - want).abs() < 1e-6, "{kind:?} {corners}: {r:?}");
+                }
+            }
+        }
+        assert_eq!(figure_outline(bounds, Figure::Star, 5).len(), 10);
+        assert_eq!(figure_outline(bounds, Figure::Polygon, 6).len(), 6);
+        // A five-pointed star: its tip is at the top middle, its middle is empty unless filled.
+        let mut star =
+            Annotation { id: 1, shape: Shape::Figure { bounds, kind: Figure::Star, corners: 5 }, style: style() };
+        assert!(star.hit(Point::new(60.0, 20.5), 2.0), "tip");
+        assert!(!star.hit(Point::new(60.0, 60.0), 2.0));
+        star.style.fill = Some(Color::RED);
+        assert!(star.hit(Point::new(60.0, 60.0), 2.0));
+        assert!(!star.hit(Point::new(12.0, 98.0), 2.0), "outside, in the corner of the box");
+        // A bubble's tail reaches the bottom of its box.
+        let bubble =
+            Annotation { id: 2, shape: Shape::Figure { bounds, kind: Figure::Bubble, corners: 0 }, style: style() };
+        assert!(bubble.hit(Point::new(28.0, 100.0), 2.0), "tail tip");
+        assert!(!bubble.hit(Point::new(100.0, 100.0), 2.0));
+    }
+
+    #[test]
+    fn a_double_arrow_has_a_head_at_each_end() {
+        let a = Annotation {
+            id: 1,
+            shape: Shape::DoubleArrow(Point::new(0.0, 50.0), Point::new(100.0, 50.0)),
+            style: style(),
+        };
+        assert!(a.hit(Point::new(5.0, 53.0), 2.0) && a.hit(Point::new(95.0, 53.0), 2.0));
+        assert!(a.bounds().h > 0.0);
+        assert_eq!(a.handles().len(), 2);
     }
 
     #[test]

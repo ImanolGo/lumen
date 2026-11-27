@@ -32,6 +32,8 @@ pub enum Menu {
     HeaderZoom,
     /// The order of the files.
     Sort,
+    /// The shapes besides those in the markup row.
+    Shapes,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,12 +67,13 @@ impl Menu {
             Menu::File => msgid("File"),
             Menu::Zoom | Menu::HeaderZoom => msgid("Zoom"),
             Menu::Sort => msgid("Sort By"),
+            Menu::Shapes => msgid("Shapes"),
         }
     }
 
     /// Whether it hangs from the ☰ button.
     pub fn is_main(self) -> bool {
-        !matches!(self, Menu::Open | Menu::Zoom | Menu::HeaderZoom | Menu::Sort)
+        !matches!(self, Menu::Open | Menu::Zoom | Menu::HeaderZoom | Menu::Sort | Menu::Shapes)
     }
 }
 
@@ -210,6 +213,16 @@ impl App {
                 lines.push(Line::Item(tr("Reversed"), mark(self.prefs.sort_reversed), Some(Message::SortReversed)));
                 lines
             }
+            Menu::Shapes => {
+                let mark = |on: bool| if on { "✓" } else { "" };
+                super::markup::MORE_SHAPES
+                    .iter()
+                    .map(|(tool, name)| {
+                        let msg = Message::Markup(super::markup::MarkupMsg::Tool(*tool));
+                        Line::Item(tr(name), mark(self.editor.tool == *tool), Some(msg))
+                    })
+                    .collect()
+            }
             Menu::Zoom | Menu::HeaderZoom => {
                 let mut lines = self.lines(&["fit", "fit-width", ""]);
                 lines.extend([50, 100, 200].map(|percent| {
@@ -337,7 +350,8 @@ impl App {
         anchor: Anchor,
     ) -> Element<'a, Message> {
         let panel = self.menu.filter(|m| which(*m)).map(|m| {
-            let width = if matches!(m, Menu::Zoom | Menu::HeaderZoom | Menu::Sort) { 180.0 } else { MENU_W };
+            let width =
+                if matches!(m, Menu::Zoom | Menu::HeaderZoom | Menu::Sort | Menu::Shapes) { 200.0 } else { MENU_W };
             Self::panel_of(self.menu_lines(m), width)
         });
         popup(base, panel, anchor, Message::Menu(None)).into()

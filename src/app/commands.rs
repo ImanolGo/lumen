@@ -18,6 +18,7 @@ use super::region::RegionMsg;
 use super::signature::SignMsg;
 use super::{App, Doc, Message, muted};
 use crate::annotate::Tool;
+use crate::annotate::model::Figure;
 use crate::i18n::{msgid, tr};
 use crate::{icons, style};
 
@@ -366,6 +367,11 @@ impl App {
         add("tool-ellipse", msgid("Ellipse"), Tools, None, &["O"], tool(Tool::Ellipse));
         add("tool-line", msgid("Line"), Tools, None, &["L"], tool(Tool::Line));
         add("tool-arrow", msgid("Arrow"), Tools, None, &["A"], tool(Tool::Arrow));
+        add("tool-double-arrow", msgid("Double Arrow"), Tools, None, &[], tool(Tool::DoubleArrow));
+        add("tool-rounded", msgid("Rounded Rectangle"), Tools, None, &[], tool(Tool::Figure(Figure::Rounded)));
+        add("tool-star", msgid("Star"), Tools, None, &[], tool(Tool::Figure(Figure::Star)));
+        add("tool-polygon", msgid("Polygon"), Tools, None, &[], tool(Tool::Figure(Figure::Polygon)));
+        add("tool-bubble", msgid("Speech Bubble"), Tools, None, &[], tool(Tool::Figure(Figure::Bubble)));
         add("tool-text", msgid("Text"), Tools, None, &["T"], tool(Tool::Text));
         let markup = (drawing && !pages).then_some(Message::Markup(MarkupMsg::Toggle)).filter(|_| has_doc);
         add("markup", msgid("Markup"), Tools, None, &["M"], markup);

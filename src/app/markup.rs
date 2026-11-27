@@ -15,10 +15,10 @@ use iced::{Alignment, Element, Task};
 use super::overlay::{Capture, Overlay};
 use super::popup::{Anchor, popup};
 use super::{App, Doc, Message, TOOLBAR_H, blocking, err_string, file_name, icon_button, muted, placed, separator};
-use crate::annotate::model::Style;
+use crate::annotate::model::{CORNERS, Figure, Style};
 use crate::annotate::pdf::ObjRef;
 use crate::annotate::{AnnotationLayer, Color, GeometryChange, History, Outcome, Point, Rect, Shape, Store, Tool};
-use crate::i18n::tr;
+use crate::i18n::{msgid, tr};
 use crate::{icons, pdf, style, ui};
 
 pub type Layers = BTreeMap<usize, AnnotationLayer>;
@@ -142,6 +142,15 @@ pub struct TextEdit {
     pub content: text_editor::Content,
 }
 
+/// The shapes in the Shapes menu, and their names there.
+pub const MORE_SHAPES: [(Tool, &str); 5] = [
+    (Tool::Figure(Figure::Rounded), msgid("Rounded Rectangle")),
+    (Tool::Figure(Figure::Star), msgid("Star")),
+    (Tool::Figure(Figure::Polygon), msgid("Polygon")),
+    (Tool::Figure(Figure::Bubble), msgid("Speech Bubble")),
+    (Tool::DoubleArrow, msgid("Double Arrow")),
+];
+
 #[derive(Debug, Clone)]
 pub enum MarkupMsg {
     Toggle,
@@ -158,6 +167,9 @@ pub enum MarkupMsg {
     Hex(String),
     Opacity(f32),
     LineWidth(f32),
+    Dashed(bool),
+    /// The points of a star or the sides of a polygon.
+    Corners(f32),
     TextSize(f32),
     TextSizeTyped(String),
     StyleCommit,
@@ -237,12 +249,18 @@ impl App {
             "ellipse" => Tool::Ellipse,
             "line" => Tool::Line,
             "arrow" => Tool::Arrow,
+            "double-arrow" => Tool::DoubleArrow,
             "pen" => Tool::Pen,
             "text" => Tool::Text,
             "highlight" => Tool::Highlight,
-            other => {
-                return Err(format!("unknown kind “{other}” (rectangle, ellipse, line, arrow, pen, text, highlight)"));
-            }
+            other => match Figure::from_name(other) {
+                Some(kind) => Tool::Figure(kind),
+                None => {
+                    return Err(format!(
+                        "unknown kind “{other}” (rectangle, ellipse, line, arrow, double-arrow, rounded, star, polygon, bubble, pen, text, highlight)"
+                    ));
+                }
+            },
         };
         if !color.is_empty() && super::palette::from_hex(color).is_none() {
             return Err(format!("“{color}” is not a colour like #e5a50a"));
@@ -292,6 +310,8 @@ impl App {
                     Shape::Ellipse(_) => ("ellipse", None),
                     Shape::Line(..) => ("line", None),
                     Shape::Arrow(..) => ("arrow", None),
+                    Shape::DoubleArrow(..) => ("double-arrow", None),
+                    Shape::Figure { kind, .. } => (kind.name(), None),
                     Shape::Freehand(_) => ("pen", None),
                     Shape::Ink(_) => ("ink", None),
                     Shape::Text { text, .. } => ("text", Some(text.clone())),
@@ -304,6 +324,8 @@ impl App {
                     "text": text,
                     "bounds": [b.x, b.y, b.right(), b.bottom()],
                     "color": hex(a.style.stroke),
+                    "dashed": a.style.dashed,
+                    "corners": match a.shape { Shape::Figure { kind, corners, .. } if kind.counts() => Some(corners), _ => None },
                 }));
             }
         }
@@ -689,6 +711,30 @@ impl App {
                 self.restyle_live(|shape, style| {
                     if !matches!(shape, Shape::Highlight(_) | Shape::Text { .. }) {
                         style.width = width;
+                    }
+                });
+                Task::none()
+            }
+            MarkupMsg::Dashed(on) => {
+                self.editor.style.dashed = on;
+                self.restyle_live(|shape, style| {
+                    if !matches!(shape, Shape::Highlight(_) | Shape::Text { .. }) {
+                        style.dashed = on;
+                    }
+                });
+                self.style_commit();
+                Task::none()
+            }
+            MarkupMsg::Corners(n) => {
+                let n = (n.round() as u8).clamp(*CORNERS.start(), *CORNERS.end());
+                let Some(kind) = self.styling_figure() else { return Task::none() };
+                match kind {
+                    Figure::Star => self.editor.star_points = n,
+                    _ => self.editor.polygon_sides = n,
+                }
+                self.restyle_live(|shape, _| {
+                    if let Shape::Figure { corners, .. } = shape {
+                        *corners = n;
                     }
                 });
                 Task::none()
@@ -1258,6 +1304,29 @@ impl App {
         layers
     }
 
+    /// The button for the Shapes menu: it shows the one in use, if one of those is.
+    fn shapes_button(&self, names: bool) -> Element<'_, Message> {
+        let chosen = MORE_SHAPES.iter().find(|(t, _)| *t == self.editor.tool);
+        let icon = match chosen.map(|(t, _)| *t) {
+            Some(Tool::Figure(Figure::Rounded)) => icons::rounded_rect(),
+            Some(Tool::Figure(Figure::Star)) => icons::star(),
+            Some(Tool::Figure(Figure::Polygon)) => icons::polygon(),
+            Some(Tool::Figure(Figure::Bubble)) => icons::bubble(),
+            Some(Tool::DoubleArrow) => icons::double_arrow(),
+            _ => icons::shapes(),
+        };
+        let open = self.menu == Some(super::menu::Menu::Shapes);
+        let b = Self::named(
+            icon,
+            tr("Shapes"),
+            tr("More shapes: rounded rectangle, star, polygon, speech bubble, double arrow"),
+            Some(Message::Menu(Some(super::menu::Menu::Shapes))),
+            chosen.is_some() || open,
+            names,
+        );
+        self.with_menu(b, |m| m == super::menu::Menu::Shapes, Anchor::Start)
+    }
+
     pub(super) fn markup_bar(&self) -> Element<'_, Message> {
         let names = self.names_fit();
         let tool = |t: Tool, icon: iced::widget::svg::Handle, label: String| {
@@ -1276,6 +1345,7 @@ impl App {
             tool(Tool::Ellipse, icons::ellipse(), tr("Ellipse")),
             tool(Tool::Line, icons::line(), tr("Line")),
             tool(Tool::Arrow, icons::arrow(), tr("Arrow")),
+            self.shapes_button(names),
             tool(Tool::Text, icons::text_tool(), tr("Text")),
         ]
         .spacing(2)

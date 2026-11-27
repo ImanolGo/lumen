@@ -104,3 +104,9 @@ icon!(resize, r#"<rect x="3" y="11" width="10" height="10" rx="1"/><path d="M14 
 icon!(menu, r#"<path d="M4 7h16M4 12h16M4 17h16"/>"#);
 icon!(straighten, r#"<path d="M3 20h18"/><path d="M5 16 19 9"/><path d="M15 20a5 5 0 0 0-1-3"/>"#);
 icon!(sketch, r#"<circle cx="9" cy="10" r="5" stroke-dasharray="2 2"/><path d="m13 19 7-7"/><path d="m18 10 2 2"/>"#);
+icon!(rounded_rect, r#"<rect x="4" y="6" width="16" height="12" rx="4"/>"#);
+icon!(star, r#"<path d="m12 3.5 2.6 5.4 5.9.8-4.3 4.1 1 5.8L12 16.8l-5.2 2.8 1-5.8-4.3-4.1 5.9-.8z"/>"#);
+icon!(polygon, r#"<path d="m12 3.5 7.4 4.25v8.5L12 20.5l-7.4-4.25v-8.5z"/>"#);
+icon!(bubble, r#"<path d="M7 5h10a3 3 0 0 1 3 3v5a3 3 0 0 1-3 3h-6l-4 3.5V16a3 3 0 0 1-3-3V8a3 3 0 0 1 3-3z"/>"#);
+icon!(double_arrow, r#"<path d="M5 19 19 5"/><path d="M12 5h7v7"/><path d="M5 12v7h7"/>"#);
+icon!(shapes, r#"<rect x="3.5" y="10.5" width="10" height="10" rx="1"/><circle cx="15.5" cy="8.5" r="5"/>"#);

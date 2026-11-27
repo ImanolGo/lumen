@@ -115,6 +115,7 @@ dependencies (touchpad pinch); see `vendor/README.md`.
 | `src/app/rename.rs` | Renaming the file on screen |
 | `src/app/region.rs` | Selecting a part of a picture (rectangle, freehand, by colour): copy, crop, invert, delete |
 | `src/annotate/sketch.rs` | The sketch tool: telling what shape a stroke drawn by hand is |
+| `src/annotate/model.rs` (`figure_outline`) | Stars, polygons, rounded rectangles and speech bubbles as one closed outline that fills its box: drawn from it on screen and in pictures, written from it as a PDF polygon (with `/LumenFigure` naming the figure, so Lumen reads it back as one) |
 | `src/colour.rs` | Colour profiles: turning a picture's colours into sRGB |
 | `src/edit/select.rs` | What is selected of a picture, as pixels: cutting it out, clearing it, selecting by colour |
 | `src/app/slideshow.rs` | The slideshow |

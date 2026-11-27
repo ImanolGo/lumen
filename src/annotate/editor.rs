@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use super::model::{Annotation, AnnotationLayer, Color, Handle, Pages, Point, Rect, Shape, Style};
+use super::model::{Annotation, AnnotationLayer, Color, Figure, Handle, Pages, Point, Rect, Shape, Style};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Tool {
@@ -15,7 +15,10 @@ pub enum Tool {
     Rectangle,
     Ellipse,
     Arrow,
+    DoubleArrow,
     Line,
+    /// A rounded rectangle, star, polygon or speech bubble.
+    Figure(Figure),
     Pen,
     /// Drawn by hand, and made the clean shape it looks like.
     Sketch,
@@ -90,6 +93,9 @@ pub struct Editor {
     /// The marker colour: highlights have their own, so they start out yellow whatever
     /// colour the pen is.
     pub highlight_color: Color,
+    /// The points of a new star and the sides of a new polygon.
+    pub star_points: u8,
+    pub polygon_sides: u8,
     grab: Option<Grab>,
     /// An annotation created by the Text tool whose text has not been confirmed.
     unconfirmed_text: Option<(usize, u64)>,
@@ -101,6 +107,8 @@ impl Default for Editor {
             tool: Tool::default(),
             style: Style::default(),
             highlight_color: Color::YELLOW,
+            star_points: Figure::Star.default_corners(),
+            polygon_sides: Figure::Polygon.default_corners(),
             grab: None,
             unconfirmed_text: None,
         }
@@ -108,6 +116,15 @@ impl Default for Editor {
 }
 
 impl Editor {
+    /// How many corners a new figure of this kind gets.
+    pub fn corners(&self, kind: Figure) -> u8 {
+        match kind {
+            Figure::Star => self.star_points,
+            Figure::Polygon => self.polygon_sides,
+            _ => 0,
+        }
+    }
+
     /// The pointer went down at `p` on `page`. `tolerance` is the click reach in
     /// document units; `clicks` is 1, 2 or 3 for single, double and triple clicks.
     pub fn press(&mut self, store: &mut Store, page: usize, p: Point, tolerance: f64, clicks: u32) -> Outcome {
@@ -122,6 +139,10 @@ impl Editor {
                     Tool::Highlight => Shape::Highlight(vec![Rect::new(p.x, p.y, 0.0, 0.0)]),
                     Tool::Line => Shape::Line(p, p),
                     Tool::Arrow => Shape::Arrow(p, p),
+                    Tool::DoubleArrow => Shape::DoubleArrow(p, p),
+                    Tool::Figure(kind) => {
+                        Shape::Figure { bounds: Rect::new(p.x, p.y, 0.0, 0.0), kind, corners: self.corners(kind) }
+                    }
                     _ => Shape::Freehand(vec![p]),
                 };
                 store.draft = Some((page, Annotation { id: 0, shape, style: self.draw_style(tool) }));
@@ -191,9 +212,11 @@ impl Editor {
             Grab::Draw { start, .. } => {
                 if let Some((_, draft)) = &mut store.draft {
                     match &mut draft.shape {
-                        Shape::Rect(r) | Shape::Ellipse(r) => *r = Rect::from_corners(*start, p),
+                        Shape::Rect(r) | Shape::Ellipse(r) | Shape::Figure { bounds: r, .. } => {
+                            *r = Rect::from_corners(*start, p)
+                        }
                         Shape::Highlight(rects) => *rects = vec![Rect::from_corners(*start, p)],
-                        Shape::Line(_, end) | Shape::Arrow(_, end) => *end = p,
+                        Shape::Line(_, end) | Shape::Arrow(_, end) | Shape::DoubleArrow(_, end) => *end = p,
                         Shape::Freehand(points) => {
                             if points.last().is_none_or(|last| (last.x - p.x).hypot(last.y - p.y) >= 1.0) {
                                 points.push(p);
@@ -379,6 +402,9 @@ impl Editor {
             item.style.stroke = new.stroke;
             item.style.width = new.width;
             item.style.font_size = new.font_size;
+            if !matches!(item.shape, Shape::Text { .. }) {
+                item.style.dashed = new.dashed;
+            }
         }
         Outcome { redraw: true, committed: item.style != before, ..Outcome::default() }
     }
@@ -386,9 +412,9 @@ impl Editor {
 
 fn is_substantial(shape: &Shape) -> bool {
     match shape {
-        Shape::Rect(r) | Shape::Ellipse(r) => r.w >= MIN_DRAG && r.h >= MIN_DRAG,
+        Shape::Rect(r) | Shape::Ellipse(r) | Shape::Figure { bounds: r, .. } => r.w >= MIN_DRAG && r.h >= MIN_DRAG,
         Shape::Highlight(rects) => rects.iter().any(|r| r.w >= MIN_DRAG && r.h >= MIN_DRAG),
-        Shape::Line(a, b) | Shape::Arrow(a, b) => (a.x - b.x).hypot(a.y - b.y) >= MIN_DRAG,
+        Shape::Line(a, b) | Shape::Arrow(a, b) | Shape::DoubleArrow(a, b) => (a.x - b.x).hypot(a.y - b.y) >= MIN_DRAG,
         Shape::Freehand(points) => points.len() >= 2,
         Shape::Ink(strokes) => !strokes.is_empty(),
         Shape::Text { .. } => true,
@@ -421,6 +447,12 @@ mod tests {
             (Tool::Ellipse, |s| matches!(s, Shape::Ellipse(_))),
             (Tool::Line, |s| matches!(s, Shape::Line(a, b) if a.x == 10.0 && b.x == 110.0)),
             (Tool::Arrow, |s| matches!(s, Shape::Arrow(..))),
+            (Tool::DoubleArrow, |s| matches!(s, Shape::DoubleArrow(..))),
+            (
+                Tool::Figure(Figure::Star),
+                |s| matches!(s, Shape::Figure { bounds, kind: Figure::Star, corners: 5 } if bounds.w == 100.0),
+            ),
+            (Tool::Figure(Figure::Bubble), |s| matches!(s, Shape::Figure { kind: Figure::Bubble, .. })),
             (Tool::Highlight, |s| matches!(s, Shape::Highlight(r) if r.len() == 1)),
             (Tool::Pen, |s| matches!(s, Shape::Freehand(p) if p.len() >= 3)),
         ] {

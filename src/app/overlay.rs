@@ -98,14 +98,18 @@ impl Overlay<'_> {
                 frame.fill(&path, c);
             }
             if let Some((c, w)) = prim.stroke {
-                frame.stroke(
-                    &path,
-                    Stroke::default()
-                        .with_color(color(c))
-                        .with_width(((w * z) as f32).max(1.0))
-                        .with_line_cap(LineCap::Round)
-                        .with_line_join(LineJoin::Round),
-                );
+                let dashes = paint::dashes(w).map(|d| (d * z) as f32);
+                let stroke = Stroke::default()
+                    .with_color(color(c))
+                    .with_width(((w * z) as f32).max(1.0))
+                    .with_line_cap(LineCap::Round)
+                    .with_line_join(LineJoin::Round);
+                let stroke = if prim.dashed {
+                    Stroke { line_dash: LineDash { segments: &dashes, offset: 0 }, ..stroke }
+                } else {
+                    stroke
+                };
+                frame.stroke(&path, stroke);
             }
         }
         if let Some(block) = paint::text(a) {
@@ -135,7 +139,7 @@ impl Overlay<'_> {
             Point::new(b.x as f32 * z - 3.0, b.y as f32 * z - 3.0),
             Size::new(b.w as f32 * z + 6.0, b.h as f32 * z + 6.0),
         );
-        if !matches!(a.shape, Shape::Line(..) | Shape::Arrow(..)) {
+        if !matches!(a.shape, Shape::Line(..) | Shape::Arrow(..) | Shape::DoubleArrow(..)) {
             frame.stroke(
                 &Path::rectangle(r.position(), r.size()),
                 Stroke {

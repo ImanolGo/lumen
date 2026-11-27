@@ -24,7 +24,7 @@ use hayro::hayro_syntax::object::{Array, Dict, Name, Number, String as PdfString
 use hayro::kurbo::{self, Affine, PathEl};
 use lopdf::{Dictionary, Object, ObjectId, Stream, StringFormat, dictionary};
 
-use super::model::{Annotation, AnnotationLayer, Color, Note, Point, Rect, Shape, Style};
+use super::model::{Annotation, AnnotationLayer, Color, Figure, Note, Point, Rect, Shape, Style, figure_outline};
 use super::paint::{self, LINE_HEIGHT, TEXT_PAD};
 use crate::structure::decode_text;
 use crate::textfont::TextFont;
@@ -128,6 +128,13 @@ fn read_one(annot: &Dict<'_>, to_view: Affine, budget: &mut usize) -> Result<Opt
             let Some(list) = annot.get::<Array<'_>>("InkList") else { return Ok(None) };
             list.iter::<Array<'_>>().take(1000).map(|stroke| many(&stroke, budget)).collect::<Result<_, _>>()?
         }
+        // Other programs' polygons are not read: their corners are not counted against the budget.
+        Some("Polygon") if annot.get::<Array<'_>>("LumenFigure").is_some() => {
+            match annot.get::<Array<'_>>("Vertices") {
+                Some(v) => vec![many(&v, budget)?],
+                None => return Ok(None),
+            }
+        }
         Some("Highlight") => match annot.get::<Array<'_>>("QuadPoints") {
             Some(quads) => vec![many(&quads, budget)?],
             None => return Ok(None),
@@ -171,7 +178,7 @@ fn view_point(to_view: Affine, x: f64, y: f64) -> Point {
     Point::new(p.x, p.y)
 }
 
-/// `points`: the strokes of ink, or the corners of a highlight.
+/// `points`: the strokes of ink, the corners of a highlight, or a polygon's vertices.
 fn read_shape(annot: &Dict<'_>, to_view: Affine, points: &mut Vec<Vec<f64>>) -> Option<(Annotation, Note)> {
     let subtype = annot.get::<Name<'_>>("Subtype")?;
     let rect: [f64; 4] = numbers(annot, "Rect")?.try_into().ok()?;
@@ -183,7 +190,8 @@ fn read_shape(annot: &Dict<'_>, to_view: Affine, points: &mut Vec<Vec<f64>>) -> 
         .unwrap_or(1.0)
         .clamp(0.0, 200.0);
     let stroke = color(annot, "C", alpha);
-    let mut style = Style { stroke: stroke.unwrap_or(Color::AMBER), fill: None, width, ..Style::default() };
+    let dashed = annot.get::<Dict<'_>>("BS").and_then(|bs| bs.get::<Name<'_>>("S")).is_some_and(|s| s.as_str() == "D");
+    let mut style = Style { stroke: stroke.unwrap_or(Color::AMBER), fill: None, width, dashed, ..Style::default() };
     let note = Note { contents: text_string(annot, "Contents"), author: text_string(annot, "T") };
     let shape = match subtype.as_str() {
         "Square" | "Circle" => {
@@ -210,10 +218,29 @@ fn read_shape(annot: &Dict<'_>, to_view: Affine, points: &mut Vec<Vec<f64>>) -> 
                 .unwrap_or_default();
             let arrow = |n: Option<&String>| n.is_some_and(|n| n.ends_with("Arrow"));
             match (arrow(ends.first()), arrow(ends.get(1))) {
+                (true, true) => Shape::DoubleArrow(a, b),
                 (_, true) => Shape::Arrow(a, b),
                 (true, false) => Shape::Arrow(b, a),
                 _ => Shape::Line(a, b),
             }
+        }
+        // Only Lumen's own figures: other polygons are left as they are.
+        "Polygon" => {
+            let figure = annot.get::<Array<'_>>("LumenFigure")?;
+            let mut parts = figure.flex_iter();
+            let kind = Figure::from_name(parts.next::<Name<'_>>()?.as_str())?;
+            let corners = parts.next::<f64>().filter(|v| v.is_finite()).unwrap_or(0.0).clamp(0.0, 12.0) as u8;
+            let v = points.pop().filter(|v| v.len() >= 6)?;
+            let points: Vec<Point> = v.as_chunks::<2>().0.iter().map(|[x, y]| view_point(to_view, *x, *y)).collect();
+            let bounds = points.iter().map(|p| Rect::new(p.x, p.y, 0.0, 0.0)).reduce(|a, b| a.union(&b))?;
+            if stroke.is_none() {
+                style.width = 0.0;
+            }
+            style.fill = color(annot, "IC", alpha);
+            if style.width == 0.0 && style.fill.is_none() {
+                return None;
+            }
+            Shape::Figure { bounds, kind, corners }
         }
         "Ink" => {
             let strokes: Vec<Vec<Point>> = std::mem::take(points)
@@ -511,6 +538,17 @@ fn overlaid(old: Dictionary, was: &Dictionary, wanted: &Dictionary) -> Dictionar
                 if let Ok(width) = border.get(b"W") {
                     style.set("W", width.clone());
                 }
+                // Dashed or not is Lumen's to change; a dashed line's own pattern is kept.
+                let dash = |d: &Dictionary| d.get(b"S").and_then(Object::as_name).is_ok_and(|s| s == b"D");
+                let was_dashed = was.get(b"BS").and_then(Object::as_dict).is_ok_and(dash);
+                if dash(border) != was_dashed {
+                    for key in [&b"S"[..], b"D"] {
+                        match border.get(key) {
+                            Ok(v) => style.set(key, v.clone()),
+                            Err(_) => drop(style.remove(key)),
+                        }
+                    }
+                }
                 out.set("BS", style);
             }
             Ok(value) => out.set(key, value.clone()),
@@ -594,7 +632,12 @@ fn annotation_dict(a: &Annotation, note: Option<&Note>, page: ObjectId, to_user:
             d.set("T", pdf_text(t));
         }
     }
-    let border = dictionary! { "W" => real(style.width), "S" => "S" };
+    let border = if style.dashed {
+        let [on, off] = paint::dashes(style.width);
+        dictionary! { "W" => real(style.width), "S" => "D", "D" => vec![real(on), real(off)] }
+    } else {
+        dictionary! { "W" => real(style.width), "S" => "S" }
+    };
     if style.stroke.a < 1.0 {
         d.set("CA", real(style.stroke.a as f64));
     }
@@ -613,7 +656,21 @@ fn annotation_dict(a: &Annotation, note: Option<&Note>, page: ObjectId, to_user:
             let g = to_user.transform_rect_bbox(kurbo::Rect::new(r.x, r.y, r.right(), r.bottom()));
             d.set("RD", vec![real(g.x0 - k.x0), real(k.y1 - g.y1), real(k.x1 - g.x1), real(g.y0 - k.y0)]);
         }
-        Shape::Line(p, q) | Shape::Arrow(p, q) => {
+        Shape::Figure { bounds, kind, corners } => {
+            d.set("Subtype", "Polygon");
+            if style.width > 0.0 {
+                d.set("C", rgb(style.stroke));
+            }
+            if let Some(fill) = style.fill {
+                d.set("IC", rgb(fill));
+            }
+            d.set("BS", border);
+            let outline = figure_outline(*bounds, *kind, *corners);
+            d.set("Vertices", outline.iter().flat_map(|p| user_point(to_user, *p)).collect::<Vec<_>>());
+            // Which figure it is, for Lumen to read back; other programs see a polygon.
+            d.set("LumenFigure", vec![Object::Name(kind.name().as_bytes().to_vec()), Object::Integer(*corners as i64)]);
+        }
+        Shape::Line(p, q) | Shape::Arrow(p, q) | Shape::DoubleArrow(p, q) => {
             d.set("Subtype", "Line");
             d.set("C", rgb(style.stroke));
             d.set("BS", border);
@@ -621,8 +678,9 @@ fn annotation_dict(a: &Annotation, note: Option<&Note>, page: ObjectId, to_user:
             l.extend(user_point(to_user, *p));
             l.extend(user_point(to_user, *q));
             d.set("L", l);
-            if matches!(a.shape, Shape::Arrow(..)) {
-                d.set("LE", vec![Object::Name(b"None".to_vec()), Object::Name(b"OpenArrow".to_vec())]);
+            let start = if matches!(a.shape, Shape::DoubleArrow(..)) { "OpenArrow" } else { "None" };
+            if !matches!(a.shape, Shape::Line(..)) {
+                d.set("LE", vec![Object::Name(start.as_bytes().to_vec()), Object::Name(b"OpenArrow".to_vec())]);
             }
         }
         Shape::Freehand(points) => {
@@ -720,6 +778,10 @@ fn appearance(a: &Annotation, to_view: Affine, font: &TextFont) -> Stream {
         }
         if let Some((s, w)) = prim.stroke {
             let _ = writeln!(c, "{:.3} {:.3} {:.3} RG {:.2} w", s.r, s.g, s.b, w);
+            if prim.dashed {
+                let [on, off] = paint::dashes(w);
+                let _ = writeln!(c, "[{on:.2} {off:.2}] 0 d");
+            }
         }
         c.push_str(match (prim.fill.is_some(), prim.stroke.is_some()) {
             (true, true) => "B\n",
@@ -858,6 +920,79 @@ mod tests {
         assert!(again.is_empty(), "hidden annotations are not editable twice");
         let pdf = Pdf::new(hidden).unwrap();
         assert_eq!(crate::structure::read(&pdf).1[0].len(), 1, "the link is still there");
+    }
+
+    #[test]
+    fn figures_double_arrows_and_dashes_come_back_as_they_were() {
+        for rotate in [false, true] {
+            let bytes = fixture(rotate);
+            let imported = read(&bytes);
+            let mut layer = imported.layers[&0].clone();
+            let dashed = Style { dashed: true, ..Style::default() };
+            let shapes = [
+                (Shape::Figure { bounds: Rect::new(100.0, 100.0, 80.0, 60.0), kind: Figure::Star, corners: 7 }, false),
+                (
+                    Shape::Figure { bounds: Rect::new(200.0, 100.0, 60.0, 60.0), kind: Figure::Polygon, corners: 6 },
+                    true,
+                ),
+                (
+                    Shape::Figure { bounds: Rect::new(100.0, 200.0, 120.0, 70.0), kind: Figure::Bubble, corners: 0 },
+                    false,
+                ),
+                (
+                    Shape::Figure { bounds: Rect::new(250.0, 200.0, 90.0, 40.0), kind: Figure::Rounded, corners: 0 },
+                    true,
+                ),
+                (Shape::DoubleArrow(Point::new(100.0, 400.0), Point::new(250.0, 380.0)), true),
+                (Shape::Rect(Rect::new(300.0, 400.0, 50.0, 50.0)), true),
+            ];
+            for (shape, dash) in shapes.clone() {
+                layer.add(shape, if dash { dashed.clone() } else { Style::default() });
+            }
+            let edit = PageEdit { page: 0, layer: Some(&layer), replaces: &imported.refs[0] };
+            let (saved, _) = save(&bytes, &[edit], &[], None).unwrap();
+            let back = read(&saved);
+            let items = &back.layers[&0].items[1..];
+            assert_eq!(items.len(), shapes.len());
+            for (got, (want, dash)) in items.iter().zip(&shapes) {
+                assert_eq!(got.style.dashed, *dash, "rotate={rotate}: {want:?}");
+                match (&got.shape, want) {
+                    (
+                        Shape::Figure { bounds: g, kind: gk, corners: gc },
+                        Shape::Figure { bounds: w, kind: wk, corners: wc },
+                    ) => {
+                        assert_eq!((gk, gc), (wk, wc));
+                        let close =
+                            [(g.x, w.x), (g.y, w.y), (g.w, w.w), (g.h, w.h)].iter().all(|(a, b)| (a - b).abs() < 0.05);
+                        assert!(close, "rotate={rotate}: {g:?} {w:?}");
+                    }
+                    (Shape::DoubleArrow(a, b), Shape::DoubleArrow(c, d)) => {
+                        assert!((a.x - c.x).abs() < 0.05 && (b.y - d.y).abs() < 0.05);
+                    }
+                    (Shape::Rect(_), Shape::Rect(_)) => {}
+                    other => panic!("{other:?}"),
+                }
+            }
+            // Other programs see a polygon with its corners, and a line with two heads.
+            let doc = lopdf::Document::load_mem(&saved).unwrap();
+            let kinds: Vec<Vec<u8>> = doc
+                .objects
+                .values()
+                .filter_map(|o| o.as_dict().ok())
+                .filter_map(|d| d.get(b"Subtype").and_then(Object::as_name).ok().map(<[u8]>::to_vec))
+                .collect();
+            assert_eq!(kinds.iter().filter(|k| k.as_slice() == b"Polygon").count(), 4);
+            let line = doc
+                .objects
+                .values()
+                .filter_map(|o| o.as_dict().ok())
+                .find(|d| d.get(b"Subtype").and_then(Object::as_name).is_ok_and(|s| s == b"Line"))
+                .unwrap();
+            let ends = line.get(b"LE").and_then(Object::as_array).unwrap();
+            assert!(ends.iter().all(|e| e.as_name().is_ok_and(|n| n == b"OpenArrow")));
+            let border = line.get(b"BS").and_then(Object::as_dict).unwrap();
+            assert_eq!(border.get(b"S").and_then(Object::as_name).unwrap(), b"D");
+        }
     }
 
     #[test]

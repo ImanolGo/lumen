@@ -4,6 +4,9 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Added
+- More shapes in markup, from the new Shapes menu: rounded rectangle, star (3 to 12 points), polygon (3 to 12 sides), speech bubble and double arrow. Any outline or line can be dashed (Solid or Dashed in the colour and size menu). In a PDF they are standard annotations (a polygon, a line with two heads, a dashed border) that other viewers show and edit.
+
 ## [0.12.0] - 2026-11-27
 
 ### Added

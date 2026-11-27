@@ -1167,3 +1167,39 @@ msgstr "Boceto"
 
 msgid "Sketch: draw a shape, and it is made neat"
 msgstr "Boceto: dibuja una forma y queda limpia"
+
+msgid "Rounded Rectangle"
+msgstr "Rectángulo redondeado"
+
+msgid "Star"
+msgstr "Estrella"
+
+msgid "Polygon"
+msgstr "Polígono"
+
+msgid "Speech Bubble"
+msgstr "Bocadillo"
+
+msgid "Double Arrow"
+msgstr "Flecha doble"
+
+msgid "Shapes"
+msgstr "Formas"
+
+msgid "More shapes: rounded rectangle, star, polygon, speech bubble, double arrow"
+msgstr "Más formas: rectángulo redondeado, estrella, polígono, bocadillo, flecha doble"
+
+msgid "LINE"
+msgstr "LÍNEA"
+
+msgid "Solid"
+msgstr "Continua"
+
+msgid "Dashed"
+msgstr "Discontinua"
+
+msgid "POINTS"
+msgstr "PUNTAS"
+
+msgid "SIDES"
+msgstr "LADOS"

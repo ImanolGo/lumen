@@ -4,7 +4,7 @@
 
 use hayro::kurbo::{self, BezPath, Shape as _};
 
-use super::model::{Annotation, Color, Point, Rect, Shape, arrow_head};
+use super::model::{Annotation, Color, Point, Rect, Shape, arrow_head, figure_outline};
 
 /// How opaque a highlight is on screen and in saved pictures (PDFs multiply instead).
 pub const MARKER_ALPHA: f32 = 0.4;
@@ -17,6 +17,15 @@ pub struct Prim {
     pub fill: Option<Color>,
     /// A highlighter mark: drawn translucent (or multiplied) so the text shows through.
     pub marker: bool,
+    /// Drawn as dashes (see [`dashes`]).
+    pub dashed: bool,
+}
+
+/// The lengths of a dash and of the gap after it, for a line `width` wide. With round caps
+/// the dash looks a width longer and the gap a width shorter.
+pub fn dashes(width: f64) -> [f64; 2] {
+    let w = width.max(1.0);
+    [2.0 * w, 3.0 * w]
 }
 
 /// The text of a text annotation, ready to lay out.
@@ -75,19 +84,32 @@ fn smooth(points: &[Point]) -> BezPath {
 pub fn prims(a: &Annotation) -> Vec<Prim> {
     let style = &a.style;
     let stroke = (style.width > 0.0).then_some((style.stroke, style.width));
-    let line =
-        |path: BezPath| Prim { path, stroke: Some((style.stroke, style.width.max(0.5))), fill: None, marker: false };
+    let dashed = style.dashed;
+    let solid = |path: BezPath, dashed: bool| Prim {
+        path,
+        stroke: Some((style.stroke, style.width.max(0.5))),
+        fill: None,
+        marker: false,
+        dashed,
+    };
+    let line = |path: BezPath| solid(path, dashed);
+    // Arrow heads stay solid on a dashed shaft.
+    let head = |p: Point, q: Point| {
+        let [h1, h2] = arrow_head(p, q, style.width);
+        solid(polyline(&[h1, q, h2]), false)
+    };
+    let outline = |path: BezPath| Prim { path, stroke, fill: style.fill, marker: false, dashed };
     match &a.shape {
-        Shape::Rect(r) => vec![Prim { path: rect(*r).to_path(0.1), stroke, fill: style.fill, marker: false }],
-        Shape::Ellipse(r) => {
-            let path = kurbo::Ellipse::from_rect(rect(*r)).to_path(0.1);
-            vec![Prim { path, stroke, fill: style.fill, marker: false }]
+        Shape::Rect(r) => vec![outline(rect(*r).to_path(0.1))],
+        Shape::Ellipse(r) => vec![outline(kurbo::Ellipse::from_rect(rect(*r)).to_path(0.1))],
+        Shape::Figure { bounds, kind, corners } => {
+            let mut path = polyline(&figure_outline(*bounds, *kind, *corners));
+            path.close_path();
+            vec![outline(path)]
         }
         Shape::Line(p, q) => vec![line(polyline(&[*p, *q]))],
-        Shape::Arrow(p, q) => {
-            let [h1, h2] = arrow_head(*p, *q, style.width);
-            vec![line(polyline(&[*p, *q])), line(polyline(&[h1, *q, h2]))]
-        }
+        Shape::Arrow(p, q) => vec![line(polyline(&[*p, *q])), head(*p, *q)],
+        Shape::DoubleArrow(p, q) => vec![line(polyline(&[*p, *q])), head(*p, *q), head(*q, *p)],
         Shape::Freehand(points) => vec![line(smooth(points))],
         Shape::Ink(strokes) => strokes.iter().map(|s| line(smooth(s))).collect(),
         Shape::Highlight(rects) => {
@@ -95,11 +117,23 @@ pub fn prims(a: &Annotation) -> Vec<Prim> {
             for r in rects {
                 path.extend(rect(*r).path_elements(0.1));
             }
-            vec![Prim { path, stroke: None, fill: Some(style.fill.unwrap_or(style.stroke)), marker: true }]
+            vec![Prim {
+                path,
+                stroke: None,
+                fill: Some(style.fill.unwrap_or(style.stroke)),
+                marker: true,
+                dashed: false,
+            }]
         }
         Shape::Text { bounds, .. } => match style.fill {
             Some(fill) => {
-                vec![Prim { path: rect(*bounds).to_path(0.1), stroke: None, fill: Some(fill), marker: false }]
+                vec![Prim {
+                    path: rect(*bounds).to_path(0.1),
+                    stroke: None,
+                    fill: Some(fill),
+                    marker: false,
+                    dashed: false,
+                }]
             }
             None => Vec::new(),
         },
@@ -124,7 +158,11 @@ pub fn outer_bounds(a: &Annotation) -> Rect {
     let reach = match a.shape {
         // Text boxes and highlights have no outline: their geometry is their extent.
         Shape::Text { .. } | Shape::Highlight(_) => 0.0,
-        Shape::Arrow(..) | Shape::Line(..) | Shape::Freehand(_) | Shape::Ink(_) => a.style.width.max(1.0),
+        Shape::Arrow(..) | Shape::DoubleArrow(..) | Shape::Line(..) | Shape::Freehand(_) | Shape::Ink(_) => {
+            a.style.width.max(1.0)
+        }
+        // A star's sharp points reach past the box by more than half the line.
+        Shape::Figure { .. } => a.style.width * 2.0 + 1.0,
         _ => a.style.width / 2.0 + 1.0,
     };
     a.bounds().inflate(reach)
@@ -155,6 +193,17 @@ mod tests {
             Shape::Ellipse(Rect::new(0.0, 0.0, 10.0, 10.0)),
             Shape::Line(Point::new(0.0, 0.0), Point::new(5.0, 5.0)),
             Shape::Arrow(Point::new(0.0, 0.0), Point::new(50.0, 0.0)),
+            Shape::DoubleArrow(Point::new(0.0, 0.0), Point::new(50.0, 0.0)),
+            Shape::Figure {
+                bounds: Rect::new(0.0, 0.0, 30.0, 20.0),
+                kind: crate::annotate::model::Figure::Star,
+                corners: 5,
+            },
+            Shape::Figure {
+                bounds: Rect::new(0.0, 0.0, 30.0, 20.0),
+                kind: crate::annotate::model::Figure::Bubble,
+                corners: 0,
+            },
             Shape::Freehand(vec![Point::new(1.0, 1.0)]),
             Shape::Highlight(vec![Rect::new(0.0, 0.0, 10.0, 4.0), Rect::new(0.0, 5.0, 10.0, 4.0)]),
         ];

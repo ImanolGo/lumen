@@ -32,10 +32,18 @@ pub fn svg(layer: &AnnotationLayer, width: u32, height: u32) -> String {
                 None => r#"fill="none""#.into(),
             };
             let stroke = match prim.stroke {
-                Some((c, w)) => format!(
-                    r#"stroke="{}" stroke-opacity="{alpha}" stroke-width="{w}" stroke-linecap="round" stroke-linejoin="round""#,
-                    css(c)
-                ),
+                Some((c, w)) => {
+                    let dash = if prim.dashed {
+                        let [on, off] = paint::dashes(w);
+                        format!(r#" stroke-dasharray="{on} {off}""#)
+                    } else {
+                        String::new()
+                    };
+                    format!(
+                        r#"stroke="{}" stroke-opacity="{alpha}" stroke-width="{w}" stroke-linecap="round" stroke-linejoin="round"{dash}"#,
+                        css(c)
+                    )
+                }
                 None => String::new(),
             };
             let _ = write!(s, r#"<path d="{}" {fill} {stroke}/>"#, prim.path.to_svg());
@@ -166,6 +174,15 @@ mod tests {
             assert_eq!(image::open(dir.join(name)).unwrap().width(), 64, "{name}");
         }
         assert!(save(RgbaImage::new(4, 4), &layer, &dir.join("out.xyz"), &Default::default()).is_err());
+        let mut dashed = AnnotationLayer::default();
+        dashed.add(
+            Shape::Line(crate::annotate::Point::new(0.0, 5.0), crate::annotate::Point::new(100.0, 5.0)),
+            Style { dashed: true, width: 2.0, ..Style::default() },
+        );
+        assert!(svg(&dashed, 100, 10).contains("stroke-dasharray"));
+        let flat = flatten(RgbaImage::from_pixel(100, 10, image::Rgba([0, 0, 0, 255])), &dashed).unwrap();
+        let lit = (0..100).filter(|&x| flat.get_pixel(x, 5).0[0] > 100).count();
+        assert!(lit > 30 && lit < 90, "gaps between the dashes: {lit} of 100 lit");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
